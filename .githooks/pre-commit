@@ -1,0 +1,11 @@
+#!/bin/sh
+# Orca child worktrees are created inside this repository, so `git add -A`
+# stages them as gitlinks and they commit as submodules. That has happened
+# twice. A worktree is a checkout of this repo, never content in it.
+gitlinks=$(git diff --cached --raw | awk '$2 == "160000" { print $NF }')
+if [ -n "$gitlinks" ]; then
+  echo "refusing to commit git repositories as submodules:" >&2
+  echo "$gitlinks" | sed 's/^/  /' >&2
+  echo "these are worktrees. Unstage them: git rm --cached <path>" >&2
+  exit 1
+fi
