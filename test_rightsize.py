@@ -519,6 +519,29 @@ def main():
     assert ar.reservation_load("codex")[1] == 0 and ar.reservation_load("claude")[1] == 0
     ar.save_json(ar.STATE, {})
 
+    # money.financial, 2026-09-20: opencode's weekly had 8 usable points and
+    # reset in 19 hours while codex sat at 0 per cent with a week of room, and a
+    # design task was banded onto the emptying bucket at its most expensive
+    # rung. Expiring-first is right while a bucket has slack, and wrong when it
+    # does not.
+    thin = {"opencode": time.time() + 19 * HOUR, "codex": time.time() + 7 * 86400}
+    decision = route_with(judged("design"), probes(opencode=77, codex=0, resets=thin))
+    assert decision["band"] == 3, decision["band"]
+    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    assert any("roomiest plan" in note for note in decision["notes"]), decision["notes"]
+
+    # The cheap rung still spends the expiring bucket, which is the whole point
+    # of rule 3: it is the expensive rung that must not land there.
+    cheap = route_with(judged("implementation"), probes(opencode=77, codex=0, resets=thin))
+    assert cheap["pick"]["provider"] == "opencode", cheap["pick"]
+
+    # A bucket that cannot cover the dispatch at all is passed over rather than
+    # merely ranked low.
+    starved = probes(opencode=84, codex=99, resets=thin)
+    thinned = route_with(judged("implementation"), starved)
+    assert any("cannot cover" in note or "below reserve" in note for note in thinned["notes"]), \
+        thinned["notes"]
+
     print("all checks passed")
 
 

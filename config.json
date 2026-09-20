@@ -128,5 +128,7 @@
   "staleness_seconds": {
     "codex": 21600
   },
-  "_comment_staleness": "How old a file-sourced reading may be before it is treated as unknown rather than current. Only Codex needs this: its numbers are written when Codex runs, so between sessions the reading ages while the real quota moves. An old HIGH reading is the dangerous direction, because it blocks a provider that may have reset hours ago, and unknown already means escalation-only rather than unusable. Verified 2026-09-20: `codex exec` does not write a rollout, so only an interactive Codex session refreshes this."
+  "_comment_staleness": "How old a file-sourced reading may be before it is treated as unknown rather than current. Only Codex needs this: its numbers are written when Codex runs, so between sessions the reading ages while the real quota moves. An old HIGH reading is the dangerous direction, because it blocks a provider that may have reset hours ago, and unknown already means escalation-only rather than unusable. Verified 2026-09-20: `codex exec` does not write a rollout, so only an interactive Codex session refreshes this.",
+  "_comment_comfort": "At or above this band, the pick prefers the plan with the most headroom instead of the bucket expiring soonest. Expiring capacity is worth more spent on cheap work, and the expensive rung usually has a roomier plan available: money.financial hit the opposite on 2026-09-20, putting a design task on an opencode weekly bucket with 8 points left and 19 hours to run while codex sat at 0 per cent with a week. Set it to 4 to disable.",
+  "expensive_band": 3
 }

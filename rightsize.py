@@ -1079,9 +1079,19 @@ def parse_candidate(text: str) -> dict:
     return {"provider": provider, "model": model, "effort": effort}
 
 
-def pick(candidates: list[str], elig: dict, band: int,
-         exclude: set[str] | None = None) -> tuple[dict | None, list[str]]:
-    """Among eligible candidates, spend the bucket that expires first."""
+def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None = None,
+         config: dict | None = None) -> tuple[dict | None, list[str]]:
+    """Among eligible candidates, spend the bucket that expires first, unless
+    this dispatch is too expensive for what that bucket has left.
+
+    Rule 3 is about not wasting capacity that is about to vanish, and the way to
+    waste it is to spend it on the most expensive rung. A bucket with a handful
+    of points and a reset in the morning should absorb as much cheap work as it
+    can; an expensive dispatch belongs on the plan with a week of room, which
+    would otherwise sit idle. So the cheap bands still take the soonest reset,
+    while an expensive one prefers the most headroom, and a bucket that cannot
+    even afford the dispatch is passed over.
+    """
     notes = []
     usable = []
     exclude = exclude or set()
@@ -1103,11 +1113,30 @@ def pick(candidates: list[str], elig: dict, band: int,
             notes.append(f"{text} skipped: current burn rate overruns its bucket before reset")
             continue
         resets = info["resets_at"] or float("inf")
-        usable.append((resets, index, cand, text, info))
+        cost = dispatch_cost(config or {}, cand["provider"], band)
+        room = info["usable"]
+        if room is not None and room < cost:
+            notes.append(f"{text} skipped: {room:.1f} points left cannot cover a band {band}"
+                         f" dispatch costing about {cost:.2f}")
+            continue
+        expensive = band >= int((config or {}).get("expensive_band", 3))
+        if expensive:
+            # Most room first: expiring capacity is worth more spent on cheap
+            # work, and this rung has somewhere roomier to go.
+            order = (-(room if room is not None else 0), resets)
+        else:
+            order = (resets, 0)
+        usable.append((order, index, cand, text, info))
     if not usable:
         return None, notes
     usable.sort(key=lambda row: (row[0], row[1]))
-    resets, _, cand, text, info = usable[0]
+    order, _, cand, text, info = usable[0]
+    resets = info["resets_at"] or float("inf")
+    if band >= int((config or {}).get("expensive_band", 3)) and info["usable"] is not None:
+        notes.append(f"{text} chosen: band {band} is the expensive rung, so it goes to the"
+                     f" roomiest plan ({info['usable']:.0f} points) rather than the one expiring"
+                     " soonest, which is worth more spent on cheap work")
+        return cand, notes
     if resets != float("inf"):
         notes.append(
             f"{text} chosen: its {info['bucket']} bucket resets in {human_reset(resets)} "
@@ -1290,7 +1319,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         )
 
     ladders = config["bands"]
-    chosen, notes = pick(ladders[str(band)], elig, band, exclude)
+    chosen, notes = pick(ladders[str(band)], elig, band, exclude, config)
     used_band = band
     if chosen is None and not fallback:
         reasons.append(f"band {band} is full; holding this task for a later wave "
@@ -1298,11 +1327,11 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
     while fallback and chosen is None and used_band > 1:
         used_band -= 1
         reasons.append(f"nothing eligible in band {used_band + 1}, dropping to band {used_band}")
-        chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude)
+        chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude, config)
         notes += more
     if fallback and chosen is None and band < 3:
         reasons.append("nothing eligible below band 3, escalating instead of failing")
-        chosen, more = pick(ladders["3"], elig, 3, exclude)
+        chosen, more = pick(ladders["3"], elig, 3, exclude, config)
         notes += more
         used_band = 3
 
@@ -1315,7 +1344,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
     review = None
     if judgment["second_opinion"] >= float(thresholds.get("second_opinion_min", 0.6)) and chosen:
         others = [c for c in config["review_ladder"] if parse_candidate(c)["provider"] != chosen["provider"]]
-        review, review_notes = pick(others, elig, 1)
+        review, review_notes = pick(others, elig, 1, None, config)
         notes += [f"review: {n}" for n in review_notes]
 
     confirm = judgment["destructive"] >= float(thresholds.get("destructive_min", 0.5))

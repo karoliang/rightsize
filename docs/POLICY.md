@@ -142,10 +142,28 @@ Walk the band's ladder from `config.json`, dropping candidates whose provider:
   must never masquerade as spendable capacity;
 - is **overrunning**, while the band is below 3.
 
-Everything that survives is sorted by **reset time, soonest first**, with ladder
-position only as a tiebreak. So the ladder is a preference, not a priority.
-Capacity that resets in three hours is about to be thrown away; a monthly bucket
-is the scarce thing.
+Then the order depends on how expensive this dispatch is.
+
+**Cheap bands take the soonest reset.** Capacity that resets in three hours is
+about to be thrown away; a monthly bucket is the scarce thing. Ladder position
+is only a tiebreak, so the ladder is a preference, not a priority.
+
+**At band 3 the order inverts: the roomiest plan wins.** Rule 3 exists so that
+vanishing capacity is not wasted, and the way to waste it is to spend it on the
+most expensive rung. A bucket with a handful of points and a reset in the
+morning should absorb as much cheap work as it can; expensive work belongs on
+the plan with a week of room, which would otherwise sit idle.
+
+This came from a real dispatch. On 2026-09-20 money.financial had opencode's
+weekly at 77 per cent used with eight points left and nineteen hours to run,
+while Codex sat at 0 per cent with a week, and a design task went to
+`opencode:glm-5.3` on the emptying bucket. That repo worked around it by raising
+its own opencode reserve; the policy now handles it, and the same state resolves
+to `codex:gpt-6-astra` at high effort.
+
+A candidate whose bucket cannot cover the dispatch's estimated cost at all is
+passed over rather than merely ranked low. `expensive_band` (3) moves the
+threshold; 4 disables the inversion.
 
 Free providers have no reset time and sort last, which is exactly right for
 OpenCode Zen's `-free` models: they cost no quota but a single-word reply can

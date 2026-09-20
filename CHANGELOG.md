@@ -73,6 +73,11 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   `opencode -m <model>` and attaching the worker to it, instead of printing the
   model as a line for a human to run afterwards.
 
+- The expensive rung now goes to the roomiest plan instead of the
+  soonest-expiring one. Expiring capacity is worth more spent on cheap work,
+  and a band 3 dispatch usually has a roomier plan available. A candidate that
+  cannot cover the dispatch's estimated cost is passed over entirely.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of
