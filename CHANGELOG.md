@@ -51,6 +51,13 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   Every check is there because something was wrong once, the first being a
   ladder entry that named a retired model id.
 
+- Repo-local config: the nearest `.rightsize.json` at or above the working
+  directory is merged over the packaged config, so a project can pin reserves,
+  ladders or launchers without editing one user's home directory. Every command
+  names the overlay it used.
+- A second Orca launcher, `orca-current`, for the case where sharing the
+  coordinator's checkout is deliberate.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of
@@ -69,6 +76,14 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   and a fan-out that escalates is wrong a hundred times over.
 
 ### Fixed
+
+- Every shipped Orca launcher used `--worktree current`, which puts the worker
+  in the main checkout, sharing the coordinator's tree and branch: it can write
+  to `main` mid-merge, and cleanup can never find it because there is no
+  worktree to remove. One such worker ran in a main checkout for 29 hours after
+  its run ended. The `orca` launcher now uses `--worktree new-child` for every
+  provider, and a test fails if `--worktree current` reappears anywhere except
+  the explicitly opt-in `orca-current`.
 
 - A stale Codex reading was treated as current, and hard-blocked the provider.
   The number is only written when Codex runs, so a 19-hour-old 93 per cent kept

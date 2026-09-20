@@ -74,14 +74,21 @@
   "launchers": {
     "_doc": "How a decision becomes a command. Each launcher maps a provider to a template, with `default` covering the rest. Fields: {provider} {agent} {model} {model_ref} {effort} {band} {spec} {spec_path}. Adding a launcher is config, not code: see docs/ADAPTERS.md.",
     "orca": {
-      "default": "orca orchestration worker-start --spec {spec} --worktree current --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
-      "codex": "orca orchestration worker-start --spec {spec} --worktree current --agent codex --json --model {model} --effort {effort}",
-      "claude": "orca orchestration worker-start --spec {spec} --worktree current --agent claude --json --model {model} --effort {effort}"
+      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours after its run ended. Use the orca-current launcher only when sharing the checkout is the point.",
+      "default": "orca orchestration worker-start --spec {spec} --worktree new-child --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
+      "codex": "orca orchestration worker-start --spec {spec} --worktree new-child --agent codex --json --model {model} --effort {effort}",
+      "claude": "orca orchestration worker-start --spec {spec} --worktree new-child --agent claude --json --model {model} --effort {effort}"
     },
     "shell": {
       "default": "opencode run -m {model_ref} {spec}",
       "codex": "codex exec --model {model} -c model_reasoning_effort={effort} {spec}",
       "claude": "claude -p --model {model} --effort {effort} {spec}"
+    },
+    "orca-current": {
+      "_doc": "Deliberately shares the coordinator's checkout. For a supervised leg you are watching, a quick review, or a task that must see uncommitted work in the current tree. Never for unsupervised work.",
+      "default": "orca orchestration worker-start --spec {spec} --worktree current --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
+      "codex": "orca orchestration worker-start --spec {spec} --worktree current --agent codex --json --model {model} --effort {effort}",
+      "claude": "orca orchestration worker-start --spec {spec} --worktree current --agent claude --json --model {model} --effort {effort}"
     }
   },
   "dispatch_cost": {

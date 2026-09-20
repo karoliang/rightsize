@@ -44,6 +44,44 @@ rightsize route --spec task.md --launcher shell
 Adding a launcher for Aider, Cursor, a Makefile, a CI job or your own dispatcher
 is a new key in that object. No code change, no fork.
 
+Two Orca launchers ship, and the difference matters:
+
+| launcher | worktree | use |
+| --- | --- | --- |
+| `orca` | `--worktree new-child` | the default: a worker gets its own tree and branch |
+| `orca-current` | `--worktree current` | only when sharing the coordinator's checkout is the point |
+
+`--worktree current` puts the worker in the main checkout, sharing the
+coordinator's tree and branch. It can write to `main` mid-merge, and worktree
+cleanup can never find it, because there is no worktree to remove: one such
+worker ran in a main checkout for 29 hours after its run had ended. That is why
+the default is `new-child` for every provider, not only the cheap ones. The
+hazard is the launch mode, not the vendor.
+
+### Repo-local config
+
+A project has rules of its own, and they do not belong in one user's home
+directory. rightsize merges the nearest `.rightsize.json` at or above the
+working directory over its own config: dicts merge key by key, and a list
+replaces, because a repo pinning a band ladder means "these candidates", not
+"these as well as whatever was there".
+
+```jsonc
+// money.financial/.rightsize.json
+{
+  "reserves": {"opencode": 40},
+  "launchers": {"orca": {"default": "orca orchestration worker-start --spec {spec} --worktree new-child --agent {agent} --json"}}
+}
+```
+
+`rightsize doctor` names both files, and every command prints the overlay it
+used on stderr, so a decision can always be traced to the config that produced
+it.
+
+This is a file in a repository that can change the commands rightsize prints.
+Treat it like a Makefile: read it before running it in a repo you did not
+write.
+
 ## 2. Callers: the JSON contract
 
 `rightsize route --json` is the stable interface. Everything the human output

@@ -163,7 +163,7 @@ def main():
     assert "'add pagination to the invoices list endpoint'" in inline, inline
     assert "<task>" not in inline, inline
     unknown = ar.launch_command(decision, CONFIG, "nope", None)
-    assert "unknown launcher" in unknown and "orca, shell" in unknown, unknown
+    assert "unknown launcher" in unknown and "orca" in unknown and "shell" in unknown, unknown
 
     # Rule 5: a reported quota error takes the provider out until its reset,
     # and the next route goes elsewhere rather than failing.
@@ -322,6 +322,40 @@ def main():
     assert after[0]["percent"] == 0.0, after
     assert after[0]["source"] == "post-reset-assumed-zero", after
     assert after[0]["resets_at"] > time.time(), "the next reset must be in the future"
+
+    # A repo may pin rules of its own. Dicts merge; a list replaces, because a
+    # repo pinning a ladder means "these", not "these as well".
+    merged = ar.merge({"reserves": {"opencode": 15, "codex": 10},
+                       "bands": {"1": ["opencode:a", "codex:b"]},
+                       "thresholds": {"spec_complete_min": 0.35}},
+                      {"reserves": {"opencode": 40},
+                       "bands": {"1": ["opencode:only-this"]}})
+    assert merged["reserves"] == {"opencode": 40, "codex": 10}, merged["reserves"]
+    assert merged["bands"]["1"] == ["opencode:only-this"], merged["bands"]
+    assert merged["thresholds"]["spec_complete_min"] == 0.35, merged["thresholds"]
+
+    # The overlay is found at or above the working directory.
+    import os
+    nest = ar.STATE.parent / "repo" / "packages" / "web"
+    nest.mkdir(parents=True, exist_ok=True)
+    (ar.STATE.parent / "repo" / ".rightsize.json").write_text('{"reserves": {"opencode": 40}}')
+    cwd = os.getcwd()
+    try:
+        os.chdir(nest)
+        found = ar.repo_config()
+        assert found and found.name == ".rightsize.json", found
+    finally:
+        os.chdir(cwd)
+
+    # The shipped Orca launcher must never reuse the coordinator's checkout: a
+    # worker in the main tree shares its branch and cleanup cannot find it.
+    for name, templates in CONFIG["launchers"].items():
+        if name == "orca-current" or not isinstance(templates, dict):
+            continue
+        for provider, template in templates.items():
+            if provider.startswith("_"):
+                continue
+            assert "--worktree current" not in template, (name, provider, template)
 
     print("all checks passed")
 

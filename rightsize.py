@@ -31,6 +31,7 @@ from pathlib import Path
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "config.json"
+REPO_CONFIG = ".rightsize.json"
 REGISTRY = ROOT / "registry.json"
 STATE = HOME / ".local/state/rightsize/state.json"
 
@@ -56,6 +57,53 @@ CLAUDE_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude
 
 def now() -> float:
     return time.time()
+
+
+def merge(base, overlay):
+    """Deep-merge for config: dicts merge key by key, everything else replaces.
+
+    A list replaces rather than appends on purpose: a repo pinning a band ladder
+    means "these candidates", not "these as well as whatever was there".
+    """
+    if isinstance(base, dict) and isinstance(overlay, dict):
+        out = dict(base)
+        for key, value in overlay.items():
+            out[key] = merge(out.get(key), value) if key in out else value
+        return out
+    return overlay
+
+
+def repo_config(start: Path | None = None) -> Path | None:
+    """The nearest .rightsize.json at or above the working directory.
+
+    A project has rules of its own, and they belong with the project rather than
+    in one user's home. money.financial is the case that forced this: it
+    requires every unsupervised worker to get its own worktree, and nothing in
+    a user-level config could say so.
+
+    Note what this is: a file in a repository that can change the commands
+    rightsize prints. Treat it like a Makefile, and read it before running a
+    repo you did not write.
+    """
+    here = (start or Path.cwd()).resolve()
+    for directory in [here, *here.parents]:
+        candidate = directory / REPO_CONFIG
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_config() -> tuple[dict | None, Path | None]:
+    base = load_json(CONFIG)
+    if base is None:
+        return None, None
+    found = repo_config()
+    if not found:
+        return base, None
+    overlay = load_json(found)
+    if not isinstance(overlay, dict):
+        return base, None
+    return merge(base, overlay), found
 
 
 def load_json(path: Path, default=None):
@@ -1607,6 +1655,9 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     registry = load_json(REGISTRY) or {}
     providers = registry.get("providers") or {}
 
+    overlay = repo_config()
+    out.append(("ok", f"config: {CONFIG}" + (f" overlaid with {overlay}" if overlay else "")))
+
     candidates = {c for ladder in config["bands"].values() for c in ladder}
     candidates |= set(config.get("review_ladder", []))
     missing, unverifiable = [], set()
@@ -1758,10 +1809,12 @@ def main(argv=None):
     deals_cmd.set_defaults(func=cmd_deals)
 
     args = parser.parse_args(argv)
-    config = load_json(CONFIG)
+    config, overlay = load_config()
     if config is None:
         print(f"config missing: {CONFIG}", file=sys.stderr)
         return 2
+    if overlay and not getattr(args, "json", False):
+        print(f"# config: {CONFIG} + {overlay}", file=sys.stderr)
     return args.func(args, config)
 
 
