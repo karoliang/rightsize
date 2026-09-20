@@ -34,6 +34,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from native_rpc import read_rate_limits
+
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "config.json"
@@ -229,34 +231,59 @@ def post(url: str, token: str, body: dict, timeout: int = 60):
         return json.loads(resp.read().decode())
 
 
-def secret(name: str) -> str | None:
-    """Environment first, then Infisical, then the OpenCode credential file.
+CREDENTIAL_NAMES = frozenset({"TYPESAFE_API_KEY", "OPENROUTER_API_KEY",
+                              "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"})
 
-    Infisical is only consulted when this repo is linked (.infisical.json) and
-    the CLI is present, so a machine without it still works.
+
+def vault_scope() -> tuple[str, str, str] | None:
+    """Read metadata only. Missing scope never means the CLI's default scope."""
+    link = load_json(ROOT / ".infisical.json", {})
+    if not isinstance(link, dict):
+        return None
+    fields = tuple(link.get(key) for key in
+                   ("workspaceId", "defaultEnvironment", "rightsizePath"))
+    if not all(isinstance(value, str) and value.strip() and
+               not any(char in value for char in "\r\n\x00") for value in fields):
+        return None
+    if not fields[2].startswith("/") or ".." in fields[2].split("/"):
+        return None
+    return fields
+
+
+def secret(name: str) -> str | None:
+    """Resolve one allowlisted value without exporting or evaluating shell text.
+
+    An explicitly linked vault is authoritative after environment variables:
+    incomplete scope or failed reads never switch to a different native key.
     """
+    if name not in CREDENTIAL_NAMES:
+        return None
     value = os.environ.get(name)
     if value:
         return value
     if (ROOT / ".infisical.json").exists():
+        scope = vault_scope()
+        if scope is None:
+            return None
+        project, environment, path = scope
         try:
             out = subprocess.run(
-                ["infisical", "secrets", "get", name, "--plain", "--silent"],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                timeout=25,
+                ["infisical", "secrets", "get", name, "--plain", "--silent",
+                 "--projectId", project, "--env", environment, "--path", path,
+                 "--include-imports=false", "--expand=false",
+                 "--secret-overriding=false"],
+                cwd=ROOT, capture_output=True, text=True, timeout=25,
             )
             if out.returncode == 0 and out.stdout.strip():
                 return out.stdout.strip()
         except (OSError, subprocess.SubprocessError):
             pass
-    if name == "OPENCODE_API_KEY":
+        return None
+    if name in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"):
         auth = load_json(OPENCODE_AUTH, {}) or {}
-        return (auth.get("opencode-go") or {}).get("key")
-    if name == "OPENCODE_ZEN_API_KEY":
-        auth = load_json(OPENCODE_AUTH, {}) or {}
-        return (auth.get("opencode") or {}).get("key")
+        provider = "opencode-go" if name == "OPENCODE_API_KEY" else "opencode"
+        entry = auth.get(provider) if isinstance(auth, dict) else None
+        return entry.get("key") if isinstance(entry, dict) else None
     return None
 
 
@@ -355,34 +382,7 @@ def codex_rate_limits(timeout: float = 15.0) -> dict | None:
     hardlinks session files across account homes, so a `rate_limits` block
     found under one account may have been written by another.
     """
-    start = now()
-    try:
-        proc = subprocess.Popen(["codex", "app-server"], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                text=True, bufsize=1)
-    except OSError:
-        return None
-    try:
-        proc.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
-                         '{"clientInfo":{"name":"rightsize","version":"1"}}}\n')
-        proc.stdin.write('{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read",'
-                         '"params":{}}\n')
-        proc.stdin.flush()
-        while now() - start < timeout:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            try:
-                message = json.loads(line)
-            except ValueError:
-                continue
-            if message.get("id") == 2:
-                return message.get("result")
-    except (OSError, ValueError):
-        return None
-    finally:
-        proc.kill()
-    return None
+    return read_rate_limits(["codex", "app-server"], timeout=timeout)
 
 
 def probe_codex(config: dict | None = None) -> dict:
@@ -2458,8 +2458,18 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     for variable, why in (("TYPESAFE_API_KEY", "the judgment falls back to a keyword heuristic"),
                           ("OPENROUTER_API_KEY", "OpenRouter is unavailable"),
                           ("OPENCODE_API_KEY", "OpenCode quota cannot be read")):
-        out.append(("ok", f"{variable} resolves") if secret(variable)
-                   else ("warn", f"{variable} missing: {why}"))
+        if os.environ.get(variable):
+            out.append(("ok", f"{variable}: environment selected; unverified"))
+        elif (ROOT / ".infisical.json").exists():
+            if vault_scope():
+                out.append(("ok", f"{variable}: scoped vault selected; unverified"))
+            else:
+                out.append(("warn", f"{variable}: vault binding incomplete; explicit project,"
+                                    " environment and rightsizePath required"))
+        elif variable == "OPENCODE_API_KEY" and OPENCODE_AUTH.is_file():
+            out.append(("ok", f"{variable}: native auth store present; unverified"))
+        else:
+            out.append(("warn", f"{variable} missing: {why}"))
 
     if not (config.get("claude") or {}).get("weekly_token_budget"):
         out.append(("warn", "claude.weekly_token_budget is null, so Claude stays escalation-only."

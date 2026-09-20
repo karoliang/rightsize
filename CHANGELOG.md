@@ -17,6 +17,11 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Fixed (2026-09-21)
 
+- Codex app-server probes now enforce a real deadline, bound stdout, complete
+  initialization before querying, and close/reap the child on every path (#14).
+- Replaced startup vault export/eval with exact named reads requiring explicit
+  project/environment/path. Doctor checks metadata without reading values;
+  linked-vault failures no longer fall through to another native key (#14).
 - Explicit quota denials veto every model band and survive missing refreshes
   until a healthy live reading. Quota-error cooldowns follow denied windows,
   not response order, and discard pre-error cached readings (#2, #5).

@@ -169,13 +169,22 @@ Environment is simplest. For something less manual:
 
 ```bash
 infisical init                 # link this repo to a project, writes .infisical.json (gitignored)
-rightsize probe                # the wrapper exports the project's secrets for this run only
+# Set defaultEnvironment and rightsizePath explicitly in .infisical.json.
+rightsize probe                # reads only the named keys needed by its probes
 ```
 
-The `rightsize` wrapper exports secrets into its own shell rather than running
-under `infisical run`, so the exit code stays rightsize's own and a relative
-`--spec` path still resolves against your working directory. Anything already
-in the environment wins over the stored secret.
+The link must contain `workspaceId`, `defaultEnvironment`, and `rightsizePath`
+(for example `/` for a single deployable). Existing links need the explicit
+path added; missing environment or path is never guessed. The CLI fetches each
+allowlisted name with imports, expansion and personal-secret overrides disabled.
+It never bulk-exports secrets or evaluates their contents as shell code.
+Existing environment values still win. A linked vault failure returns no key,
+without falling through to a potentially different native account. Unlinked
+OpenCode installations retain their native auth-file fallback.
+
+No login or vault contents are changed by this migration. To roll back, restore
+the prior code while leaving link metadata and native credentials intact; the
+additional `rightsizePath` metadata is ignored by the prior entry point.
 
 Whatever you use, keep keys out of the repository. `infisical scan` over the
 working tree and the full history is part of the release check; see

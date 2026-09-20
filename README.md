@@ -361,10 +361,14 @@ so treat it like a Makefile.
 ## Credentials
 
 Read in this order, and never written into the repository: environment
-variables; [Infisical](https://infisical.com) when the repo is linked; and for
+variables; explicitly scoped [Infisical](https://infisical.com) when the repo is linked; and for
 OpenCode the auth file its own CLI already maintains. Codex and Claude Code
 need no credential here. Full instructions, costs and free-tier limits are in
 [docs/KEYS.md](docs/KEYS.md).
+Vault reads fetch only an allowlisted name. Linked projects must specify
+`workspaceId`, `defaultEnvironment` and `rightsizePath`; an incomplete or failed
+vault read does not silently switch to a native key. Doctor inspects credential
+metadata without fetching secret values.
 
 ## Daily refresh
 

@@ -25,6 +25,10 @@ jobs:
         run: python test_reliability.py
       - name: caller judgment contract
         run: python test_judgment.py
+      - name: scoped credentials and native probe deadlines
+        run: |
+          python test_credentials.py
+          python test_native_rpc.py
       - name: hook matching
         run: python hooks/test_hook.py
       - name: config is valid json
