@@ -568,6 +568,22 @@ def main():
     assert decision["pick"]["provider"] != "opencode", decision["pick"]
     assert any("over pace" in note for note in decision["notes"]), decision["notes"]
 
+    # A plan prints commands someone may never run, so its holds expire fast;
+    # a hook reserving after a launch has run keeps the long clock.
+    ar.save_json(ar.STATE, {})
+    original = ar.judge
+    ar.judge = lambda spec: judged("implementation")
+    try:
+        ar.plan(["a task nobody will dispatch"], CONFIG, concurrency=1, hold=True, probes=probes())
+    finally:
+        ar.judge = original
+    held = (ar.load_json(ar.STATE, {}) or {})["reservations"]
+    assert held, "the plan should have held something"
+    short = float(CONFIG["reservation_ttl_unconfirmed_seconds"])
+    assert held[0]["expires"] - held[0]["at"] <= short + 1, held[0]
+    assert short < float(CONFIG["reservation_ttl_seconds"]), "unconfirmed must be the shorter clock"
+    ar.save_json(ar.STATE, {})
+
     print("all checks passed")
 
 

@@ -1058,6 +1058,10 @@ def worktree_name(spec: str, taken: set[str] | None = None) -> str:
     text = spec.lower()
     issue = re.search(r"#(\d{1,6})\b|\bissue\s+(\d{1,6})\b", text)
     number = (issue.group(1) or issue.group(2)) if issue else None
+    # A brief that opens with a path names the repository, not the task:
+    # "In /Users/karo/Github/rightsize, design the outcome loop" is about the
+    # outcome loop.
+    text = re.sub(r"\S*/\S+", " ", text)
     words = [w for w in re.findall(r"[a-z0-9]+", text) if w not in FILLER and len(w) > 2]
     name = "-".join(words[:4])[:40].strip("-") or "task"
     if number and number not in name.split("-"):
@@ -1254,7 +1258,15 @@ def start_wave(elig: dict, config: dict) -> None:
 
 
 def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = False,
-         probes: dict | None = None, max_waves: int = 12) -> dict:
+         probes: dict | None = None, max_waves: int = 12,
+         names: list[str] | None = None) -> dict:
+    """Route a whole fan-out at once.
+
+    A hold taken here is a claim on capacity for a dispatch that has not
+    happened yet, so it expires on the short clock: a plan that is printed and
+    not run must not sit on a provider. A hold taken after a launch has actually
+    run keeps the long one.
+    """
     """Route a whole fan-out at once.
 
     Judgments are independent, so they go out in parallel. Allocation is not:
@@ -1267,16 +1279,20 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
     else:
         fresh = False
     elig = eligibility(config, probes, record=fresh)
-    ttl = float(config.get("reservation_ttl_seconds", 1800))
+    ttl = float(config.get("reservation_ttl_unconfirmed_seconds", 300))
     # One judgment per task, in parallel, and only once: waves reschedule the
     # same judgment against different headroom, they do not re-ask the model.
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         judgments = list(pool.map(judge, specs))
 
     taken: set[str] = set()
-    tasks = [{"index": i, "spec": spec, "judgment": j, "points": 0.0, "wave": None,
-              "decision": None, "name": worktree_name(spec, taken)}
-             for i, (spec, j) in enumerate(zip(specs, judgments))]
+    tasks = []
+    for i, (spec, judgment) in enumerate(zip(specs, judgments)):
+        # A spec read from a file already has a name someone chose.
+        source = names[i] if names and i < len(names) else None
+        name = worktree_name(source, taken) if source else worktree_name(spec, taken)
+        tasks.append({"index": i, "spec": spec, "judgment": judgment, "points": 0.0,
+                      "wave": None, "decision": None, "name": name})
     pending = list(tasks)
     wave = 0
     while pending and wave < max_waves:
@@ -1810,8 +1826,13 @@ def cmd_report(args, config):
                   f" {held.get('worktree') or brief_key(held['task'])},"
                   f" settled (matched by {held['matched']})")
         for held in result["kept"]:
+            # Say only what was checked. A hold that matched nothing may be a
+            # running worker, a dispatch that never happened, or a worker in
+            # another coordinator's Run, which this cannot see.
             why = ("no settled task or worktree matches it; it expires on its own"
-                   if not held.get("worktree") else "its worker is still running")
+                   if not held.get("worktree")
+                   else f"no settled worker named {held['worktree']} in this Run;"
+                        " still running, or dispatched from another coordinator")
             print(f"{held['provider']}: keeping {held['points']} points for"
                   f" {held.get('worktree') or held['task'][:40]}, {why}")
         if not result["released"] and not result["kept"]:
@@ -1867,7 +1888,8 @@ def cmd_plan(args, config):
     if not specs:
         print("no tasks given", file=sys.stderr)
         return 2
-    result = plan(specs, config, concurrency=args.concurrency, hold=args.reserve)
+    result = plan(specs, config, concurrency=args.concurrency, hold=args.reserve,
+                  names=[p.stem for p in paths] if paths else None)
     if args.json:
         print(json.dumps(result, indent=2))
         return 0

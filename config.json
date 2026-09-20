@@ -110,7 +110,7 @@
   },
   "_comment_max_inflight": "How many dispatches may be in flight on one provider at once. This is the spread lever for a large fan-out: when a provider is full the next task goes to the next eligible one instead of queueing behind it.",
   "reservation_ttl_seconds": 1800,
-  "_comment_reservation": "How long a reservation holds capacity when nobody reports the dispatch done. A worker that dies silently must not hold a plan hostage, so this expires on its own; `rightsize report <provider> --done` releases it immediately.",
+  "_comment_reservation": "How long a reservation holds capacity when nobody reports the dispatch done. A worker that dies silently must not hold a plan hostage, so this expires on its own; `rightsize report <provider> --done` releases it immediately. A hold taken before the launch (plan --reserve, which prints commands someone may never run) uses the shorter unconfirmed clock, because the common way to create a phantom is to print a plan and not dispatch it. A hold taken after a launch has actually run keeps the full one.",
   "effort": {
     "_comment": "Reasoning effort per band, for the CLIs that take the knob. The band picks the model; effort is the second dial on that model. A wide blast radius, an irreversible step, or a retry after a failed attempt each raise it one level. Providers absent here get no effort flag at all. Levels: low, medium, high, xhigh, max.",
     "codex": {
@@ -130,5 +130,6 @@
   },
   "_comment_staleness": "How old a file-sourced reading may be before it is treated as unknown rather than current. Only Codex needs this: its numbers are written when Codex runs, so between sessions the reading ages while the real quota moves. An old HIGH reading is the dangerous direction, because it blocks a provider that may have reset hours ago, and unknown already means escalation-only rather than unusable. Verified 2026-09-20: `codex exec` does not write a rollout, so only an interactive Codex session refreshes this.",
   "_comment_comfort": "At or above this band, the pick prefers the plan with the most headroom instead of the bucket expiring soonest. Expiring capacity is worth more spent on cheap work, and the expensive rung usually has a roomier plan available: money.financial hit the opposite on 2026-09-20, putting a design task on an opencode weekly bucket with 8 points left and 19 hours to run while codex sat at 0 per cent with a week. Set it to 4 to disable.",
-  "expensive_band": 3
+  "expensive_band": 3,
+  "reservation_ttl_unconfirmed_seconds": 300
 }
