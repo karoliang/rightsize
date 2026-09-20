@@ -1,0 +1,13 @@
+# Generated daily by `agent-route refresh`. Public catalogue data, no secrets,
+# but it churns every day so it is not worth versioning.
+registry.json
+
+# Infisical link file: carries the project id for this machine.
+.infisical.json
+
+# Local logs from the daily job.
+daily.log
+
+__pycache__/
+*.pyc
+.DS_Store

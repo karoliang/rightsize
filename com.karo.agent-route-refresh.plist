@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.karo.agent-route-refresh</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>REPO_PATH/bin/agent-route-daily</string>
+  </array>
+
+  <!-- Once a day, and again at load so a laptop that was asleep catches up. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>REPO_PATH/daily.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPO_PATH/daily.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

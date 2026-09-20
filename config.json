@@ -1,0 +1,67 @@
+{
+  "_comment": "Edit this file, not the code. Bands: 1 cheap workhorse, 2 mid, 3 deep. Ladders are ordered preferences; the router filters by live quota and then prefers the eligible candidate whose quota bucket resets soonest (spend what expires first).",
+  "reserves": {
+    "opencode": 15,
+    "codex": 10,
+    "claude": 30,
+    "openrouter": 10,
+    "opencode_zen": 0
+  },
+  "claude": {
+    "weekly_token_budget": null,
+    "rolling_token_budget": null,
+    "_note": "Claude Code publishes no quota API. Leave null and Claude stays escalation-only (band 3). Set a token budget to let it take ordinary work."
+  },
+  "openrouter": {
+    "free_requests_per_day": 1000,
+    "_note": "1000/day applies with 10 USD or more of lifetime credit, otherwise 50/day. Counted locally in state.json."
+  },
+  "bands": {
+    "1": [
+      "opencode:deepseek-v4.1-flash",
+      "opencode:qwen3.8-flash",
+      "opencode:glm-5.3-flash",
+      "openrouter:deepseek/deepseek-chat-v3.1:free",
+      "codex:gpt-5.6-luna:low",
+      "opencode_zen:nemotron-3-ultra-free",
+      "opencode_zen:mimo-v2.5-free"
+    ],
+    "2": [
+      "opencode:minimax-m3",
+      "opencode:deepseek-v4-pro",
+      "opencode:kimi-k2.7-code",
+      "codex:gpt-5.6-terra:medium",
+      "opencode_zen:muse-spark-1.3-contributor-free"
+    ],
+    "3": [
+      "codex:gpt-6-astra:high",
+      "claude:claude-opus-5",
+      "opencode:glm-5.3",
+      "opencode:kimi-k3"
+    ]
+  },
+  "review_ladder": [
+    "codex:gpt-5.6-luna:low",
+    "opencode:kimi-k2.6",
+    "openrouter:deepseek/deepseek-chat-v3.1:free",
+    "opencode_zen:nemotron-3-ultra-free",
+    "claude:claude-haiku-4-5"
+  ],
+  "agents": {
+    "opencode": "opencode",
+    "codex": "codex",
+    "claude": "claude",
+    "openrouter": "opencode",
+    "opencode_zen": "opencode"
+  },
+  "thresholds": {
+    "size_escalates_band": 1.5,
+    "spec_complete_min": 0.5,
+    "second_opinion_min": 0.6,
+    "destructive_min": 0.5
+  },
+  "free_providers": [
+    "opencode_zen"
+  ],
+  "_comment_free": "opencode_zen entries here are the -free models, served to the OpenCode client without touching the Go subscription buckets. Slower than the paid cheap band, so the ladder keeps them last: overflow capacity, not the default."
+}

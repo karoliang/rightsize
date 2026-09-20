@@ -1,0 +1,9 @@
+#!/bin/bash
+# PATH entry point. Injects Infisical secrets when this repo is linked to a
+# project, otherwise runs with whatever is already in the environment.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink "${BASH_SOURCE[0]}" || echo "${BASH_SOURCE[0]}")")" && pwd)"
+if [ -f "$ROOT/.infisical.json" ] && command -v infisical >/dev/null 2>&1; then
+  exec infisical run --silent -- python3 "$ROOT/agent_route.py" "$@"
+fi
+exec python3 "$ROOT/agent_route.py" "$@"

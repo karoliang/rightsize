@@ -1,0 +1,30 @@
+#!/bin/bash
+# Daily catalogue pull. Refreshes the model registry, then reports what is free
+# now, what got cheaper, and what appeared or disappeared since yesterday.
+#
+# Run by com.karo.agent-route-refresh (launchd) and safe to run by hand.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG="$ROOT/daily.log"
+STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+run() {
+  if [ -f "$ROOT/.infisical.json" ] && command -v infisical >/dev/null 2>&1; then
+    # Keys live in Infisical; nothing is written to disk in this repo.
+    (cd "$ROOT" && infisical run --silent -- python3 agent_route.py "$@")
+  else
+    (cd "$ROOT" && python3 agent_route.py "$@")
+  fi
+}
+
+{
+  echo "=== $STAMP refresh"
+  run refresh --limit 20 2>&1 || echo "refresh failed"
+  echo "=== $STAMP quota"
+  run probe 2>&1 || echo "probe failed"
+  echo
+} >> "$LOG"
+
+# Keep the log from growing without bound: last 2000 lines is roughly a month.
+tail -n 2000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
