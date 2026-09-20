@@ -2340,6 +2340,13 @@ def log_decision(decision: dict, spec: str) -> None:
     with state_lock():
         state = load_json(STATE, {}) or {}
         entries = state.get("decisions") or []
+        # One dispatch, one decision. The hook routes on PreToolUse to advise
+        # and again on PostToolUse to reserve, so the same task arrives twice
+        # within seconds and would be audited as two dispatches.
+        recent = brief_key(spec)
+        if any(e["at"] > now() - 120 and brief_key(e.get("task") or "") == recent
+               and e.get("model") == decision["pick"]["model"] for e in entries[-20:]):
+            return
         entries.append({
         "at": now(),
         "provider": decision["pick"]["provider"],
@@ -2392,6 +2399,11 @@ def audit(config: dict, days: float = 7.0) -> dict:
     since = now() - days * 86400
     decisions = [d for d in (state.get("decisions") or []) if d["at"] >= since]
     sessions = opencode_sessions_since(since)
+    # What the orchestrator thought of each worker, keyed by worktree. A pick
+    # that was obeyed and then failed is the case rightsize could not see at
+    # all: audit knew which model ran, never whether it got anywhere.
+    settled, _ = orca_settled()
+    outcomes = {w["worktree"]: w["state"] for w in settled if w.get("worktree")}
     rows = []
     for decision in decisions:
         if decision["provider"] not in OPENCODE_LAUNCHED:
@@ -2406,9 +2418,14 @@ def audit(config: dict, days: float = 7.0) -> dict:
                          "why": "nothing ran in a worktree of that name; not dispatched, or dispatched elsewhere"})
             continue
         ran = max(found, key=lambda x: x["messages"])
-        rows.append({**decision, "verdict": "ran as picked" if ran["model"] == decision["model"] else "mismatch",
-                     "ran_model": ran["model"], "messages": ran["messages"],
-                     "directory": ran["directory"]})
+        outcome = outcomes.get(name)
+        verdict = "ran as picked" if ran["model"] == decision["model"] else "mismatch"
+        if verdict == "ran as picked" and outcome in ("failed", "stopped", "abandoned",
+                                                      "timed_out", "cancelled"):
+            verdict = "obeyed but " + outcome
+        rows.append({**decision, "verdict": verdict, "ran_model": ran["model"],
+                     "messages": ran["messages"], "directory": ran["directory"],
+                     "outcome": outcome})
     counts = {}
     for row in rows:
         counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
@@ -2439,8 +2456,10 @@ def cmd_audit(args, config):
               " Routing records one per dispatch; this fills as you use it.")
         return 0
     order = {"mismatch": 0, "ran as picked": 1, "no session": 2, "not checkable": 3}
-    for row in sorted(result["decisions"], key=lambda r: (order.get(r["verdict"], 9), -r["at"])):
-        mark = row["verdict"].upper() if row["verdict"] == "mismatch" else row["verdict"]
+    for row in sorted(result["decisions"],
+                      key=lambda r: (order.get(r["verdict"], -1), -r["at"])):
+        failed = row["verdict"].startswith("obeyed but")
+        mark = row["verdict"].upper() if row["verdict"] == "mismatch" or failed else row["verdict"]
         line = f"{mark:<14} {human_age(now() - row['at']):>7} ago  band {row['band']}  {row['name'] or '-'}"
         print(line)
         if row["verdict"] == "mismatch":
@@ -2448,6 +2467,12 @@ def cmd_audit(args, config):
                   f" over {row['messages']} messages")
         elif row["verdict"] == "ran as picked":
             print(f"               {row['model']}, {row['messages']} messages")
+        elif row["verdict"].startswith("obeyed but"):
+            print(f"               ran {row['ran_model']} over {row['messages']} messages"
+                  f" and the worker {row['outcome']}")
+            print(f"               rightsize rerun --task {shlex.quote(row['task'])}"
+                  f" --previous {row['provider']}:{row['model']}"
+                  f" --because \"<what went wrong>\"")
         else:
             print(f"               {row['why']}")
     print()
