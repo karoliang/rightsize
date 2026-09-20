@@ -129,10 +129,20 @@ one probe instead of N, judgments in parallel, and allocation that knows what
 the earlier tasks in the same batch already took.
 
 ```bash
-rightsize plan --specs tasks.txt --reserve --launcher orca
-rightsize plan --dir specs/ --glob '*.md' --json
+rightsize plan --dir specs/ --glob '*.md' --launcher orca
+rightsize plan --specs tasks.txt --json
 cat tasks.txt | rightsize plan --concurrency 16
 ```
+
+`--dir` takes a file per task. `--specs` takes one task per **line**, so a file
+of paths would judge the paths; it now detects that and reads them as specs,
+but `--dir` is the flag that says what you mean.
+
+`--reserve` holds capacity for commands the plan has only printed. Use it when
+you are dispatching the whole wave immediately and unattended; otherwise let
+the dispatch reserve, which is when a hold is a fact rather than an intention.
+Plan-time holds expire on the shorter `reservation_ttl_unconfirmed_seconds`
+clock for exactly this reason.
 
 Each task in the result carries `index`, `spec`, `wave`, `points` and the same
 `decision` object a single route returns. `waves` groups them: **wave 2 is

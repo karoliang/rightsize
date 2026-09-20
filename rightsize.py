@@ -852,6 +852,24 @@ def brief_key(text: str) -> str:
     return " ".join((text or "").split())[:80].lower()
 
 
+def orca_runs() -> list[str]:
+    """Every Run this machine knows about.
+
+    A task list answers for one Run, and holds are taken by whichever
+    coordinator routed the work, so asking only about the bound Run leaves
+    another coordinator's finished work holding capacity forever.
+    """
+    try:
+        result = subprocess.run(["orca", "orchestration", "run-list", "--json"],
+                                capture_output=True, text=True, timeout=30)
+        payload = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    if not payload.get("ok"):
+        return []
+    return [r["id"] for r in ((payload.get("result") or {}).get("runs") or []) if r.get("id")]
+
+
 def orca_settled_tasks(run: str | None = None) -> set[str]:
     """Briefs the orchestrator says are finished.
 
@@ -859,20 +877,22 @@ def orca_settled_tasks(run: str | None = None) -> set[str]:
     the coordinator is free to use another. The brief itself is the thing both
     sides genuinely share.
     """
-    argv = ["orca", "orchestration", "task-list", "--json"]
-    if run:
-        argv += ["--run", run]
-    try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
-        payload = json.loads(result.stdout)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return set()
-    if not payload.get("ok"):
-        return set()
     done = set()
-    for task in (payload.get("result") or {}).get("tasks") or []:
-        if (task.get("status") or "").lower() in ("completed", "failed", "cancelled", "abandoned"):
-            done.add(brief_key(task.get("spec") or ""))
+    for run_id in ([run] if run else orca_runs() or [None]):
+        argv = ["orca", "orchestration", "task-list", "--json"]
+        if run_id:
+            argv += ["--run", run_id]
+        try:
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+            payload = json.loads(result.stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        if not payload.get("ok"):
+            continue
+        for task in (payload.get("result") or {}).get("tasks") or []:
+            if (task.get("status") or "").lower() in ("completed", "failed", "cancelled",
+                                                      "abandoned"):
+                done.add(brief_key(task.get("spec") or ""))
     return done
 
 
@@ -1961,8 +1981,8 @@ def cmd_report(args, config):
             # another coordinator's Run, which this cannot see.
             why = ("no settled task or worktree matches it; it expires on its own"
                    if not held.get("worktree")
-                   else f"no settled worker named {held['worktree']} in this Run;"
-                        " still running, or dispatched from another coordinator")
+                   else f"no finished task or worker matches {held['worktree']} in any Run,"
+                        " so it is taken to be still running")
             print(f"{held['provider']}: keeping {held['points']} points for"
                   f" {held.get('worktree') or held['task'][:40]}, {why}")
         if not result["released"] and not result["kept"]:
@@ -2009,7 +2029,17 @@ def cmd_report(args, config):
 def cmd_plan(args, config):
     paths = []
     if args.specs:
-        specs = [line.strip() for line in Path(args.specs).read_text().splitlines() if line.strip()]
+        lines = [line.strip() for line in Path(args.specs).read_text().splitlines() if line.strip()]
+        # A file of paths is a list of specs, not a list of tasks. Judging the
+        # paths themselves produces a routing decision about a filename, which
+        # is exactly as useless as it sounds, and it happened in practice.
+        as_files = [Path(line).expanduser() for line in lines]
+        if as_files and all(f.is_file() for f in as_files):
+            paths = as_files
+            specs = [f.read_text() for f in paths]
+            print(f"# {args.specs} lists files, so each line was read as a spec", file=sys.stderr)
+        else:
+            specs = lines
     elif args.dir:
         paths = sorted(Path(args.dir).glob(args.glob))
         specs = [f.read_text() for f in paths]

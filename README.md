@@ -71,7 +71,8 @@ rightsize route --spec task.md --launcher shell # print a plain CLI invocation
 rightsize route --spec task.md --json          # for scripts; exit 1 if blocked
 
 # Decide a whole fan-out, spread across plans, in waves.
-rightsize plan --specs tasks.txt --reserve --launcher orca
+rightsize plan --dir specs/ --launcher orca     # a file per task
+rightsize plan --specs tasks.txt                # or one task per line
 
 # Did the workers run what was picked for them?
 rightsize audit
