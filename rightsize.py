@@ -43,6 +43,27 @@ MODELS_DEV = "https://models.opencode.ai/api.json"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
+# Codex does not always write to ~/.codex. Orca gives each Codex account its own
+# CODEX_HOME under Application Support, so a session launched from an Orca
+# terminal writes its rollout there and leaves ~/.codex untouched. Reading only
+# the default meant a 20h-old rollout at 93% was believed while the live one sat
+# at 0% in the account home, and Codex stayed escalation-only against a brand
+# new plan. Both roots are searched and the newest rollout wins, because which
+# one is current depends on how Codex was launched, and the launchd refresh does
+# not inherit CODEX_HOME from anyone.
+def _codex_homes() -> list[Path]:
+    roots, seen = [], set()
+    for raw in (os.environ.get("CODEX_HOME"), os.environ.get("ORCA_CODEX_HOME"), HOME / ".codex"):
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            roots.append(path)
+    return roots
+
+
 CODEX_SESSIONS = HOME / ".codex/sessions"
 CODEX_MODELS = HOME / ".codex/models_cache.json"
 CLAUDE_PROJECTS = HOME / ".claude/projects"
@@ -237,19 +258,21 @@ def probe_opencode() -> dict:
 
 
 def newest_codex_rollout() -> Path | None:
-    if not CODEX_SESSIONS.exists():
-        return None
     newest, newest_mtime = None, 0.0
     cutoff = now() - 30 * 86400
-    for path in CODEX_SESSIONS.rglob("rollout-*.jsonl"):
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
+    for home in _codex_homes():
+        sessions = home / "sessions"
+        if not sessions.exists():
             continue
-        if mtime < cutoff:
-            continue
-        if mtime > newest_mtime:
-            newest, newest_mtime = path, mtime
+        for path in sessions.rglob("rollout-*.jsonl"):
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if mtime < cutoff:
+                continue
+            if mtime > newest_mtime:
+                newest, newest_mtime = path, mtime
     return newest
 
 
