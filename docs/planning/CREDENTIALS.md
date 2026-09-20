@@ -72,10 +72,10 @@ Read-only help checked: Codex0.155.1, Claude Code2.1.267, OpenCode1.18.31.
 Codex exposes JSON events and an output schema; OpenCode exposes JSON events.
 No model invocation or new login was needed for this inventory.
 
-Existing `rightsize` shell entry point exports the linked Infisical project into
-the process. `secret()` also has a named lookup without explicit environment.
-These are current behaviors to replace with scoped bindings, not evidence the
-new contract already exists. Existing Codex probing uses native app-server but
-state remains predominantly provider-scoped, not account-scoped. A blocking
-`readline()` can outlive its nominal timeout: the native adapter needs a real
-deadline and child reaping before it is a reliable discovery mechanism.
+Implementation checkpoint: startup export was removed in `083ca6f`; named reads
+now require explicit scope. Account selection now uses configured references or
+native homes, never the newest rollout. Quota caches have credential fingerprints;
+denials retain account context. Native app-server reads have bounded output and
+deadlines with child reaping. Shell commands pin the selected home. Managed
+vault delivery and Orca terminal identity remain the adapter work; legacy external
+reservations retain provider-wide conservative accounting until ledger migration.

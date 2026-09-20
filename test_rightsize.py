@@ -160,7 +160,7 @@ def main():
     # A launcher renders from config, so adding one is config and not code.
     decision = route_with(judged("implementation"), probes())
     line = ar.launch_command(decision, CONFIG, "orca", "task.md")
-    assert '--spec "$(cat task.md)"' in line, line
+    assert '--spec "$(cat -- task.md)"' in line, line
     # The model has to be bound at launch. `--agent opencode` takes no model
     # flag and OPENCODE_MODEL is ignored, so a worker started without this
     # silently runs whatever ~/.config/opencode/opencode.json names.
@@ -191,7 +191,7 @@ def main():
     # No budget means no transcript scan: the answer cannot depend on it.
     scanned = []
     original = ar.claude_tokens
-    ar.claude_tokens = lambda seconds: scanned.append(seconds) or 0
+    ar.claude_tokens = lambda seconds, projects=None: scanned.append(seconds) or 0
     try:
         probe = ar.probe_claude({"claude": {}})
         assert scanned == [], "scanned transcripts for a number nothing reads"
@@ -637,7 +637,7 @@ def main():
     # across account homes, so a rate_limits block found under one account may
     # have been written by another.
     original = ar.codex_rate_limits
-    ar.codex_rate_limits = lambda timeout=15.0: {
+    ar.codex_rate_limits = lambda timeout=15.0, binding=None: {
         "accountId": "e81eb3ba-1ed5-420f-8196-abb639352b15",
         "rateLimits": {"planType": "pro",
                        "primary": {"usedPercent": 7, "windowDurationMins": 10080,
@@ -649,16 +649,16 @@ def main():
         ar.codex_rate_limits = original
     assert probe["buckets"][0]["percent"] == 7, probe
     assert probe["buckets"][0]["source"] == "live", probe
-    assert probe["buckets"][0]["account"] == "e81eb3ba", probe
+    assert probe["buckets"][0]["account"] == probe["account"]["account_ref"], probe
     assert "age_seconds" not in probe["buckets"][0], "a live reading does not age"
 
-    # With no answer it falls back to the newest rollout, which does age.
-    ar.codex_rate_limits = lambda timeout=15.0: None
+    # With no answer, unattributable rollout data must not become quota evidence.
+    ar.codex_rate_limits = lambda timeout=15.0, binding=None: None
     try:
         fallback = ar.probe_codex(CONFIG)
     finally:
         ar.codex_rate_limits = original
-    assert fallback["status"] in ("ok", "no-session-data", "no-rate-limits"), fallback
+    assert fallback["status"] == "unknown", fallback
 
     print("all checks passed")
 

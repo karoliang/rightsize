@@ -7,6 +7,10 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Added (2026-09-21, router planning)
 
+- Native account references and invocation selection; redacted context identity,
+  auth-change cache invalidation, account-scoped quota denials and typed native
+  authentication/quota errors. Shell launch rendering pins the probed native
+  home; unverified Orca/vault delivery remains gated for managed adapters (#14).
 - `route --judgment FILE` accepts strict, task-bound caller judgment without a
   separate judge key/call. Quota policy and default routing are unchanged;
   new decision records retain judgment source and full task hash (#13).
@@ -19,6 +23,9 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 - Codex app-server probes now enforce a real deadline, bound stdout, complete
   initialization before querying, and close/reap the child on every path (#14).
+- Codex no longer uses potentially shared rollout files as quota fallback.
+  Multiple unselected homes are ambiguous; account changes during probing
+  discard the reading. Account aliases cannot bypass an existing denial.
 - Replaced startup vault export/eval with exact named reads requiring explicit
   project/environment/path. Doctor checks metadata without reading values;
   linked-vault failures no longer fall through to another native key (#14).

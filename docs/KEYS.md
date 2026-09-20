@@ -139,23 +139,16 @@ Two traps worth checking on your own key:
 
 ## Codex and Claude Code
 
-Neither needs a credential here, and neither publishes a usage API.
+Both reuse native authentication; Rightsize does not extract OAuth tokens.
 
-- **Codex**: usage comes from the `rate_limits` block in the newest
-  `sessions/**/rollout-*.jsonl` under any Codex home. There is usually more
-  than one: Orca gives each Codex account its own `CODEX_HOME` under
-  `~/Library/Application Support/orca/codex-accounts/<id>/home`, so a session
-  started from an Orca terminal writes there and leaves `~/.codex` untouched.
-  rightsize searches `CODEX_HOME`, `ORCA_CODEX_HOME`, `~/.codex` and every
-  discovered Orca account home, and the newest rollout wins. Discovery matters
-  as much as the environment variables: a launchd job inherits `CODEX_HOME`
-  from nobody, so an environment-only lookup reads correctly from an Orca
-  terminal and wrongly from the timer. It is exact when written, but only an
-  **interactive** Codex session writes it. Verified 2026-09-20: `codex exec`
-  runs fine and writes no rollout, and the numbers are not in Codex's sqlite
-  stores either. Past `staleness_seconds` (6h) rightsize stops trusting the
-  file and treats Codex as unknown, which means escalation-only rather than
-  blocked; `rightsize doctor` says so and `rightsize probe` prints the age.
+- **Codex**: live quota comes from `codex app-server` under the selected native
+  home. An explicit configured reference wins over the native default. Without
+  one, `CODEX_HOME` / `ORCA_CODEX_HOME` selects the home; conflicting values or
+  multiple discovered authenticated homes without a selection are ambiguous and
+  blocked. A single discovered home is usable. Rollouts are never quota fallback
+  data because Orca may hardlink them across account homes. An unavailable probe
+  is unknown, an authentication failure requires reauthentication, and an explicit
+  quota denial blocks every band.
 - **Claude Code**: usage is reconstructed from token counts in
   `~/.claude/projects/**/*.jsonl` (cache reads excluded deliberately; counting
   them overstates usage several times over). There is no published budget to
@@ -189,3 +182,35 @@ additional `rightsizePath` metadata is ignored by the prior entry point.
 Whatever you use, keep keys out of the repository. `infisical scan` over the
 working tree and the full history is part of the release check; see
 [SECURITY.md](../SECURITY.md).
+
+## Native account references
+
+Trusted configuration can name native homes without copying credentials:
+
+```json
+{
+  "account_bindings": {
+    "work": {"runtime": "codex", "home": "/absolute/path/to/codex/home"}
+  },
+  "accounts": {"codex": "work"}
+}
+```
+
+`rightsize --account codex=work route --spec task.md` overrides the configured
+selection for that invocation. Runtime values are `codex`, `claude`, `opencode`;
+`home` maps respectively to `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_DATA_HOME`.
+An explicit native binding plus inherited provider API credentials is ambiguous:
+remove the conflicting environment key in the caller when native login is intended.
+No credential files are copied, edited or decoded by discovery.
+
+Account references are opaque local context identifiers. Native credential-file
+metadata and hashes of inherited API keys invalidate quota caches on change.
+Vault-backed quota is always refreshed because vault rotation metadata is not yet
+available. Account-scoped denials survive switches; legacy provider-wide denials
+remain conservative until reconciled. Existing external reservations retain their
+original conservative provider-wide accounting until the managed-ledger migration.
+
+Shell command rendering pins the same native home and refuses a changed binding.
+Orca terminals and vault-to-native credential delivery require a managed adapter;
+a printed legacy command cannot prove their account identity and is withheld for
+bound decisions. This is an intentional migration boundary, not a successful launch.

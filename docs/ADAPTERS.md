@@ -275,3 +275,12 @@ or state writes. JSON routing exit behavior is unchanged: inspect `pick` and
 `blocked`, not only the process status. Supplied scores cannot alter quota data.
 New decision records include `judgment_source` and `task_sha256`; older records
 without them remain readable. Actor is a caller claim, not a trusted identity.
+# Account binding during managed-router migration
+
+Account-bearing routing decisions include an opaque native context reference and
+credential fingerprint. `--launcher shell` pins that native home and refuses to
+render if the binding changed after the probe. Vault-sourced credentials and
+Orca-created terminals require the managed adapter to prove launch identity;
+legacy rendering emits an explanatory comment for those bound decisions.
+It does not claim the coordinator's environment pins an Orca worker account.
+See [credential configuration](KEYS.md#native-account-references).

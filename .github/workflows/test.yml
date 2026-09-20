@@ -29,6 +29,7 @@ jobs:
         run: |
           python test_credentials.py
           python test_native_rpc.py
+          python test_accounts.py
       - name: hook matching
         run: python hooks/test_hook.py
       - name: config is valid json

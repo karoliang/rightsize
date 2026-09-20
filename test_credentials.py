@@ -81,6 +81,7 @@ class CredentialTests(unittest.TestCase):
         self.configure()
         with patch.dict(os.environ, {"TYPESAFE_API_KEY": "synthetic-secret-sentinel"}):
             with patch.object(ar, "secret", side_effect=AssertionError("secret read")), \
+                    patch.object(ar.accounts, "runtime_version", return_value="unavailable"), \
                     patch.object(ar, "probe_codex", return_value={"buckets": []}), \
                     patch.object(ar, "STATE", self.root / "state.json"), \
                     patch.object(ar, "REGISTRY", self.root / "registry.json"):

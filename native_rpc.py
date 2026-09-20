@@ -57,6 +57,18 @@ def read_rate_limits(command, *, env=None, timeout=15.0, max_bytes=1024 * 1024):
                         send({"jsonrpc": "2.0", "id": 2,
                               "method": "account/rateLimits/read", "params": {}})
                     elif initialized and message.get("id") == 2:
+                        error = message.get("error")
+                        if isinstance(error, dict):
+                            # Classify locally; provider messages may contain
+                            # credentials or account details and never escape.
+                            detail = str(error.get("message", "")).lower()
+                            code = error.get("code")
+                            if code == 401 or any(word in detail for word in
+                                                  ("unauthorized", "login", "expired", "authentication")):
+                                return {"status": "reauth-required"}
+                            if code == 429 or any(word in detail for word in ("quota", "rate limit")):
+                                return {"status": "denied"}
+                            return {"status": "unknown"}
                         result = message.get("result")
                         return result if isinstance(result, dict) else None
     except (OSError, ValueError):

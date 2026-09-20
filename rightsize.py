@@ -35,6 +35,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from native_rpc import read_rate_limits
+import accounts
 
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent
@@ -51,19 +52,8 @@ MODELS_DEV = "https://models.opencode.ai/api.json"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
-# Codex does not always write to ~/.codex. Orca gives each Codex account its own
-# CODEX_HOME under Application Support, so a session launched from an Orca
-# terminal writes its rollout there and leaves ~/.codex untouched. Reading only
-# the default meant a 20h-old rollout at 93% was believed while the live one sat
-# at 0% in the account home, and Codex stayed escalation-only against a brand
-# new plan. Both roots are searched and the newest rollout wins, because which
-# one is current depends on how Codex was launched, and the launchd refresh does
-# not inherit CODEX_HOME from anyone.
-# Orca keeps its per-account homes here, one directory per Codex account. They
-# are discovered rather than only read from the environment, because the launchd
-# refresh inherits CODEX_HOME from nobody: an env-only fix reads correctly from
-# an Orca terminal and wrongly from the timer, which is the harder failure to
-# notice.
+# Historical rollout/catalogue discovery only. Live quota selection is owned by
+# accounts.select; rollout location does not establish account provenance.
 ORCA_CODEX_ACCOUNTS = HOME / "Library/Application Support/orca/codex-accounts"
 ORCA_SUPPORT = HOME / "Library/Application Support/orca"
 # How old a remembered reading may be before the window counts as unknown.
@@ -250,7 +240,7 @@ def vault_scope() -> tuple[str, str, str] | None:
     return fields
 
 
-def secret(name: str) -> str | None:
+def secret(name: str, config: dict | None = None) -> str | None:
     """Resolve one allowlisted value without exporting or evaluating shell text.
 
     An explicitly linked vault is authoritative after environment variables:
@@ -258,10 +248,16 @@ def secret(name: str) -> str | None:
     """
     if name not in CREDENTIAL_NAMES:
         return None
+    provider = {"OPENCODE_API_KEY": "opencode", "OPENCODE_ZEN_API_KEY": "opencode_zen",
+                "OPENROUTER_API_KEY": "openrouter"}.get(name)
+    binding = accounts.select(provider, config) if provider and config is not None else None
+    if binding and binding.status != "unverified":
+        return None
+    native_selected = binding and binding.source == "configured-native"
     value = os.environ.get(name)
     if value:
         return value
-    if (ROOT / ".infisical.json").exists():
+    if not native_selected and (ROOT / ".infisical.json").exists():
         scope = vault_scope()
         if scope is None:
             return None
@@ -280,7 +276,8 @@ def secret(name: str) -> str | None:
             pass
         return None
     if name in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"):
-        auth = load_json(OPENCODE_AUTH, {}) or {}
+        auth_path = binding.home / "opencode/auth.json" if binding else OPENCODE_AUTH
+        auth = load_json(auth_path, {}) or {}
         provider = "opencode-go" if name == "OPENCODE_API_KEY" else "opencode"
         entry = auth.get(provider) if isinstance(auth, dict) else None
         return entry.get("key") if isinstance(entry, dict) else None
@@ -328,14 +325,16 @@ def human_reset(epoch: float | None) -> str:
 # different from zero and the policy treats it differently.
 
 
-def probe_opencode() -> dict:
-    key = secret("OPENCODE_API_KEY")
+def probe_opencode(config=None, key=None) -> dict:
+    key = secret("OPENCODE_API_KEY", config) if key is None else key
     if not key:
         return {"name": "opencode", "status": "no-credential", "buckets": []}
     try:
         data = get(OPENCODE_USAGE, key)
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return {"name": "opencode", "status": f"error: {exc}", "buckets": []}
+        status = {401: "reauth-required", 403: "reauth-required", 429: "denied"}.get(
+            getattr(exc, "code", None), "error: quota probe unavailable")
+        return {"name": "opencode", "status": status, "buckets": []}
     buckets = []
     for bucket_id, value in (data.get("usage") or {}).items():
         ok = value.get("status") == "ok"
@@ -372,7 +371,7 @@ def newest_codex_rollout() -> Path | None:
     return newest
 
 
-def codex_rate_limits(timeout: float = 15.0) -> dict | None:
+def codex_rate_limits(timeout: float = 15.0, binding=None) -> dict | None:
     """Ask Codex itself, rather than reading what it left behind.
 
     `codex app-server` answers `account/rateLimits/read` with live percentages
@@ -382,52 +381,51 @@ def codex_rate_limits(timeout: float = 15.0) -> dict | None:
     hardlinks session files across account homes, so a `rate_limits` block
     found under one account may have been written by another.
     """
-    return read_rate_limits(["codex", "app-server"], timeout=timeout)
+    binding = binding or accounts.select("codex")
+    if binding.status != "unverified":
+        return {"status": binding.status}
+    return read_rate_limits(["codex", "app-server"], timeout=timeout,
+                            env=binding.environment())
 
 
 def probe_codex(config: dict | None = None) -> dict:
-    live = codex_rate_limits()
-    if live and (live.get("rateLimits") or {}).get("primary"):
+    binding = accounts.select("codex", config)
+    base = {"name": "codex", "account": binding.public(), "observed_at": now()}
+    if binding.status != "unverified":
+        return {**base, "status": binding.status, "buckets": []}
+    live = codex_rate_limits(binding=binding)
+    if accounts.select("codex", config).fingerprint != binding.fingerprint:
+        return {**base, "status": "account-changed", "buckets": []}
+    if not isinstance(live, dict):
+        live = {}
+    if live.get("status"):
+        status = live["status"] if live["status"] in ("unknown", "denied", "reauth-required") else "unknown"
+        return {**base, "status": status, "buckets": []}
+    if isinstance(live.get("rateLimits"), dict) and live["rateLimits"].get("primary"):
         limits = live["rateLimits"]
         buckets = []
         for slot in ("primary", "secondary"):
             value = limits.get(slot)
             if not value:
                 continue
+            if (not isinstance(value, dict) or isinstance(value.get("usedPercent"), bool)
+                    or not isinstance(value.get("usedPercent"), (int, float))
+                    or not math.isfinite(value["usedPercent"]) or value["usedPercent"] < 0):
+                return {**base, "status": "unknown", "buckets": []}
             minutes = value.get("windowDurationMins") or 0
             buckets.append({
                 "id": f"{slot}-{minutes}m",
                 "percent": value.get("usedPercent"),
                 "resets_at": value.get("resetsAt"),
                 "source": "live",
-                "account": (live.get("accountId") or "")[:8],
+                "account": binding.account_ref,
                 "plan": limits.get("planType"),
             })
         if buckets:
-            return {"name": "codex", "status": "ok", "buckets": buckets}
-
-    path = newest_codex_rollout()
-    if not path:
-        return {"name": "codex", "status": "no-session-data", "buckets": []}
-    found = None
-    try:
-        with path.open() as handle:
-            for line in handle:
-                if '"rate_limits"' not in line:
-                    continue
-                try:
-                    payload = json.loads(line)
-                except ValueError:
-                    continue
-                limits = find_key(payload, "rate_limits")
-                if limits:
-                    found = limits
-    except OSError as exc:
-        return {"name": "codex", "status": f"error: {exc}", "buckets": []}
-    if not found:
-        return {"name": "codex", "status": "no-rate-limits", "buckets": []}
-    return {"name": "codex", "status": "ok" if found else "empty",
-            "buckets": codex_buckets(found, path.stat().st_mtime, config)}
+            return {**base, "status": "ok", "buckets": buckets}
+    # Rollouts can be hardlinked between native account homes. Their location
+    # does not prove who paid for them, so they are never quota fallback data.
+    return {**base, "status": "unknown", "buckets": []}
 
 
 def codex_buckets(found: dict, observed_at: float, config: dict | None = None) -> list[dict]:
@@ -486,19 +484,20 @@ def find_key(node, key):
     return None
 
 
-def claude_tokens(window_seconds: int) -> int:
+def claude_tokens(window_seconds: int, projects: Path | None = None) -> int:
     """Tokens billed to this account inside the trailing window.
 
     Claude Code keeps no usage cache, so this is reconstructed from transcript
     token counts. Cache reads are excluded: they are charged at a fraction and
     counting them would badly overstate usage.
     """
-    if not CLAUDE_PROJECTS.exists():
+    projects = projects or CLAUDE_PROJECTS
+    if not projects.exists():
         return 0
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
     file_cutoff = now() - window_seconds - 86400
     total = 0
-    for path in CLAUDE_PROJECTS.rglob("*.jsonl"):
+    for path in projects.rglob("*.jsonl"):
         try:
             if path.stat().st_mtime < file_cutoff:
                 continue
@@ -541,7 +540,7 @@ def probe_claude(config: dict, count_tokens: bool = False) -> dict:
         ("weekly", 7 * 86400, "weekly_token_budget"),
     ):
         budget = settings.get(budget_key)
-        used = claude_tokens(seconds) if (budget or count_tokens) else 0
+        used = claude_tokens(seconds, accounts.select("claude", config).home / "projects") if (budget or count_tokens) else 0
         percent = round(100.0 * used / budget, 1) if budget else None
         buckets.append(
             {
@@ -555,14 +554,16 @@ def probe_claude(config: dict, count_tokens: bool = False) -> dict:
     return {"name": "claude", "status": "ok", "buckets": buckets}
 
 
-def probe_openrouter(config: dict) -> dict:
-    key = secret("OPENROUTER_API_KEY")
+def probe_openrouter(config: dict, key=None) -> dict:
+    key = secret("OPENROUTER_API_KEY", config) if key is None else key
     if not key:
         return {"name": "openrouter", "status": "no-credential", "buckets": []}
     try:
         data = (get(OPENROUTER_KEY_URL, key) or {}).get("data") or {}
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return {"name": "openrouter", "status": f"error: {exc}", "buckets": []}
+        status = {401: "reauth-required", 403: "reauth-required", 429: "denied"}.get(
+            getattr(exc, "code", None), "error: quota probe unavailable")
+        return {"name": "openrouter", "status": status, "buckets": []}
     buckets = []
     # Spend. A key can carry its own limit, which is the binding one when set;
     # otherwise the account's credit balance is the ceiling.
@@ -659,13 +660,37 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
     """Every provider at once. They are independent network reads, so serial
     probing just adds their latencies together."""
     jobs = {
-        "opencode": probe_opencode,
+        "opencode": lambda: probe_opencode(config),
         "codex": lambda: probe_codex(config),
         "claude": lambda: probe_claude(config, count_tokens),
         "openrouter": lambda: probe_openrouter(config),
     }
+    def bound_probe(name, fn):
+        if name == "codex":
+            return fn()
+        binding = accounts.select(name, config)
+        base = {"name": name, "account": binding.public(), "observed_at": now()}
+        if binding.status != "unverified":
+            return {**base, "status": binding.status, "buckets": []}
+        variable = {"opencode": "OPENCODE_API_KEY", "openrouter": "OPENROUTER_API_KEY"}.get(name)
+        if (variable and binding.source == "native" and (ROOT / ".infisical.json").exists()):
+            key = secret(variable, config)
+            scope = vault_scope()
+            reference = accounts.digest(json.dumps([name, scope]))[:24]
+            base["account"] = {**binding.public(), "source": "scoped-vault",
+                               "account_ref": reference,
+                               "fingerprint": accounts.digest(key) if key else None}
+            if not key:
+                return {**base, "status": "no-credential", "buckets": []}
+            result = probe_opencode(config, key) if name == "opencode" else probe_openrouter(config, key)
+            return {**result, **base}
+        result = fn()
+        if accounts.select(name, config).fingerprint != binding.fingerprint:
+            return {**base, "status": "account-changed", "buckets": []}
+        return {**result, **base}
+
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
-        futures = {name: pool.submit(fn) for name, fn in jobs.items()}
+        futures = {name: pool.submit(bound_probe, name, fn) for name, fn in jobs.items()}
         probes = {name: future.result() for name, future in futures.items()}
     for name in config.get("free_providers", []):
         probes[name] = probe_free(name)
@@ -682,14 +707,20 @@ def probes_cached(config: dict, max_age: float | None = None) -> tuple[dict, boo
     """
     if max_age is None:
         max_age = float(config.get("cache_seconds", 60))
+    # Vault value rotation is not represented by native auth-file metadata.
+    # Until the vault adapter exposes versions, never reuse its quota cache.
+    if (ROOT / ".infisical.json").exists():
+        max_age = 0
     state = load_json(STATE, {}) or {}
     cached = state.get("probe_cache") or {}
-    if max_age > 0 and cached.get("at") and now() - cached["at"] < max_age:
+    identity = accounts.cache_identity(config)
+    if (max_age > 0 and cached.get("at") and now() - cached["at"] < max_age
+            and cached.get("accounts") == identity):
         return cached["probes"], False
     probes = probe_all(config)
     with state_lock():
         state = load_json(STATE, {}) or {}
-        state["probe_cache"] = {"at": now(), "probes": probes}
+        state["probe_cache"] = {"at": now(), "probes": probes, "accounts": identity}
         save_json(STATE, state)
     return probes, True
 
@@ -706,7 +737,8 @@ def record_snapshot(probes: dict) -> dict:
     for name, probe in probes.items():
         for bucket in probe["buckets"]:
             if bucket.get("percent") is not None:
-                current[f"{name}:{bucket['id']}"] = {"at": now(), "percent": bucket["percent"]}
+                current[f"{probe_scope(name, probe)}:{bucket['id']}"] = {
+                    "at": now(), "percent": bucket["percent"]}
     with state_lock():
         fresh = load_json(STATE, {}) or {}
         fresh["snapshots"] = current
@@ -1112,6 +1144,11 @@ def mark_exhausted(name: str, until: float) -> None:
         save_json(STATE, state)
 
 
+def probe_scope(name, probe):
+    account = (probe.get("account") or {}).get("account_ref")
+    return f"{name}:{account}" if account else name
+
+
 def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
     previous = record_snapshot(probes) if record else (load_json(STATE, {}) or {}).get("snapshots", {})
     # A failed refresh must not turn a known denial back into band-3 capacity.
@@ -1120,7 +1157,13 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
         denials = state.get("quota_denials") or {}
         if record:
             for name, probe in probes.items():
-                known = denials.setdefault(name, {})
+                known = denials.setdefault(probe_scope(name, probe), {})
+                if probe.get("status") == "denied":
+                    known["account"] = {"id": "account", "raw_status": "quota-exceeded"}
+                elif probe.get("status") == "ok" and probe.get("buckets") and all(
+                        b.get("source") == "live" and b.get("percent") is not None
+                        and not denied_buckets({"buckets": [b]}) for b in probe["buckets"]):
+                    known.pop("account", None)
                 for bucket in probe.get("buckets", []):
                     if denied_buckets({"buckets": [bucket]}):
                         known[bucket["id"]] = bucket
@@ -1132,7 +1175,7 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
     reserves = config.get("reserves", {})
     out = {}
     for name, probe in probes.items():
-        info = headroom(probe, float(reserves.get(name, 10)), previous, name)
+        info = headroom(probe, float(reserves.get(name, 10)), previous, probe_scope(name, probe))
         info["provider"] = name
         info["free"] = bool(probe.get("free"))
         reserved, inflight = reservation_load(name)
@@ -1142,10 +1185,13 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
         limits = config.get("max_inflight") or {}
         limit = int(limits.get(name, limits.get("_default", 8)))
         blocked = None
-        denied = denied_buckets(probe) or list(denials.get(name, {}).values())
+        denied = (denied_buckets(probe) or list(denials.get(probe_scope(name, probe), {}).values())
+                  or list(denials.get(name, {}).values()))
         if denied:
             blocked = "quota denied on " + ", ".join(b["id"] for b in denied)
-        elif probe["status"].startswith("error") or probe["status"] == "no-credential":
+        elif probe["status"].startswith("error") or probe["status"] in (
+                "no-credential", "ambiguous", "invalid-binding", "account-changed",
+                "reauth-required", "denied"):
             blocked = probe["status"]
         elif exhausted_until(name) > now():
             blocked = f"quota error, retry after {human_reset(exhausted_until(name))}"
@@ -1157,6 +1203,7 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
             blocked = reserve_block
         out[name] = {
             **info,
+            "account": probe.get("account"),
             "status": probe["status"],
             # A block that a finished wave cannot lift: no credential, a probe
             # error, a quota error. Running out of in-flight slots is not one.
@@ -1786,6 +1833,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         "band": used_band,
         "judgment": judgment,
         "pick": chosen,
+        "account": elig[chosen["provider"]].get("account") if chosen else None,
         "agent": config["agents"].get(chosen["provider"]) if chosen else None,
         "review": review,
         "confirm_first": confirm,
@@ -1847,7 +1895,7 @@ def launch_fields(decision: dict, config: dict, spec_path: str | None,
     cand = decision["pick"]
     prefix = (config.get("model_prefixes") or {}).get(cand["provider"], "")
     if spec_path:
-        quoted = f'"$(cat {spec_path})"'
+        quoted = f'"$(cat -- {shlex.quote(spec_path)})"'
     elif spec_text:
         # A batch reads its tasks from lines, not files, so the brief has to go
         # on the command line itself or the printed command is not runnable.
@@ -1881,9 +1929,24 @@ def launch_command(decision: dict, config: dict, launcher: str, spec_path: str |
     if not template:
         return f"# launcher {launcher!r} has no template for provider {fields['provider']}"
     try:
-        return template.format(**fields)
+        command = template.format(**fields)
     except KeyError as exc:
         return f"# launcher {launcher!r} template uses unknown field {exc}"
+    bound = decision.get("account")
+    if bound:
+        if bound.get("source") == "scoped-vault":
+            return "# vault account requires a managed adapter to bind the same credential at launch"
+        binding = accounts.select(fields["provider"], config)
+        if (binding.status != "unverified" or binding.public() != bound):
+            return "# account changed or unavailable; re-probe before launching"
+        if launcher == "shell":
+            prefix = "env " + " ".join(f"{key}={shlex.quote(value)}"
+                                        for key, value in binding.overrides.items())
+            return prefix + " " + command
+        # An Orca worker is a separately created terminal. The coordinator's
+        # environment is not proof of the worker's selected account.
+        return "# launcher account binding is unverified; use shell or a managed adapter"
+    return command
 
 
 # --------------------------------------------------------------------------
@@ -2050,12 +2113,13 @@ def capacity_in_dispatches(config: dict, name: str, usable: float | None) -> str
 
 
 def cmd_probe(args, config):
+    identity = accounts.cache_identity(config)
     probes = probe_all(config, count_tokens=True)
     # Warm the cache the router reads, so looking at the numbers and then
     # routing does not probe twice.
     with state_lock():
         state = load_json(STATE, {}) or {}
-        state["probe_cache"] = {"at": now(), "probes": probes}
+        state["probe_cache"] = {"at": now(), "probes": probes, "accounts": identity}
         save_json(STATE, state)
     elig = eligibility(config, probes)
     if args.json:
@@ -2420,6 +2484,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     out = []
     registry = load_json(REGISTRY) or {}
     providers = registry.get("providers") or {}
+    for runtime in accounts.HOME_VARIABLES:
+        out.append(("ok", f"{runtime} runtime version: {accounts.runtime_version(runtime)}"))
 
     overlay = repo_config()
     out.append(("ok", f"config: {CONFIG}" + (f" overlaid with {overlay}" if overlay else "")))
@@ -2476,6 +2542,10 @@ def doctor(config: dict) -> list[tuple[str, str]]:
                             " rightsize probe prints the token counts to choose one from"))
 
     codex = probe_codex(config)
+    binding = codex.get("account") or {}
+    if binding:
+        out.append(("ok" if codex["status"] == "ok" else "warn",
+                    f"codex {binding['source']} account={binding['account_ref']}: {codex['status']}"))
     for bucket in codex["buckets"]:
         if bucket["source"] == "expired-reading":
             out.append(("warn", f"codex usage was last written {human_age(bucket['age_seconds'])}"
@@ -2940,6 +3010,8 @@ def cmd_doctor(args, config):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="rightsize", description=__doc__)
+    parser.add_argument("--account", action="append", default=[], metavar="PROVIDER=REFERENCE",
+                        help="select a configured native account binding for this invocation")
     sub = parser.add_subparsers(dest="command", required=True)
 
     probe = sub.add_parser("probe", help="live headroom for every provider")
@@ -3037,6 +3109,11 @@ def main(argv=None):
     if config is None:
         print(f"config missing: {CONFIG}", file=sys.stderr)
         return 2
+    for selection in args.account:
+        provider, separator, reference = selection.partition("=")
+        if not separator or provider not in accounts.RUNTIMES or not reference:
+            parser.error("--account must be PROVIDER=REFERENCE for a supported provider")
+        config.setdefault("accounts", {})[provider] = reference
     if overlay and not getattr(args, "json", False):
         print(f"# config: {CONFIG} + {overlay}", file=sys.stderr)
     return args.func(args, config)

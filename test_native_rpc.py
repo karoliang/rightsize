@@ -61,6 +61,19 @@ print(json.dumps({"id": 2, "result": {"rateLimits": {"primary": {"usedPercent": 
         with patch.object(native_rpc.subprocess, "Popen", side_effect=FileNotFoundError):
             self.assertIsNone(native_rpc.read_rate_limits(["absent"]))
 
+    def test_typed_errors_are_redacted(self):
+        for code, status in ((401, "reauth-required"), (429, "denied"), (-1, "unknown")):
+            with self.subTest(code=code):
+                script = '''
+import sys, json
+sys.stdin.readline()
+print(json.dumps({"id": 1, "result": {}}), flush=True)
+sys.stdin.readline()
+sys.stdin.readline()
+print(json.dumps({"id": 2, "error": {"code": CODE, "message": "secret-sentinel"}}), flush=True)
+'''.replace("CODE", str(code))
+                self.assertEqual(self.call(script, timeout=2), {"status": status})
+
 
 if __name__ == "__main__":
     unittest.main()
