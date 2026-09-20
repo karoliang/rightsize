@@ -2,7 +2,7 @@
 # Daily catalogue pull. Refreshes the model registry, then reports what is free
 # now, what got cheaper, and what appeared or disappeared since yesterday.
 #
-# Run by com.karo.agent-route-refresh (launchd) and safe to run by hand.
+# Run by com.karo.rightsize-refresh (launchd) and safe to run by hand.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,9 +12,9 @@ STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 run() {
   if [ -f "$ROOT/.infisical.json" ] && command -v infisical >/dev/null 2>&1; then
     # Keys live in Infisical; nothing is written to disk in this repo.
-    (cd "$ROOT" && infisical run --silent -- python3 agent_route.py "$@")
+    (cd "$ROOT" && infisical run --silent -- python3 rightsize.py "$@")
   else
-    (cd "$ROOT" && python3 agent_route.py "$@")
+    (cd "$ROOT" && python3 rightsize.py "$@")
   fi
 }
 

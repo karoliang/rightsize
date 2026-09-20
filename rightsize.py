@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""agent-route: pick the subagent provider and model for a task.
+"""rightsize: pick the subagent provider and model for a task.
 
 Quota is arithmetic and lives in code. What kind of work a task is, is a
 judgment and goes to Jev. The model is never asked which provider to use.
 
 Commands:
-  agent-route probe [--json]        live headroom for every provider
-  agent-route refresh               pull the model catalogues into registry.json
-  agent-route route --task "..."    decide provider + model for one task
-  agent-route route --spec FILE     same, reading the spec from a file
-  agent-route models [--band N]     what the current registry offers
+  rightsize probe [--json]        live headroom for every provider
+  rightsize refresh               pull the model catalogues into registry.json
+  rightsize route --task "..."    decide provider + model for one task
+  rightsize route --spec FILE     same, reading the spec from a file
+  rightsize models [--band N]     what the current registry offers
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ HOME = Path.home()
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "config.json"
 REGISTRY = ROOT / "registry.json"
-STATE = HOME / ".local/state/agent-route/state.json"
+STATE = HOME / ".local/state/rightsize/state.json"
 
 OPENCODE_AUTH = HOME / ".local/share/opencode/auth.json"
 OPENCODE_USAGE = "https://opencode.ai/zen/go/v1/usage"
@@ -68,7 +68,7 @@ def save_json(path: Path, value) -> None:
 
 
 def get(url: str, token: str | None = None, timeout: int = 20):
-    req = urllib.request.Request(url, headers={"User-Agent": "agent-route/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "rightsize/1"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -83,7 +83,7 @@ def post(url: str, token: str, body: dict, timeout: int = 60):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "agent-route/1",
+            "User-Agent": "rightsize/1",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -937,7 +937,7 @@ def cmd_refresh(args, config):
 def cmd_deals(args, config):
     registry = load_json(REGISTRY)
     if not registry or "deals" not in registry:
-        print("no deals yet, run: agent-route refresh", file=sys.stderr)
+        print("no deals yet, run: rightsize refresh", file=sys.stderr)
         return 1
     found = registry["deals"]
     limit = getattr(args, "limit", 12)
@@ -999,7 +999,7 @@ def cmd_route(args, config):
 def cmd_models(args, config):
     registry = load_json(REGISTRY)
     if not registry:
-        print("no registry.json yet, run: agent-route refresh", file=sys.stderr)
+        print("no registry.json yet, run: rightsize refresh", file=sys.stderr)
         return 1
     for name, provider in registry["providers"].items():
         rows = []
@@ -1015,7 +1015,7 @@ def cmd_models(args, config):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="agent-route", description=__doc__)
+    parser = argparse.ArgumentParser(prog="rightsize", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     probe = sub.add_parser("probe", help="live headroom for every provider")

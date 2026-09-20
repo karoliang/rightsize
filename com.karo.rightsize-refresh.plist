@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.karo.agent-route-refresh</string>
+  <string>com.karo.rightsize-refresh</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>REPO_PATH/bin/agent-route-daily</string>
+    <string>REPO_PATH/bin/rightsize-daily</string>
   </array>
 
   <!-- Once a day, and again at load so a laptop that was asleep catches up. -->

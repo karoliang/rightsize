@@ -1,4 +1,4 @@
-# agent-route
+# rightsize
 
 Pick the subagent provider and model for a coding task, from live quota.
 
@@ -20,26 +20,26 @@ No dependencies. Python 3 standard library only.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/agent-route ~/Github/agent-route
-ln -s ~/Github/agent-route/agent-route ~/.local/bin/agent-route
-agent-route refresh
-agent-route probe
+git clone https://github.com/<you>/rightsize ~/Github/rightsize
+ln -s ~/Github/rightsize/rightsize ~/.local/bin/rightsize
+rightsize refresh
+rightsize probe
 ```
 
 ## Use
 
 ```bash
 # What is left, everywhere.
-agent-route probe
+rightsize probe
 
 # Decide one dispatch.
-agent-route route --task "add a rate limit to the signup endpoint"
-agent-route route --spec task.md --orca      # prints the worker-start command
-agent-route route --spec task.md --json      # for scripts
+rightsize route --task "add a rate limit to the signup endpoint"
+rightsize route --spec task.md --orca      # prints the worker-start command
+rightsize route --spec task.md --json      # for scripts
 
 # What the catalogues offer, and what got cheaper overnight.
-agent-route models
-agent-route deals
+rightsize models
+rightsize deals
 ```
 
 Example route:
@@ -140,20 +140,20 @@ own CLIs already write.
 
 ## Daily refresh
 
-`bin/agent-route-daily` refreshes the catalogues and appends the result to
+`bin/rightsize-daily` refreshes the catalogues and appends the result to
 `daily.log`. Free models and price cuts are the point of running it: a model
 that becomes free is the cheapest way to move work off a metered bucket.
 
 ```bash
-sed "s|REPO_PATH|$HOME/Github/agent-route|g" com.karo.agent-route-refresh.plist \
-  > ~/Library/LaunchAgents/com.karo.agent-route-refresh.plist
-launchctl load ~/Library/LaunchAgents/com.karo.agent-route-refresh.plist
+sed "s|REPO_PATH|$HOME/Github/rightsize|g" com.karo.rightsize-refresh.plist \
+  > ~/Library/LaunchAgents/com.karo.rightsize-refresh.plist
+launchctl load ~/Library/LaunchAgents/com.karo.rightsize-refresh.plist
 ```
 
 ## Tests
 
 ```bash
-python3 test_agent_route.py
+python3 test_rightsize.py
 ```
 
 Synthetic quota states and judgments, asserted end to end. No network, no

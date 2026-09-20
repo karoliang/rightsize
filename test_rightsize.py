@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-check for the routing policy. Run: python3 test_agent_route.py
+"""Self-check for the routing policy. Run: python3 test_rightsize.py
 
 No framework. Every case here is a synthetic quota state plus a judgment, so
 the policy can be checked without spending a token or touching a provider.
@@ -8,7 +8,7 @@ the policy can be checked without spending a token or touching a provider.
 import json
 import time
 
-import agent_route as ar
+import rightsize as ar
 
 CONFIG = json.loads((ar.ROOT / "config.json").read_text())
 HOUR = 3600
