@@ -56,7 +56,7 @@
   },
   "thresholds": {
     "size_escalates_band": 1.5,
-    "spec_complete_min": 0.5,
+    "spec_complete_min": 0.35,
     "second_opinion_min": 0.6,
     "destructive_min": 0.5
   },

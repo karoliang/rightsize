@@ -1,9 +1,25 @@
 #!/bin/bash
-# PATH entry point. Injects Infisical secrets when this repo is linked to a
+# PATH entry point. Loads secrets from Infisical when this repo is linked to a
 # project, otherwise runs with whatever is already in the environment.
+#
+# Secrets are exported into this shell rather than running the tool under
+# `infisical run`, so the exit code is rightsize's own and a relative --spec
+# path still resolves against the caller's working directory.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$(readlink "${BASH_SOURCE[0]}" || echo "${BASH_SOURCE[0]}")")" && pwd)"
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do SELF="$(readlink "$SELF")"; done
+ROOT="$(cd "$(dirname "$SELF")" && pwd)"
+
 if [ -f "$ROOT/.infisical.json" ] && command -v infisical >/dev/null 2>&1; then
-  exec infisical run --silent -- python3 "$ROOT/rightsize.py" "$@"
+  read -r PROJECT ENVIRONMENT <<<"$(python3 "$ROOT/link.py" "$ROOT/.infisical.json")"
+  if [ -n "$PROJECT" ]; then
+    # Existing environment variables win; only unset names are taken from
+    # Infisical. dotenv values come back single-quoted, so they are unquoted
+    # and re-quoted for the shell instead of being parsed by hand.
+    eval "$(infisical export --format=dotenv --projectId "$PROJECT" \
+              --env "$ENVIRONMENT" --silent 2>/dev/null |
+            python3 "$ROOT/link.py" --dotenv)"
+  fi
 fi
+
 exec python3 "$ROOT/rightsize.py" "$@"

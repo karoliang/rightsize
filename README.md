@@ -108,6 +108,34 @@ Without `TYPESAFE_API_KEY` the tool falls back to a crude keyword heuristic and
 says so in its output, so a route made without a judgment is never mistaken for
 one made with it.
 
+### The questions are measured, not assumed
+
+`./eval_questions.py` runs each question against labelled fixtures and requires
+a **margin**, not merely the right ordering. A question that never fires looks
+exactly like a question with nothing to report.
+
+The first version of `spec_complete` failed that check. Its criteria asked
+whether "every file, name, expected behaviour and acceptance check needed is
+stated", which a literal reader answers "no" for any real task, since an
+implementation always touches something the brief did not name:
+
+| fixture | original wording | current wording |
+| --- | --- | --- |
+| "fix the invoices thing" | 0.02 | 0.12 |
+| "make the change we discussed" | 0.02 | 0.07 |
+| "add pagination to the invoices endpoint" | 0.07 | 0.61 |
+| a fully specified task naming repo, file, params and tests | 0.11 | 0.76 |
+
+Separation went from 0.09 to 0.49. Nothing changed but the wording: the
+criteria now describe what the engineer needs in order to start, and grant them
+the codebase and their own judgment for the rest.
+
+Two fixture labels were wrong rather than the model. "fix the invoices thing"
+was expected to be ordinary implementation and came back `high_stakes`, which
+is defensible when the only noun is money-adjacent, and its size came back
+mid-scale, which is right for unknown scope. Both expectations were removed
+rather than argued with.
+
 ## Configuration
 
 Everything tunable is in `config.json`: reserves per provider, the ordered
@@ -153,7 +181,8 @@ launchctl load ~/Library/LaunchAgents/com.rightsize.refresh.plist
 ## Tests
 
 ```bash
-python3 test_rightsize.py
+python3 test_rightsize.py    # policy, offline, no tokens
+./eval_questions.py          # the judgments, needs TYPESAFE_API_KEY, costs a fraction of a cent
 ```
 
 Synthetic quota states and judgments, asserted end to end. No network, no

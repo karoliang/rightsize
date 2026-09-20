@@ -544,12 +544,19 @@ QUESTIONS = {
     "spec_complete": {
         "type": "noul",
         "instructions": (
-            "Could an agent with no access to the conversation that produced this task finish "
-            "it from the text alone, without asking a question?"
+            "Could a competent engineer who can read this codebase, but cannot reach the "
+            "person who wrote the task, start straight away and know when they are done?"
         ),
         "criteria": {
-            "true": "Every file, name, expected behaviour and acceptance check needed is stated.",
-            "false": "It relies on context, a decision, or a name that is not written down here.",
+            "true": (
+                "The target and the expected outcome are identifiable from the task and the "
+                "code. Unstated implementation details are fine; the engineer is trusted to "
+                "choose them."
+            ),
+            "false": (
+                "It points at something only the requester knows: an unnamed target, a result "
+                "that was agreed elsewhere, or a decision the engineer is not free to make."
+            ),
         },
     },
     "destructive": {
