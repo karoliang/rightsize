@@ -11,3 +11,9 @@ daily.log
 __pycache__/
 *.pyc
 .DS_Store
+
+# Orca child worktrees land inside this repo (--worktree new-child), so a
+# blanket `git add -A` picks them up as gitlinks. They are checkouts, not content.
+/adversarial-policy/
+/outcome-loop/
+/shared-state/
