@@ -157,6 +157,10 @@ def main():
     assert "opencode -m opencode-go/deepseek-v4.1-flash" in line, line
     shell = ar.launch_command(decision, CONFIG, "shell", None)
     assert shell.startswith("opencode run -m opencode-go/deepseek-v4.1-flash"), shell
+    inline = ar.launch_command(decision, CONFIG, "orca", None,
+                               "add pagination to the invoices list endpoint")
+    assert "'add pagination to the invoices list endpoint'" in inline, inline
+    assert "<task>" not in inline, inline
     unknown = ar.launch_command(decision, CONFIG, "nope", None)
     assert "unknown launcher" in unknown and "orca, shell" in unknown, unknown
 
@@ -277,6 +281,27 @@ def main():
                           exclude={"opencode:deepseek-v4.1-flash"}, attempt=1)
     assert same_band["pick"]["model"] != "deepseek-v4.1-flash", same_band["pick"]
     assert any("already had a go" in note for note in same_band["notes"]), same_band["notes"]
+
+    # Doctor catches a ladder entry the provider has retired. This is the
+    # failure that is invisible until a worker tries the name: routing will
+    # happily pick a model id nobody has confirmed still exists.
+    registry = {"fetched_at": "2026-09-20T00:00:00+00:00",
+                "providers": {"opencode": {"models": {"deepseek-v4.1-flash": {}}}}}
+    original_registry = ar.REGISTRY
+    tmp = ar.STATE.parent / "registry.json"
+    tmp.write_text(json.dumps(registry))
+    ar.REGISTRY = tmp
+    try:
+        findings = ar.doctor({**CONFIG, "bands": {"1": ["opencode:deepseek-v4.1-flash",
+                                                        "opencode:a-model-that-was-retired"]},
+                              "review_ladder": []})
+        errors = [message for level, message in findings if level == "error"]
+        assert errors and "a-model-that-was-retired" in errors[0], findings
+        clean = ar.doctor({**CONFIG, "bands": {"1": ["opencode:deepseek-v4.1-flash"]},
+                           "review_ladder": []})
+        assert not [m for level, m in clean if level == "error"], clean
+    finally:
+        ar.REGISTRY = original_registry
 
     print("all checks passed")
 

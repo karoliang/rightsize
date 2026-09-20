@@ -23,6 +23,16 @@
   <key>RunAtLoad</key>
   <true/>
 
+  <!-- launchd's PATH is /usr/bin:/bin:/usr/sbin:/sbin, which does not include
+       Homebrew, so `command -v infisical` failed and the daily refresh ran with
+       no credentials: OpenRouter's catalogue came back empty and the probe said
+       no-credential. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
   <key>StandardOutPath</key>
   <string>REPO_PATH/daily.log</string>
   <key>StandardErrorPath</key>

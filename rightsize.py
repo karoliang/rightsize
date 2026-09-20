@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -1091,7 +1092,8 @@ def rerun(spec: str, because: str, previous: str | None, config: dict,
     return decision
 
 
-def launch_fields(decision: dict, config: dict, spec_path: str | None) -> dict:
+def launch_fields(decision: dict, config: dict, spec_path: str | None,
+                  spec_text: str | None = None) -> dict:
     """The substitutions a launcher template may use.
 
     `model_ref` is the model id spelled the way the target CLI wants it, which
@@ -1099,7 +1101,14 @@ def launch_fields(decision: dict, config: dict, spec_path: str | None) -> dict:
     """
     cand = decision["pick"]
     prefix = (config.get("model_prefixes") or {}).get(cand["provider"], "")
-    quoted = f'"$(cat {spec_path})"' if spec_path else '"<task>"'
+    if spec_path:
+        quoted = f'"$(cat {spec_path})"'
+    elif spec_text:
+        # A batch reads its tasks from lines, not files, so the brief has to go
+        # on the command line itself or the printed command is not runnable.
+        quoted = shlex.quote(" ".join(spec_text.split()))
+    else:
+        quoted = '"<task>"'
     return {
         "provider": cand["provider"],
         "agent": decision["agent"] or cand["provider"],
@@ -1112,7 +1121,8 @@ def launch_fields(decision: dict, config: dict, spec_path: str | None) -> dict:
     }
 
 
-def launch_command(decision: dict, config: dict, launcher: str, spec_path: str | None) -> str:
+def launch_command(decision: dict, config: dict, launcher: str, spec_path: str | None,
+                   spec_text: str | None = None) -> str:
     """Render one launcher template. Adding a launcher is config, not code."""
     if not decision["pick"]:
         return "# no eligible provider"
@@ -1120,7 +1130,7 @@ def launch_command(decision: dict, config: dict, launcher: str, spec_path: str |
     if not templates:
         known = ", ".join(sorted(k for k in (config.get("launchers") or {}) if not k.startswith("_")))
         return f"# unknown launcher {launcher!r}; configured: {known or 'none'}"
-    fields = launch_fields(decision, config, spec_path)
+    fields = launch_fields(decision, config, spec_path, spec_text)
     template = templates.get(fields["provider"]) or templates.get("default")
     if not template:
         return f"# launcher {launcher!r} has no template for provider {fields['provider']}"
@@ -1446,11 +1456,12 @@ def cmd_report(args, config):
 
 
 def cmd_plan(args, config):
+    paths = []
     if args.specs:
         specs = [line.strip() for line in Path(args.specs).read_text().splitlines() if line.strip()]
     elif args.dir:
-        files = sorted(Path(args.dir).glob(args.glob))
-        specs = [f.read_text() for f in files]
+        paths = sorted(Path(args.dir).glob(args.glob))
+        specs = [f.read_text() for f in paths]
     else:
         specs = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
     if not specs:
@@ -1497,9 +1508,89 @@ def cmd_plan(args, config):
             print(f"\n# ---- wave {number} ----")
             for task in result["tasks"]:
                 if task["wave"] == number:
+                    path = str(paths[task["index"]]) if paths else None
                     print(f"# task {task['index']}")
-                    print(launch_command(task["decision"], config, args.launcher, None))
+                    print(launch_command(task["decision"], config, args.launcher,
+                                         path, task["spec"]))
     return 1 if (result["blocked"] or result["unplaced"]) else 0
+
+
+def doctor(config: dict) -> list[tuple[str, str]]:
+    """Preflight. Every check here exists because something was wrong once.
+
+    Returns (level, message) pairs; level is "ok", "warn" or "error". The one
+    that matters most is the ladder check: a model id that a provider has
+    retired is invisible until a worker fails on it, because routing happily
+    picks a name nobody has confirmed still exists.
+    """
+    out = []
+    registry = load_json(REGISTRY) or {}
+    providers = registry.get("providers") or {}
+
+    candidates = {c for ladder in config["bands"].values() for c in ladder}
+    candidates |= set(config.get("review_ladder", []))
+    missing, unverifiable = [], set()
+    for text in sorted(candidates):
+        cand = parse_candidate(text)
+        known = (providers.get(cand["provider"]) or {}).get("models") or {}
+        if not known:
+            unverifiable.add(cand["provider"])
+        elif cand["model"] not in known:
+            missing.append(text)
+    if missing:
+        out.append(("error", "ladder models not in the catalogue: " + ", ".join(missing)
+                    + " (a retired id fails only when a worker tries it)"))
+    else:
+        out.append(("ok", f"{len(candidates)} ladder candidates all exist in the catalogue"))
+    for name in sorted(unverifiable):
+        out.append(("warn", f"{name}: catalogue is empty, so its ladder entries are unverified;"
+                            " run rightsize refresh with its key available"))
+
+    fetched = registry.get("fetched_at")
+    age = None
+    if fetched:
+        stamp = iso_to_epoch(fetched)
+        age = (now() - stamp) / 86400 if stamp else None
+    if age is None:
+        out.append(("warn", "no registry yet: run rightsize refresh"))
+    elif age > 3:
+        out.append(("warn", f"catalogue is {age:.0f} days old: run rightsize refresh"))
+    else:
+        out.append(("ok", f"catalogue refreshed {age * 24:.0f}h ago"))
+
+    for variable, why in (("TYPESAFE_API_KEY", "the judgment falls back to a keyword heuristic"),
+                          ("OPENROUTER_API_KEY", "OpenRouter is unavailable"),
+                          ("OPENCODE_API_KEY", "OpenCode quota cannot be read")):
+        out.append(("ok", f"{variable} resolves") if secret(variable)
+                   else ("warn", f"{variable} missing: {why}"))
+
+    if not (config.get("claude") or {}).get("weekly_token_budget"):
+        out.append(("warn", "claude.weekly_token_budget is null, so Claude stays escalation-only."
+                            " rightsize probe prints the token counts to choose one from"))
+
+    state = load_json(STATE, {}) or {}
+    live = [r for r in (state.get("reservations") or []) if r["expires"] > now()]
+    if live:
+        oldest = min(r["at"] for r in live)
+        out.append(("warn", f"{len(live)} reservations in flight, oldest {human_reset(oldest)} ago."
+                            " If those workers are finished: rightsize report <provider> --done"))
+    exhausted = {n: t for n, t in (state.get("exhausted") or {}).items() if t > now()}
+    for name, until in exhausted.items():
+        out.append(("warn", f"{name} is marked exhausted until {human_reset(until)} from now"))
+
+    for launcher, templates in (config.get("launchers") or {}).items():
+        if launcher.startswith("_") or not isinstance(templates, dict):
+            continue
+        if "default" not in templates:
+            out.append(("warn", f"launcher {launcher} has no default template"))
+    return out
+
+
+def cmd_doctor(args, config):
+    findings = doctor(config)
+    for level, message in findings:
+        print(f"{level.upper():<6} {message}")
+    return 1 if any(level == "error" for level, _ in findings) else 0
 
 
 def main(argv=None):
@@ -1548,6 +1639,9 @@ def main(argv=None):
     plan_cmd.add_argument("--launcher", help="also print a launch command per task")
     plan_cmd.add_argument("--json", action="store_true")
     plan_cmd.set_defaults(func=cmd_plan)
+
+    doctor_cmd = sub.add_parser("doctor", help="preflight: config, catalogue, credentials, state")
+    doctor_cmd.set_defaults(func=cmd_doctor)
 
     models = sub.add_parser("models", help="what the current registry offers")
     models.add_argument("--limit", type=int, default=12)

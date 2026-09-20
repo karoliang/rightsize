@@ -39,8 +39,15 @@ No dependencies. Python 3 standard library only.
 git clone https://github.com/karoliang/rightsize ~/Github/rightsize
 ln -s ~/Github/rightsize/rightsize ~/.local/bin/rightsize   # anywhere on PATH
 rightsize refresh
+rightsize doctor     # config, catalogue, credentials and state, before you rely on it
 rightsize probe
 ```
+
+`doctor` exists because of a real failure: a band 1 ladder entry named an
+OpenRouter model the provider had retired, and routing kept picking it, because
+nothing checked a model id against the catalogue until a worker tried it and
+failed. It also catches a stale catalogue, a missing key, reservations nobody
+released, and a daily refresh that ran without credentials.
 
 Keys are optional to start: without them you get fewer providers and a crude
 heuristic in place of the judgment, and the output says so. See
@@ -51,6 +58,9 @@ matters, at roughly three cents per thousand routing decisions.
 ## Use
 
 ```bash
+# Is anything wrong before I rely on this?
+rightsize doctor
+
 # What is left, everywhere.
 rightsize probe
 

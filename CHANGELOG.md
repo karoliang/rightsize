@@ -47,6 +47,10 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   commands (echo, grep, git commit) are skipped, and a placeholder like
   `<self-contained task>` is not treated as a brief.
 
+- `rightsize doctor`: a preflight over config, catalogue, credentials and state.
+  Every check is there because something was wrong once, the first being a
+  ladder entry that named a retired model id.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of
@@ -65,6 +69,20 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   and a fan-out that escalates is wrong a hundred times over.
 
 ### Fixed
+
+- Band 1 and the review ladder named `openrouter:deepseek/deepseek-chat-v3.1:free`,
+  which does not exist in OpenRouter's 447-model catalogue. Routing picked it
+  constantly, since its daily bucket resets soonest, so every OpenRouter
+  dispatch would have failed on an unknown model. Replaced with
+  `deepseek/deepseek-v4-flash-0731:free`, verified against the live catalogue,
+  and `rightsize doctor` now fails on this class of drift.
+- The launchd refresh job ran with launchd's default PATH, which has no
+  Homebrew, so `command -v infisical` failed and the daily refresh ran with no
+  credentials: OpenRouter's catalogue came back empty and the probe logged
+  `no-credential` every night. The plist now sets PATH.
+- `plan --launcher` printed `--spec "<task>"` for every task instead of the
+  brief, so the commands it produced were not runnable. Batch tasks come from
+  lines rather than files, so the text is now quoted onto the command line.
 
 - `test_rightsize.py` pointed at the real `~/.local/state/rightsize/state.json`,
   so results depended on the machine's live quota snapshots. It now uses a temp
