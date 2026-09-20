@@ -313,7 +313,9 @@ def probe_opencode() -> dict:
                 "id": bucket_id,
                 "percent": value.get("percent") if ok else None,
                 "resets_at": iso_to_epoch(value.get("resetsAt")),
-                "source": "live",
+                # A bucket the provider declined to report this minute is not a
+                # reading we have lost: the next probe usually has it.
+                "source": "live" if ok else "unavailable",
                 "raw_status": value.get("status"),
             }
         )
@@ -690,7 +692,11 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
             # and was not is a number we have lost, and it could be at 95 per
             # cent: the rest of this provider's headroom cannot be trusted while
             # one of its windows is missing.
-            if bucket.get("source") != "no-budget-set":
+            # Only a reading that cannot be refreshed taints the rest. A budget
+            # nobody declared is a measurement not taken, and a bucket the
+            # provider declined this minute comes back on the next probe;
+            # treating either as lost would disable a workhorse over a hiccup.
+            if bucket.get("source") == "expired-reading":
                 unknown = True
             continue
         free = 100.0 - percent - reserve
@@ -809,16 +815,28 @@ def orca_settled(run: str | None = None) -> tuple[list[dict], str | None]:
     remembers: seven reservations were holding capacity with every one of their
     workers already settled.
     """
-    try:
-        result = subprocess.run(["orca", "orchestration", "worker-list", "--json"],
-                                capture_output=True, text=True, timeout=30)
-        payload = json.loads(result.stdout)
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return [], f"could not ask orca: {exc}"
-    if not payload.get("ok"):
-        return [], f"orca refused: {json.dumps(payload.get('error'))[:120]}"
+    workers, cursor = [], None
+    # The worker list is paginated, and reading only the first page is how a
+    # release silently stops finding anything: 249 workers came back as 100.
+    for _ in range(20):
+        argv = ["orca", "orchestration", "worker-list", "--json"]
+        if cursor:
+            argv += ["--cursor", cursor]
+        try:
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+            payload = json.loads(result.stdout)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return [], f"could not ask orca: {exc}"
+        if not payload.get("ok"):
+            return [], f"orca refused: {json.dumps(payload.get('error'))[:120]}"
+        body = payload.get("result") or {}
+        workers += body.get("workers") or []
+        page = body.get("page") or {}
+        cursor = page.get("nextCursor")
+        if not page.get("hasMore") or not cursor:
+            break
     out = []
-    for worker in (payload.get("result") or {}).get("workers") or []:
+    for worker in workers:
         if run and worker.get("runId") != run:
             continue
         if worker.get("workerState") not in SETTLED:
@@ -2208,19 +2226,42 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
             rows.append({"provider": name, "verdict": "no local session record to count against"})
             continue
         sessions = orca_sessions(kind[0])
+        if name == "opencode":
+            # opencode's own database is the complete record; Orca's scan lags
+            # it (355 sessions against 295 when this was written), and counting
+            # the short set overstates what each dispatch costs.
+            direct = opencode_sessions_since(now() - 31 * 86400)
+            if len(direct) > len(sessions):
+                sessions = [{"primaryModel": f"opencode-go/{x['model']}",
+                             "lastTimestamp": datetime.fromtimestamp(
+                                 x["last_at"], timezone.utc).isoformat().replace("+00:00", "Z"),
+                             "totalInputTokens": x["tokens_in"],
+                             "totalCachedInputTokens": x["cached"],
+                             "totalOutputTokens": x["tokens_out"]}
+                            for x in direct if (x.get("provider") or "") == "opencode-go"]
         if not sessions:
             rows.append({"provider": name,
                          "verdict": f"no {ORCA_SUPPORT.name}/orca-{kind[0]}-usage.json to read"})
             continue
-        # The binding bucket is the one worth calibrating against.
+        # Calibrate against the bucket the policy actually binds on: the one
+        # with the least room after its reserve. Picking the highest percentage
+        # instead once measured a month's spend against a week's dispatches.
+        reserve = float((config.get("reserves") or {}).get(name, 10))
         best = None
         for bucket in probe["buckets"]:
             window = bucket_window(bucket["id"])
-            if window is None or bucket.get("resets_at") is None:
+            if window is None or bucket.get("resets_at") is None or bucket.get("percent") is None:
                 continue
-            if best is None or bucket.get("percent") is None or (
-                    bucket["percent"] or 0) > (best["percent"] or 0):
-                best = {**bucket, "window": window}
+            # A percentage point is not the same size in every window: one
+            # dispatch is 2.3 per cent of a five hour allowance and 0.44 per
+            # cent of a weekly one. dispatch_cost is a single number, so it has
+            # to be measured against the windows that govern a day's spending,
+            # not a bucket that turns over while a worker is still running.
+            if window < 86400:
+                continue
+            free = 100.0 - bucket["percent"] - reserve
+            if best is None or free < best["free"]:
+                best = {**bucket, "window": window, "free": free}
         window_start = (best["resets_at"] - best["window"]) if best else now() - 7 * 86400
         spent = dispatches_since(sessions, window_start, kind[1])
         row = {"provider": name, "bucket": best["id"] if best else None,
@@ -2291,9 +2332,18 @@ def opencode_sessions_since(epoch: float) -> list[dict]:
                json_extract(m.data, '$.modelID')    AS model,
                json_extract(m.data, '$.providerID') AS provider,
                count(*)                             AS messages,
-               max(m.time_created) / 1000.0         AS last_at
+               max(m.time_created) / 1000.0         AS last_at,
+               max(s.tokens_input)                  AS tokens_in,
+               max(s.tokens_output)                 AS tokens_out,
+               max(s.tokens_cache_read)             AS cached,
+               max(s.cost)                          AS cost
         FROM session s JOIN message m ON m.session_id = s.id
+        -- Assistant rows only: a user turn carries no model, and a bare column
+        -- beside max() takes its value from whichever row that max matched, so
+        -- mixing them silently returned a null model for every session.
         WHERE s.time_created > ?
+          AND json_extract(m.data, '$.role') = 'assistant'
+          AND json_extract(m.data, '$.modelID') IS NOT NULL
         GROUP BY s.id, model
     """
     try:
@@ -2301,8 +2351,9 @@ def opencode_sessions_since(epoch: float) -> list[dict]:
             rows = db.execute(query, (int(epoch * 1000),)).fetchall()
     except sqlite3.Error:
         return []
-    return [{"directory": r[0] or "", "model": r[1], "provider": r[2],
-             "messages": r[3], "last_at": r[4]} for r in rows if r[1]]
+    return [{"directory": r[0] or "", "model": r[1], "provider": r[2], "messages": r[3],
+             "last_at": r[4], "tokens_in": r[5] or 0, "tokens_out": r[6] or 0,
+             "cached": r[7] or 0, "cost": r[8] or 0.0} for r in rows if r[1]]
 
 
 def audit(config: dict, days: float = 7.0) -> dict:
@@ -2393,7 +2444,9 @@ def cmd_calibrate(args, config):
         print(f"{row['provider']}")
         if "measured_cost" in row:
             print(f"  {row['bucket']} window opened {human_age(now() - row['window_started'])} ago, "
-                  f"{row['dispatches']} dispatches since")
+                  f"{row['dispatches']} dispatches since"
+                  f"  (a point means a different amount in each window; this is the"
+                  f" tightest one lasting a day or more)")
             print(f"  measured {row['measured_cost']} points per dispatch, "
                   f"config says {row['configured_cost']}")
             print(f"  tokens {row['input']:,} in ({row['cached']:,} cached), {row['output']:,} out"
