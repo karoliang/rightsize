@@ -2,6 +2,10 @@
 
 Date: 2026-09-21. Ticket: #9. Selected design, not a new autonomous skill executor.
 
+Implementation: caller judgment shipped in #13. The bounded local `context`
+command implements #15; see [the normalized catalog and manifest contract](../CONTEXT.md).
+It deliberately has no persistent cache and validates hashes on every invocation.
+
 ## Reuse what the active agent already knows
 
 The active coding agent has read the task, repository instructions and relevant

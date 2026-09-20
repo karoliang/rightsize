@@ -66,5 +66,9 @@ outcome records. No universal API proxy or full agent rewrite selected.
 | [#19](https://github.com/karoliang/rightsize/issues/19) | Versioned state migration, pilot and rollback | #14, #16-#18 |
 
 Execution is tracked in [#20](https://github.com/karoliang/rightsize/issues/20).
-Current slice implements #13 only. #14 is next. GitHub remains the source of
-truth for open/closed state; planning closure does not imply these features ship.
+Caller judgment (#13) and bounded context manifests (#15) are implemented.
+Account selection, scoped credentials and quota identity are implemented for #14;
+managed vault/Orca launch binding remains. Next is atomic admission (#16), then
+native adapters (#17), replay (#18), and rollout/rollback (#19). GitHub remains
+the source of truth for open/closed state; planning closure does not imply these
+features ship.

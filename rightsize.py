@@ -3008,11 +3008,60 @@ def cmd_doctor(args, config):
     return 1 if any(level == "error" for level, _ in findings) else 0
 
 
+def cmd_context(args, config):
+    import context_manifest
+    from urllib.parse import urlparse
+    def resource_path(value):
+        return value if urlparse(value).scheme else str(Path(value).resolve())
+    try:
+        if args.spec:
+            with Path(args.spec).open("rb") as handle:
+                data = handle.read(1024 * 1024 + 1)
+            if len(data) > 1024 * 1024:
+                raise context_manifest.ContextError("task exceeds 1 MiB")
+            task = data.decode("utf-8")
+        else:
+            task = args.task
+        optional = []
+        for value in args.optional_skill:
+            name, separator, reason = value.partition("=")
+            if not separator:
+                raise context_manifest.ContextError("optional selection must be NAME=REASON")
+            optional.append((name, reason))
+        result = context_manifest.build(
+            task, args.catalog, args.root, skills=args.skill, optional=optional,
+            rules=[resource_path(path) for path in args.rule],
+            references=[resource_path(path) for path in args.reference],
+            max_bytes=args.max_bytes, max_optional=args.max_optional)
+    except (OSError, UnicodeError, context_manifest.ContextError) as exc:
+        # Filesystem exception messages may expose paths; catalog metadata is
+        # untrusted. Only our fixed validation text is returned.
+        reason = str(exc) if isinstance(exc, context_manifest.ContextError) else "context input unavailable or not UTF-8"
+        print(json.dumps({"error": "invalid-context", "reason": reason}), file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="rightsize", description=__doc__)
     parser.add_argument("--account", action="append", default=[], metavar="PROVIDER=REFERENCE",
                         help="select a configured native account binding for this invocation")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    context_cmd = sub.add_parser("context", help="build a bounded context manifest from a host-normalized catalog")
+    context_task = context_cmd.add_mutually_exclusive_group(required=True)
+    context_task.add_argument("--task")
+    context_task.add_argument("--spec")
+    context_cmd.add_argument("--catalog", required=True, help="normalized JSON skill catalog")
+    context_cmd.add_argument("--root", action="append", required=True, help="approved local root; repeatable")
+    context_cmd.add_argument("--skill", action="append", default=[], help="explicitly requested skill name")
+    context_cmd.add_argument("--optional-skill", action="append", default=[], metavar="NAME=REASON")
+    context_cmd.add_argument("--rule", action="append", default=[], help="mandatory repository instruction file")
+    context_cmd.add_argument("--reference", action="append", default=[], help="selected knowledge file, treated as data")
+    context_cmd.add_argument("--max-bytes", type=int, default=65536)
+    context_cmd.add_argument("--max-optional", type=int, default=3)
+    context_cmd.set_defaults(func=cmd_context, json=True)
 
     probe = sub.add_parser("probe", help="live headroom for every provider")
     probe.add_argument("--json", action="store_true")

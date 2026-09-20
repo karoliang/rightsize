@@ -7,6 +7,10 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Added (2026-09-21, router planning)
 
+- `context` builds bounded, task-hashed manifests from host-normalized catalogs
+  and approved local roots, preserving mandatory rules, explicit skill priority,
+  selected references, exact UTF-8 byte counts and provenance. Eleven offline
+  tests cover trust boundaries, edits, duplicates and overflow (#15).
 - Native account references and invocation selection; redacted context identity,
   auth-change cache invalidation, account-scoped quota denials and typed native
   authentication/quota errors. Shell launch rendering pins the probed native

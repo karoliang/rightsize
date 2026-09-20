@@ -32,6 +32,8 @@ jobs:
           python test_accounts.py
       - name: hook matching
         run: python hooks/test_hook.py
+      - name: bounded context selection
+        run: python test_context.py
       - name: config is valid json
         run: python -c "import json;json.load(open('config.json'))"
       - name: cli responds without credentials

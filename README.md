@@ -358,6 +358,13 @@ packaged config, dicts merging key by key and a list replacing. Every command
 names the overlay it used. That file can change the commands rightsize prints,
 so treat it like a Makefile.
 
+## Selected context
+
+`rightsize context` builds a bounded manifest from a host-normalized skill catalog,
+mandatory repository instructions and selected knowledge files. Explicit skill
+selection, content hashes, provenance and approved roots are required; no scripts
+or model calls run. See [context manifests](docs/CONTEXT.md).
+
 ## Credentials
 
 Read in this order, and never written into the repository: environment
