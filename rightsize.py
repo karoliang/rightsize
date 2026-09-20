@@ -843,6 +843,7 @@ def orca_settled(run: str | None = None) -> tuple[list[dict], str | None]:
             continue
         worktree = ((worker.get("resource") or {}).get("worktreeId") or "").split("::")[-1]
         out.append({"dispatch": worker.get("dispatchId"), "state": worker.get("workerState"),
+                    "task": worker.get("taskId"),
                     "worktree": Path(worktree).name if worktree else None})
     return out, None
 
@@ -868,6 +869,39 @@ def orca_runs() -> list[str]:
     if not payload.get("ok"):
         return []
     return [r["id"] for r in ((payload.get("result") or {}).get("runs") or []) if r.get("id")]
+
+
+def orca_task_index() -> dict:
+    """Brief -> what became of it, joined across every Run.
+
+    A task carries the brief and a task id; a worker carries that task id, a
+    worktree and a settled state. Joining them gives the one key rightsize
+    shares with the orchestrator, which the worktree name is not: rightsize
+    only suggests that name and the coordinator may use another.
+    """
+    by_task = {}
+    workers, _ = orca_settled()
+    for worker in workers:
+        if worker.get("task"):
+            by_task[worker["task"]] = worker
+    index = {}
+    for run_id in orca_runs() or [None]:
+        argv = ["orca", "orchestration", "task-list", "--json"]
+        if run_id:
+            argv += ["--run", run_id]
+        try:
+            payload = json.loads(subprocess.run(argv, capture_output=True, text=True,
+                                                timeout=30).stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        for task in ((payload.get("result") or {}) if payload.get("ok") else {}).get("tasks") or []:
+            key = brief_key(task.get("spec") or "")
+            if not key:
+                continue
+            worker = by_task.get(task.get("id")) or {}
+            index[key] = {"status": (task.get("status") or "").lower(),
+                          "worktree": worker.get("worktree"), "state": worker.get("state")}
+    return index
 
 
 def orca_settled_tasks(run: str | None = None) -> set[str]:
@@ -2404,15 +2438,38 @@ def audit(config: dict, days: float = 7.0) -> dict:
     # all: audit knew which model ran, never whether it got anywhere.
     settled, _ = orca_settled()
     outcomes = {w["worktree"]: w["state"] for w in settled if w.get("worktree")}
+    # The brief is the key both sides share; the worktree name is only the one
+    # rightsize suggested.
+    by_brief = orca_task_index()
     rows = []
     for decision in decisions:
         if decision["provider"] not in OPENCODE_LAUNCHED:
-            rows.append({**decision, "verdict": "not checkable",
-                         "why": f"{decision['provider']} workers are not recorded in opencode's database"})
+            # The model cannot be confirmed for these, because only opencode
+            # keeps a local record of what it ran. The outcome still can, and
+            # for band 3 work that is the half worth knowing.
+            matched = by_brief.get(brief_key(decision.get("task") or ""))
+            outcome = (matched or {}).get("state") or outcomes.get(decision.get("name") or "")
+            if not outcome and (matched or {}).get("status") in ("completed", "failed"):
+                outcome = "succeeded" if matched["status"] == "completed" else "failed"
+            if outcome in ("failed", "stopped", "abandoned", "timed_out", "cancelled"):
+                rows.append({**decision, "verdict": "obeyed but " + outcome, "outcome": outcome,
+                             "ran_model": decision["model"], "messages": 0})
+            elif outcome == "succeeded":
+                rows.append({**decision, "verdict": "finished", "outcome": outcome,
+                             "why": f"{decision['provider']} keeps no local record of the model,"
+                                    " but the worker succeeded"})
+            else:
+                rows.append({**decision, "verdict": "not checkable",
+                             "why": f"{decision['provider']} keeps no local record of the model,"
+                                    " and no worker of that name has settled"})
             continue
+        # The worktree rightsize suggested, or the one the coordinator actually
+        # used, found by the brief they share.
         name = decision.get("name") or ""
+        actual = (by_brief.get(brief_key(decision.get("task") or "")) or {}).get("worktree")
+        wanted = {n for n in (name, actual) if n}
         found = [x for x in sessions
-                 if name and Path(x["directory"]).name == name and x["last_at"] >= decision["at"] - 300]
+                 if Path(x["directory"]).name in wanted and x["last_at"] >= decision["at"] - 300]
         if not found:
             rows.append({**decision, "verdict": "no session",
                          "why": "nothing ran in a worktree of that name; not dispatched, or dispatched elsewhere"})
@@ -2455,7 +2512,7 @@ def cmd_audit(args, config):
         print(f"no decisions recorded in the last {args.days:g} days."
               " Routing records one per dispatch; this fills as you use it.")
         return 0
-    order = {"mismatch": 0, "ran as picked": 1, "no session": 2, "not checkable": 3}
+    order = {"mismatch": 0, "ran as picked": 1, "finished": 2, "no session": 3, "not checkable": 4}
     for row in sorted(result["decisions"],
                       key=lambda r: (order.get(r["verdict"], -1), -r["at"])):
         failed = row["verdict"].startswith("obeyed but")
@@ -2468,8 +2525,9 @@ def cmd_audit(args, config):
         elif row["verdict"] == "ran as picked":
             print(f"               {row['model']}, {row['messages']} messages")
         elif row["verdict"].startswith("obeyed but"):
-            print(f"               ran {row['ran_model']} over {row['messages']} messages"
-                  f" and the worker {row['outcome']}")
+            ran = (f"ran {row['ran_model']} over {row['messages']} messages and the worker"
+                   if row["messages"] else f"the {row['provider']} worker")
+            print(f"               {ran} {row['outcome']}")
             print(f"               rightsize rerun --task {shlex.quote(row['task'])}"
                   f" --previous {row['provider']}:{row['model']}"
                   f" --because \"<what went wrong>\"")
