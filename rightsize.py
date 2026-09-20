@@ -1461,17 +1461,15 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
          names: list[str] | None = None) -> dict:
     """Route a whole fan-out at once.
 
+    Judgments are independent, so they go out in parallel; allocation is not,
+    so each task is placed against headroom the earlier ones have already
+    spent. That is what stops a hundred workers going to one provider on the
+    strength of a single quota reading.
+
     A hold taken here is a claim on capacity for a dispatch that has not
     happened yet, so it expires on the short clock: a plan that is printed and
     not run must not sit on a provider. A hold taken after a launch has actually
     run keeps the long one.
-    """
-    """Route a whole fan-out at once.
-
-    Judgments are independent, so they go out in parallel. Allocation is not:
-    each task is placed against headroom the previous ones have already spent,
-    which is what stops a hundred workers from being sent to the same provider
-    on the strength of one quota reading.
     """
     if probes is None:
         probes, fresh = probes_cached(config, max_age=0)
