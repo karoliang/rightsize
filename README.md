@@ -1,12 +1,13 @@
 # rightsize
 
-Pick the subagent provider and model for a coding task, from live quota.
+Pick the subagent provider, model and effort for a coding task, from live quota.
 
 If you run coding agents across several plans at once (an OpenCode
 subscription, Codex, Claude Code, OpenRouter's free tier), every dispatch is a
 small decision: which plan has headroom, which bucket is about to reset and
-expire unused, and how much model this particular task actually needs. This
-answers that in about two seconds, with a stated reason.
+expire unused, which one is quietly on course to run out before its window
+does, and how much model this particular task actually needs. This answers that
+in about two seconds, with a stated reason.
 
 ```
 $ rightsize route --task "add a rate limit to the signup endpoint" --orca
@@ -18,16 +19,18 @@ dispatch   band 1 -> agent opencode, model deepseek-v4.1-flash
   quota    opencode:deepseek-v4.1-flash chosen: its weekly bucket resets in 21h 50m
            with 9 points usable, so spend it before it expires
 
-orca orchestration worker-start --spec "<task>" --worktree current --agent opencode --json
-# then inside that terminal: opencode -m opencode-go/deepseek-v4.1-flash
+orca worktree create --name add-rate-limit-signup-endpoint --json > /dev/null
+HANDLE=$(orca terminal create --worktree name:add-rate-limit-signup-endpoint \
+  --command 'opencode -m opencode-go/deepseek-v4.1-flash' --json | ...)
+orca orchestration worker-start --spec "..." --worktree name:... --terminal "$HANDLE" --json
 ```
 
 The split it is built on: **quota is arithmetic, the task is a judgment.**
-Headroom, reserves, burn rate and fallback are ordinary code, because the
-numbers are already exact and a model asked to do subtraction can be wrong
-about them. What kind of work a task is, and how much model it needs, goes to
-a typed judgment. The model is never asked which provider to use, because
-providers change every few months and the questions do not.
+Headroom, reserves, pacing and fallback are ordinary code, because the numbers
+are already exact and a model asked to do subtraction can be wrong about them.
+What kind of work a task is, and how much model it needs, goes to a typed
+judgment. The model is never asked which provider to use, because providers
+change every few months and the questions do not.
 
 It decides and steps out. It is not a proxy and never sits in the token path.
 
@@ -61,198 +64,89 @@ matters, at roughly three cents per thousand routing decisions.
 # Is anything wrong before I rely on this?
 rightsize doctor
 
-# What is left, everywhere.
+# What is left, everywhere, in a unit you can think in.
 rightsize probe
 
 # Decide one dispatch.
 rightsize route --task "add a rate limit to the signup endpoint"
-rightsize route --spec task.md --orca          # print the Orca worker-start line
-rightsize route --spec task.md --launcher shell # print a plain CLI invocation
-rightsize route --spec task.md --json          # for scripts; exit 1 if blocked
+rightsize route --spec task.md --orca            # print the launch commands
+rightsize route --spec task.md --launcher shell  # a plain CLI invocation
+rightsize route --spec task.md --json            # for scripts; exit 1 if blocked
 
 # Decide a whole fan-out, spread across plans, in waves.
-rightsize plan --dir specs/ --launcher orca     # a file per task
-rightsize plan --specs tasks.txt                # or one task per line
-
-# Did the workers run what was picked for them?
-rightsize audit
-
-# Tell it how a dispatch went, so the next one knows.
-rightsize report opencode --done               # that worker finished, release its capacity
-rightsize report opencode --quota-error        # skip that plan until its bucket resets
+rightsize plan --dir specs/ --launcher orca      # a file per task
+rightsize plan --specs tasks.txt                 # or one task per line
 
 # It came back and the work does not hold up: judge again, knowing that.
 rightsize rerun --spec task.md --previous opencode:deepseek-v4.1-flash \
   --because "changed the response shape and could not make the tests pass"
+
+# Tell it how dispatches went.
+rightsize report --from-orca                     # release everything that has settled
+rightsize report opencode --done                 # or release one by hand
+rightsize report opencode --quota-error          # skip that plan until its bucket resets
+
+# Did the workers run what was picked, and did it get anywhere?
+rightsize audit
+
+# What does a dispatch actually cost? Measure it instead of guessing.
+rightsize calibrate                              # --apply writes it into config.json
 
 # What the catalogues offer, and what got cheaper overnight.
 rightsize models
 rightsize deals
 ```
 
-## Effort, and changing your mind later
+## What is left, in a unit you can think in
 
-The band picks the model. **Effort** is the second dial on that model, for the
-CLIs that take it (Codex and Claude here, configured per band in
-`config.json`). Three things turn it up without changing the model: a wide blast
-radius, a step that cannot be undone, and a retry after an attempt that failed.
-A provider with no effort setting gets no flag, rather than a made-up one.
-
-The first judgment is made from the brief alone. What the work turns into is
-better evidence, and `rerun` uses it:
+Every plan meters something different: percent of a rolling week, dollars of
+credit, requests a day, tokens against a declared budget. Those cannot be
+compared as they stand, and none of them is the question being asked. Once a
+dispatch has a measured cost they all convert into the same one:
 
 ```
-$ rightsize rerun --spec task.md --previous opencode:deepseek-v4.1-flash \
-    --because "changed the response shape and could not make the tests pass after three tries"
-rerun      opencode:deepseek-v4.1-flash did not finish it: changed the response shape ...
-dispatch   band 2 -> agent opencode, model minimax-m3
-  why      a previous attempt was band 1, so this starts at band 2
+opencode    ok       usable 8 pts     binding weekly    resets 18h 30m
+                     about 23 band 1, 7 band 3 dispatches left before the reserve
+    rolling              used 17%     live
+    weekly               used 77%     live
+    monthly              used 38%     live
+                         3.7x over pace, projects to 369% by reset with 90% of the window left
+codex       ok       usable 89 pts    binding primary-10080m    resets 6d 21h
+                     about 74 band 1, 24 band 3 dispatches left before the reserve
 ```
 
-It judges the task again with the outcome attached, starts one band above the
-attempt that failed, raises effort a level, and takes the model that just failed
-out of the running. A task is allowed to turn out harder than it read.
-
-## Fanning out: ten agents, or a hundred
-
-A quota reading says what has been billed, not what is about to be. Route a
-hundred tasks inside one cache window and all hundred see the same untouched
-headroom, so all hundred pick the same provider. That was measured, not
-theorised: 100 tasks, 100 dispatches to one plan, `usable` unchanged at 9
-points throughout.
-
-`rightsize plan` routes the batch instead of the task:
-
-```
-$ rightsize plan --specs tasks.txt --reserve
-   0  w1  band 1  opencode:deepseek-v4.1-flash                       add cursor pagination to GET /api/invoices
-   2  w1  band 3  opencode:glm-5.3                          CONFIRM  drop the legacy invoices_v1 table
-   7  -   band 1  -                                         BLOCKED  make the change we discussed
-  10  w1  band 3  claude:claude-opus-5                      CONFIRM  rotate the Stripe webhook secret
-
-waves (each one runs after the previous reports done)
-  wave 1:  37 tasks  (openrouter x12, opencode x10, opencode_zen x8, codex x4, claude x3)
-  wave 2:  37 tasks
-  wave 3:  26 tasks
-```
-
-What makes that work:
-
-- **Judgments in parallel, allocation in sequence.** The five questions are
-  independent per task, so they go out concurrently (`--concurrency`, default
-  8; 100 tasks judge in about ten seconds and cost roughly three cents). Each
-  task is then placed against headroom the earlier ones have already spent.
-- **Reservations.** A decided-but-unfinished dispatch holds an estimated cost
-  (`dispatch_cost[provider] * band`) so it stops being invisible.
-  `rightsize report <provider> --done` gives it back, and a reservation expires
-  on its own after 30 minutes so a worker that dies silently cannot hold a plan
-  hostage.
-- **An in-flight cap per provider** (`max_inflight`). A full provider is
-  blocked like one below its reserve, so the next task goes elsewhere instead of
-  queueing. This is what spreads the fan-out; a quota debit alone would not,
-  since a free provider has no quota to debit.
-- **Waves.** When everything is full, remaining tasks wait for the next wave
-  rather than being sent to a model that suits them worse. A wave returns the
-  in-flight slots but keeps every quota debit, so a plan runs out of capacity
-  eventually instead of scheduling forever.
-
-One rule deliberately inverts here. A single `route` never strands a task: a
-full band drops a tier and then escalates. Inside a batch there is a next wave,
-so `plan` holds the task instead. Sending ordinary implementation work to a
-band 3 model because the cheap plans are momentarily busy is the expensive
-mistake this tool exists to prevent, and across a hundred tasks it is expensive
-a hundred times over.
-
-## Check that the pick was actually used
-
-For opencode the model is chosen inside the terminal, not by a launch flag, so
-an orchestrator records the provider and a null model. That makes two very
-different things look identical: the pick being applied, and the pick being
-ignored while the worker runs whatever `~/.config/opencode/opencode.json`
-names. Six real workers in a row ran the config default, and there was no way
-to tell which had happened.
-
-Two changes close that. The Orca launcher now **binds the model at launch**, by
-creating the terminal with `opencode -m <model>` and attaching the worker to
-it, rather than printing the model as a line for a human to run afterwards.
-(`OPENCODE_MODEL` does not work: it is accepted and ignored.) And every routing
-decision is logged, so it can be compared with what actually ran:
-
-```
-$ rightsize audit
-ran as picked    12m ago  band 1  add-cursor-pagination-get-412
-                 deepseek-v4.1-flash, 58 messages
-MISMATCH          2h ago  band 3  rotate-stripe-webhook-secret
-                 picked opencode:glm-5.3, ran deepseek-v4.1-flash over 41 messages
-held             opencode 1.02 points for 15m, nothing running: rightsize report opencode --done
-```
-
-The session data comes from opencode's own database, read-only. Exit code 1 on
-any mismatch, so a coordinator can stop and look.
-
-## Wire it into your agent
-
-The decision is only worth having if it happens on every dispatch, not on the
-ones you remember. `hooks/claude_pretooluse.py` is a working Claude Code
-PreToolUse hook: it watches for Bash commands that start a worker, routes the
-task, and injects the answer as context.
-
-```json
-{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
-  {"type": "command", "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py", "timeout": 25}
-]}]}}
-```
-
-It routes with `--reserve`, so twenty workers launched one after another are
-not all handed the same untouched headroom, and it tells the agent to run
-`rightsize report <provider> --done` when the worker finishes.
-
-It is advisory by construction: it prints, it never blocks, and it exits 0 on
-every failure path. A routing helper that can stop a dispatch is a routing
-helper that can strand a run. Ports to other orchestrators are welcome, and
-[docs/ADAPTERS.md](docs/ADAPTERS.md) has the JSON contract they build on.
-
-## Where the quota numbers come from
-
-| Provider | Source | Quality |
-| --- | --- | --- |
-| OpenCode | `GET https://opencode.ai/zen/go/v1/usage` returns rolling, weekly and monthly percent with reset times | exact, live |
-| Codex | `rate_limits` in the newest `~/.codex/sessions/**/rollout-*.jsonl` | exact, but only written when Codex runs, so it is a lower bound |
-| Claude Code | token counts reconstructed from `~/.claude/projects/**/*.jsonl` | estimate; needs a budget in `config.json` before it counts as headroom |
-| OpenRouter | `GET https://openrouter.ai/api/v1/key` for credit, plus a local daily counter for free requests | live for credit, local for the free-tier cap |
-
-The differences matter and the policy keeps them. An exact number can be spent
-down to a thin reserve. An estimate cannot, so a provider whose headroom is
-unknown is only ever used for work that has already earned an escalation.
-
-Probes run in parallel and a reading is cached for 60 seconds, because a
-dispatch takes minutes and a quota number from a minute ago is the same number.
-`rightsize probe` and `route --fresh` always re-read.
-
-## The policy, in five rules
+## The policy, in six rules
 
 1. **Band from the judgment.** Mechanical and ordinary implementation sit in
    band 1. Design, diagnosis and anything touching auth, money, migrations or
    published output start at band 3. A large blast radius raises the band.
 2. **Eligibility is a filter, not an opinion.** A provider qualifies when its
-   binding bucket has headroom left above its configured reserve.
-3. **Spend the bucket that expires first.** Among candidates that all clear the
-   band, take the one whose quota resets soonest. Capacity that resets in three
-   hours is about to be thrown away; a monthly bucket is the scarce thing.
-4. **Drop a tier before the wall, not at it.** If the current burn rate
-   projects past 100 percent before the reset, that provider stops being
-   offered for cheap work while it still has room for the expensive work.
-5. **Fallback is code.** A worker that comes back with a quota error is reported
-   with `rightsize report`, which marks that provider exhausted until its known
-   reset; the same spec then routes to the next eligible one.
+   binding bucket has headroom above its configured reserve, and can cover this
+   dispatch's estimated cost.
+3. **Spend the bucket that expires first, for cheap work only.** Capacity that
+   resets in three hours is about to be thrown away. But the way to waste it is
+   to spend it on the most expensive rung, so **band 3 goes to the roomiest
+   plan** instead, which would otherwise sit idle.
+4. **Pace every window, not just the binding one.** The windows are nested:
+   every token against the weekly is also against the monthly, so a weekly that
+   looks cheap to empty can be what exhausts the month. A window on course to
+   pass 100 per cent takes its provider out of the cheap bands. Whole-window
+   pace catches the average; a burn rate measured between two readings catches
+   the acceleration an average hides.
+5. **Nothing is spent twice.** A decided dispatch holds its estimated cost
+   until the work settles, so a fan-out cannot hand twenty workers the same
+   untouched headroom.
+6. **Fallback is code.** A quota error takes a provider out until its known
+   reset; a full band waits for the next wave rather than being answered with a
+   model that suits it worse.
 
 Price is the burn multiplier on a percent-bucket subscription: a model at
 `$3/M` input eats your weekly allowance twenty times faster than one at
 `$0.15/M`. That is why band 1 is the default and escalation needs a reason.
 
 [docs/POLICY.md](docs/POLICY.md) walks the whole decision, including the
-arithmetic for burn rate and the rule that keeps an estimate from masquerading
-as spendable capacity.
+arithmetic for pacing and the rule that keeps an estimate from masquerading as
+spendable capacity.
 
 ## The judgment
 
@@ -269,7 +163,9 @@ One request, five independent questions over the same state, answered by
 
 `spec_complete` earns its place independently of routing: a low answer blocks
 the dispatch entirely, because a brief that relies on context the worker does
-not have will fail on any provider.
+not have will fail on any provider. Routed from their titles alone, three real
+issues scored 0.29, 0.57 and 0.30; the same work, specified against the
+repository's own records, scored 0.87.
 
 Without `TYPESAFE_API_KEY` the tool falls back to a crude keyword heuristic and
 says so in its output, so a route made without a judgment is never mistaken for
@@ -283,8 +179,7 @@ exactly like a question with nothing to report.
 
 The first version of `spec_complete` failed that check. Its criteria asked
 whether "every file, name, expected behaviour and acceptance check needed is
-stated", which a literal reader answers "no" for any real task, since an
-implementation always touches something the brief did not name:
+stated", which a literal reader answers "no" for any real task:
 
 | fixture | original wording | current wording |
 | --- | --- | --- |
@@ -293,46 +188,183 @@ implementation always touches something the brief did not name:
 | "add pagination to the invoices endpoint" | 0.07 | 0.61 |
 | a fully specified task naming repo, file, params and tests | 0.11 | 0.76 |
 
-Separation went from 0.09 to 0.49. Nothing changed but the wording: the
-criteria now describe what the engineer needs in order to start, and grant them
-the codebase and their own judgment for the rest.
+Separation went from 0.09 to 0.49 with nothing changed but the wording.
 
-Two fixture labels were wrong rather than the model. "fix the invoices thing"
-was expected to be ordinary implementation and came back `high_stakes`, which
-is defensible when the only noun is money-adjacent, and its size came back
-mid-scale, which is right for unknown scope. Both expectations were removed
-rather than argued with.
+## Effort, and changing your mind later
+
+The band picks the model. **Effort** is the second dial on that model, for the
+CLIs that take it, configured per band in `config.json`. Three things turn it
+up without changing the model: a wide blast radius, a step that cannot be
+undone, and a retry after an attempt that failed. A provider with no effort
+setting gets no flag rather than a made-up one.
+
+The first judgment is made from the brief alone. What the work turns into is
+better evidence, and `rerun` uses it: it judges again with the outcome
+attached, starts one band above the attempt that failed, raises effort, and
+takes the model that just failed out of the running.
+
+## Fanning out: ten agents, or a hundred
+
+A quota reading says what has been billed, not what is about to be. Route a
+hundred tasks inside one cache window and all hundred see the same untouched
+headroom, so all hundred pick the same provider. That was measured, not
+theorised: 100 tasks, 100 dispatches to one plan, `usable` unchanged
+throughout.
+
+```
+$ rightsize plan --dir specs/ --launcher orca
+   0  w1  band 1  opencode:deepseek-v4.1-flash                 add cursor pagination to GET /api/invoices
+   2  w1  band 3  claude:claude-opus-5 (xhigh)        CONFIRM  rotate the Stripe webhook secret
+   7  -   band 1  -                                   BLOCKED  make the change we discussed
+
+waves (each one runs after the previous reports done)
+  wave 1:  37 tasks  (openrouter x12, opencode x10, opencode_zen x8, codex x4, claude x3)
+  wave 2:  37 tasks
+  wave 3:  26 tasks
+```
+
+- **Judgments in parallel, allocation in sequence.** 100 tasks judge in about
+  ten seconds and cost roughly three cents. Each is then placed against
+  headroom the earlier ones have already spent.
+- **Reservations.** A decided but unfinished dispatch holds an estimated cost.
+  A hold taken before a launch (`plan --reserve`) expires on a short clock,
+  because a plan may be printed and never run; a hold taken after a launch has
+  actually run keeps the long one. `rightsize report --from-orca` releases
+  everything the orchestrator says has settled, across every Run.
+- **An in-flight cap per provider** (`max_inflight`). This is what spreads a
+  fan-out; a quota debit alone would not, since a free provider has no quota to
+  debit. Two coordinators cannot both take the last slot: the count is checked
+  inside the same lock that writes the hold, and the loser routes again.
+- **Waves.** When everything is full, remaining tasks wait rather than being
+  sent to a model that suits them worse. A wave returns the in-flight slots but
+  keeps every quota debit, so a plan runs out of capacity eventually instead of
+  scheduling forever.
+
+One rule deliberately inverts here. A single `route` never strands a task: a
+full band drops a tier and then escalates. Inside a batch there is a next wave,
+so `plan` holds the task instead.
+
+## Check that the pick was used, and that it worked
+
+For opencode the model is chosen inside the terminal, not by a launch flag, so
+an orchestrator records the provider and a null model. That makes two very
+different things look identical: the pick being applied, and the pick being
+ignored while the worker runs whatever `~/.config/opencode/opencode.json`
+names. Six real workers in a row ran the config default, and there was no way
+to tell which had happened.
+
+So the Orca launcher **binds the model at launch**, creating the terminal with
+`opencode -m <model>` and attaching the worker to it, rather than printing the
+model as a line for a human to run afterwards. (`OPENCODE_MODEL` does not work:
+it is accepted and ignored.) And every routing decision is logged, so it can be
+compared with what actually ran and what became of it:
+
+```
+$ rightsize audit
+ran as picked     12m ago  band 1  add-cursor-pagination-get-412
+                  deepseek-v4.1-flash, 58 messages
+OBEYED BUT FAILED  2h ago  band 3  rotate-stripe-webhook-secret
+                  ran claude-opus-5 over 41 messages and the worker failed
+                  rightsize rerun --task '...' --previous claude:claude-opus-5 --because "..."
+```
+
+Decisions are joined to outcomes by the **brief**, which both sides share,
+rather than by a worktree name that rightsize only suggests. A route made to
+read the numbers is recorded as such, so it is never counted as a dispatch that
+went missing. [docs/OUTCOMES.md](docs/OUTCOMES.md) inventories every signal
+this can see, with a real value read for each, and states plainly what it still
+cannot know: whether a different model would have done better.
+
+## What a dispatch costs, measured
+
+`dispatch_cost` was the one number in the policy with nothing behind it, and a
+fan-out reserves capacity with it. It does not have to stay a guess, and the
+measurement needs no history: a bucket's window already has a start, and the
+sessions inside it are the denominator.
+
+```
+$ rightsize calibrate
+opencode
+  weekly window opened 6d 4h ago, 226 dispatches since
+  measured 0.34 points per dispatch, config says 0.6
+  -> set dispatch_cost.opencode to 0.34
+```
+
+A percentage point is not the same size in every window: one dispatch is 2.3
+per cent of a five hour rolling allowance and 0.44 per cent of a weekly one, so
+calibration uses the tightest window lasting a day or more and says which.
+Claude publishes no percentage, so it reports tokens and suggests a
+`weekly_token_budget` that leaves room above the reserve rather than one that
+blocks Claude the moment it is set.
+
+## Wire it into your agent
+
+The decision is only worth having if it happens on every dispatch, not on the
+ones you remember. `hooks/claude_pretooluse.py` is a working hook for Claude
+Code and Codex, which share a wire format:
+
+```json
+{"hooks": {
+  "PreToolUse":  [{"matcher": "Bash", "hooks": [{"type": "command",
+     "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py"}]}],
+  "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command",
+     "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py"}]}]}}
+```
+
+It routes on PreToolUse and injects the decision as context; it reserves on
+PostToolUse, after the launch has actually run, because a command that was
+drafted, refused or failed must not hold a plan. It recognises a worker started
+from a task id as well as one carrying a brief, and stays silent on text that
+merely contains a launch line, which is why it has its own test suite.
+
+It is advisory by construction: it prints, it never blocks, and it exits 0 on
+every failure path. A routing helper that can stop a dispatch is a routing
+helper that can strand a run.
+
+## Where the quota numbers come from
+
+| Provider | Source | Quality |
+| --- | --- | --- |
+| OpenCode | `GET /zen/go/v1/usage`, rolling, weekly and monthly percent with reset times | exact, live |
+| Codex | `rate_limits` in the newest rollout under any Codex home | exact when written, and only an interactive session writes it |
+| Claude Code | tokens reconstructed from `~/.claude/projects/**/*.jsonl` | estimate; needs a budget in `config.json` before it counts as headroom |
+| OpenRouter | `GET /api/v1/key` for the key's own limit and the live free-request counter | live |
+
+The differences matter and the policy keeps them. An exact number can be spent
+down to a thin reserve. An estimate cannot, so a provider whose headroom is
+unknown is only ever used for work that has already earned an escalation.
+
+**A reading has an age.** Codex writes its numbers only when it runs, so
+between sessions the file ages while the real quota moves. Past six hours it is
+treated as unknown, which means escalation-only rather than blocked, because an
+old high reading is the dangerous direction: it looks authoritative and removes
+a provider that may have reset. Codex homes are discovered on disk as well as
+read from `CODEX_HOME`, since an orchestrator may give each account its own and
+a launchd job inherits nothing.
+
+Probes run in parallel and a reading is cached for 60 seconds, because a
+dispatch takes minutes. `rightsize probe` and `route --fresh` always re-read.
 
 ## Configuration
 
 Everything tunable is in `config.json`: reserves per provider, the ordered
-candidate ladder per band, the review ladder, thresholds, cache lifetime, and
-the launcher templates. Edit that, not the code.
+candidate ladder per band, the review ladder, thresholds, effort per band,
+dispatch costs, in-flight caps, cache and reservation lifetimes, and the
+launcher templates. Edit that, not the code.
 
-Claude Code publishes no quota API, so `claude.weekly_token_budget` is `null`
-by default and Claude stays escalation-only. Set a token budget to let it take
-ordinary work; `rightsize probe` prints the raw token counts to pick one from.
+A project can pin its own rules without touching anyone's home directory: the
+nearest `.rightsize.json` at or above the working directory is merged over the
+packaged config, dicts merging key by key and a list replacing. Every command
+names the overlay it used. That file can change the commands rightsize prints,
+so treat it like a Makefile.
 
 ## Credentials
 
-Read in this order, and never written into the repository:
-
-1. Environment variables.
-2. [Infisical](https://infisical.com), when the repo is linked with
-   `infisical init` and the CLI is installed.
-3. For OpenCode only, the existing `~/.local/share/opencode/auth.json` that the
-   OpenCode CLI already maintains.
-
-| Variable | Needed for |
-| --- | --- |
-| `TYPESAFE_API_KEY` | the Jev judgment; without it the heuristic runs |
-| `OPENROUTER_API_KEY` | OpenRouter credit and model catalogue |
-| `OPENCODE_API_KEY` | OpenCode Go quota; falls back to the CLI's own auth file |
-| `OPENCODE_ZEN_API_KEY` | the OpenCode Zen catalogue; falls back to the same file |
-
-Codex and Claude Code need no credential here: both are read from files their
-own CLIs already write. Full instructions per provider, including costs and
-free-tier limits, are in [docs/KEYS.md](docs/KEYS.md).
+Read in this order, and never written into the repository: environment
+variables; [Infisical](https://infisical.com) when the repo is linked; and for
+OpenCode the auth file its own CLI already maintains. Codex and Claude Code
+need no credential here. Full instructions, costs and free-tier limits are in
+[docs/KEYS.md](docs/KEYS.md).
 
 ## Daily refresh
 
@@ -350,15 +382,17 @@ launchctl load ~/Library/LaunchAgents/com.rightsize.refresh.plist
 
 ```bash
 python3 test_rightsize.py    # policy, offline, no tokens
+python3 hooks/test_hook.py   # what the dispatch hook does and does not match
 ./eval_questions.py          # the judgments, needs TYPESAFE_API_KEY, costs a fraction of a cent
 ```
 
-Synthetic quota states and judgments, asserted end to end. No network, no
-tokens spent, no dependency on the machine's own quota. Every policy rule above
-has a case, including the ones that are easy to get wrong: unknown headroom must
-not be treated as free capacity, an exhausted ladder must escalate rather than
-return nothing, and a reported quota error must take a provider out of the next
-route.
+Synthetic quota states asserted end to end, with no network and no dependency
+on this machine's own quota. Two suites of them, `adversarial()` and
+`adversarial_two()`, exist because workers were dispatched to attack the policy
+and returned twelve cases where two rules met and produced an answer nobody
+would defend. Every one is kept. A twelve-process case covers the state file,
+which once lost eleven of twelve concurrent writes and corrupted itself; writes
+are now atomic and serialised by a lock.
 
 ## Documentation
 
@@ -367,9 +401,13 @@ route.
   breaks without it.
 - [docs/ADAPTERS.md](docs/ADAPTERS.md): adding a launcher (config), a caller
   (JSON), or a provider (one function).
+- [docs/OUTCOMES.md](docs/OUTCOMES.md): every signal available about a
+  dispatch, and what none of them can prove.
+- [docs/STATE.md](docs/STATE.md): the state file under concurrent access.
+- [docs/SIMPLIFY.md](docs/SIMPLIFY.md): which rules still earn their place.
 - [CONTRIBUTING.md](CONTRIBUTING.md): the design rules, and the evidence a
   question change needs.
-- [SECURITY.md](SECURITY.md): what this reads, what it writes, what it sends.
+- [SECURITY.md](SECURITY.md): what this reads, writes and sends.
 
 ## Licence
 
