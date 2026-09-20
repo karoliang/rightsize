@@ -104,6 +104,21 @@ plans genuinely cannot afford (wait for a reset, or add a provider).
 Exit code is 1 when anything is blocked or unplaced, so a script can stop and
 look.
 
+### Rerouting after an attempt
+
+```bash
+rightsize rerun --spec task.md --previous opencode:deepseek-v4.1-flash \
+  --because "could not make the handler tests pass" --json
+```
+
+The result is an ordinary decision object with two extra fields, `previous` and
+`reason_for_rerun`. The outcome text is appended to the state the judgment sees,
+the band starts one above the failed attempt's, effort goes up a level, and the
+previous `provider:model` is excluded from every ladder.
+
+An integration that watches worker exits can call this automatically: a non-zero
+exit with test output is exactly the `--because` this wants.
+
 ### Telling it a dispatch finished
 
 Capacity held by a reservation comes back three ways: explicitly, by expiry, or

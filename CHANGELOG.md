@@ -33,6 +33,20 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   inside one cache window all went to the same provider: measured, not
   theorised.
 
+- Effort is now a per-provider, per-band setting (`config.effort`) that rises a
+  level for a wide blast radius, an irreversible step, or a retry. Providers
+  without an effort knob get no flag instead of a default one, and the Orca and
+  shell launchers pass `--effort` where it applies.
+- `rightsize rerun --because "<what happened>"` reroutes a task that has already
+  been tried: it judges again with the outcome attached, starts one band above
+  the failed attempt, raises effort, and excludes the model that failed.
+- `hooks/test_hook.py`, because the hook's matching was wrong twice in the
+  permissive direction: a config file full of launcher templates and a heredoc
+  writing documentation both read as dispatches. Heredoc bodies are now
+  stripped, a launch must sit at the start of a command segment, text-producing
+  commands (echo, grep, git commit) are skipped, and a placeholder like
+  `<self-contained task>` is not treated as a brief.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of

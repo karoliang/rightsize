@@ -78,12 +78,12 @@
     "orca": {
       "default": "orca orchestration worker-start --spec {spec} --worktree current --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
       "codex": "orca orchestration worker-start --spec {spec} --worktree current --agent codex --json --model {model} --effort {effort}",
-      "claude": "orca orchestration worker-start --spec {spec} --worktree current --agent claude --json --model {model}"
+      "claude": "orca orchestration worker-start --spec {spec} --worktree current --agent claude --json --model {model} --effort {effort}"
     },
     "shell": {
       "default": "opencode run -m {model_ref} {spec}",
       "codex": "codex exec --model {model} -c model_reasoning_effort={effort} {spec}",
-      "claude": "claude -p --model {model} {spec}"
+      "claude": "claude -p --model {model} --effort {effort} {spec}"
     }
   },
   "dispatch_cost": {
@@ -105,5 +105,18 @@
   },
   "_comment_max_inflight": "How many dispatches may be in flight on one provider at once. This is the spread lever for a large fan-out: when a provider is full the next task goes to the next eligible one instead of queueing behind it.",
   "reservation_ttl_seconds": 1800,
-  "_comment_reservation": "How long a reservation holds capacity when nobody reports the dispatch done. A worker that dies silently must not hold a plan hostage, so this expires on its own; `rightsize report <provider> --done` releases it immediately."
+  "_comment_reservation": "How long a reservation holds capacity when nobody reports the dispatch done. A worker that dies silently must not hold a plan hostage, so this expires on its own; `rightsize report <provider> --done` releases it immediately.",
+  "effort": {
+    "_comment": "Reasoning effort per band, for the CLIs that take the knob. The band picks the model; effort is the second dial on that model. A wide blast radius, an irreversible step, or a retry after a failed attempt each raise it one level. Providers absent here get no effort flag at all. Levels: low, medium, high, xhigh, max.",
+    "codex": {
+      "1": "low",
+      "2": "medium",
+      "3": "high"
+    },
+    "claude": {
+      "1": "low",
+      "2": "medium",
+      "3": "high"
+    }
+  }
 }

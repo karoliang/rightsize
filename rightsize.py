@@ -752,6 +752,38 @@ def band_for(judgment: dict, config: dict) -> tuple[int, list[str]]:
     return band, reasons
 
 
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+
+
+def effort_for(config: dict, cand: dict, band: int, judgment: dict, attempt: int = 0) -> tuple[str | None, str | None]:
+    """How hard the worker should think, for providers that take the knob.
+
+    The band says which model. Effort is the second dial on the same model, and
+    the things that turn it up are not the things that pick the model: a wide
+    blast radius and a step that cannot be undone both want more care from
+    whatever is already running, and a retry wants more than the attempt that
+    just failed. Providers with no effort setting get None and the launcher
+    leaves the flag off.
+    """
+    table = (config.get("effort") or {}).get(cand["provider"]) or {}
+    base = cand.get("effort") or table.get(str(band))
+    if not base:
+        return None, None
+    index = EFFORTS.index(base) if base in EFFORTS else 0
+    thresholds = config.get("thresholds", {})
+    bump, why = attempt, []
+    if attempt:
+        why.append(f"attempt {attempt + 1}")
+    if (judgment.get("size", 0) >= float(thresholds.get("size_escalates_band", 1.5))
+            or judgment.get("destructive", 0) >= float(thresholds.get("destructive_min", 0.5))):
+        bump += 1
+        why.append("wide blast radius or an irreversible step")
+    raised = EFFORTS[min(index + bump, len(EFFORTS) - 1)]
+    if raised == base:
+        return base, None
+    return raised, f"effort {base} -> {raised}: " + ", ".join(why)
+
+
 def parse_candidate(text: str) -> dict:
     parts = text.split(":")
     if len(parts) == 2:
@@ -764,12 +796,17 @@ def parse_candidate(text: str) -> dict:
     return {"provider": provider, "model": model, "effort": effort}
 
 
-def pick(candidates: list[str], elig: dict, band: int) -> tuple[dict | None, list[str]]:
+def pick(candidates: list[str], elig: dict, band: int,
+         exclude: set[str] | None = None) -> tuple[dict | None, list[str]]:
     """Among eligible candidates, spend the bucket that expires first."""
     notes = []
     usable = []
+    exclude = exclude or set()
     for index, text in enumerate(candidates):
         cand = parse_candidate(text)
+        if f"{cand['provider']}:{cand['model']}" in exclude:
+            notes.append(f"{text} skipped: it already had a go at this task")
+            continue
         info = elig.get(cand["provider"])
         if not info:
             continue
@@ -939,7 +976,8 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
     }
 
 
-def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True) -> dict:
+def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
+           floor_band: int = 0, exclude: set[str] | None = None, attempt: int = 0) -> dict:
     """One decision against one eligibility snapshot.
 
     `fallback` is the difference between a single dispatch and a wave of them.
@@ -951,6 +989,9 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True) -> d
     busy is the expensive mistake this tool exists to prevent.
     """
     band, reasons = band_for(judgment, config)
+    if floor_band and band < floor_band:
+        band = min(3, floor_band)
+        reasons.append(f"a previous attempt was band {floor_band - 1}, so this starts at band {band}")
     thresholds = config.get("thresholds", {})
     blocked = None
     if judgment["spec_complete"] < float(thresholds.get("spec_complete_min", 0.5)):
@@ -960,7 +1001,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True) -> d
         )
 
     ladders = config["bands"]
-    chosen, notes = pick(ladders[str(band)], elig, band)
+    chosen, notes = pick(ladders[str(band)], elig, band, exclude)
     used_band = band
     if chosen is None and not fallback:
         reasons.append(f"band {band} is full; holding this task for a later wave "
@@ -968,13 +1009,19 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True) -> d
     while fallback and chosen is None and used_band > 1:
         used_band -= 1
         reasons.append(f"nothing eligible in band {used_band + 1}, dropping to band {used_band}")
-        chosen, more = pick(ladders[str(used_band)], elig, used_band)
+        chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude)
         notes += more
     if fallback and chosen is None and band < 3:
         reasons.append("nothing eligible below band 3, escalating instead of failing")
-        chosen, more = pick(ladders["3"], elig, 3)
+        chosen, more = pick(ladders["3"], elig, 3, exclude)
         notes += more
         used_band = 3
+
+    if chosen:
+        chosen = dict(chosen)
+        chosen["effort"], effort_reason = effort_for(config, chosen, used_band, judgment, attempt)
+        if effort_reason:
+            reasons.append(effort_reason)
 
     review = None
     if judgment["second_opinion"] >= float(thresholds.get("second_opinion_min", 0.6)) and chosen:
@@ -1010,6 +1057,38 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True) -> d
             for name, info in elig.items()
         },
     }
+
+
+def rerun(spec: str, because: str, previous: str | None, config: dict,
+          probes: dict | None = None) -> dict:
+    """Route a task that has already been tried and did not work.
+
+    The first judgment was made from the brief alone. This one gets to see what
+    happened, which is usually the more informative state: a worker that could
+    not make the tests pass is evidence about the task, not only about the
+    model. The previous candidate is taken out of the running and the band
+    starts one above where it was, so a retry cannot quietly land on the same
+    rung that already failed.
+    """
+    if probes is None:
+        probes, fresh = probes_cached(config, max_age=None)
+    else:
+        fresh = False
+    elig = eligibility(config, probes, record=fresh)
+    state = f"{spec}\n\n[Previous attempt]\nmodel: {previous or 'unknown'}\noutcome: {because}"
+    judgment = judge(state)
+    floor = 0
+    if previous:
+        for band_id, ladder in config["bands"].items():
+            if any(parse_candidate(c)["provider"] + ":" + parse_candidate(c)["model"] == previous
+                   for c in ladder):
+                floor = int(band_id) + 1
+                break
+    decision = decide(judgment, config, elig, floor_band=floor,
+                      exclude={previous} if previous else None, attempt=1)
+    decision["reason_for_rerun"] = because
+    decision["previous"] = previous
+    return decision
 
 
 def launch_fields(decision: dict, config: dict, spec_path: str | None) -> dict:
@@ -1256,10 +1335,23 @@ def cmd_deals(args, config):
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve)
+    return print_decision(decision, args, config)
+
+
+def cmd_rerun(args, config):
+    spec = args.task or Path(args.spec).read_text()
+    decision = rerun(spec, args.because, args.previous, config)
+    return print_decision(decision, args, config)
+
+
+def print_decision(args_decision, args, config):
+    decision = args_decision
     if args.json:
         print(json.dumps(decision, indent=2))
         return 0
     judgment = decision["judgment"]
+    if decision.get("previous"):
+        print(f"rerun      {decision['previous']} did not finish it: {decision['reason_for_rerun']}")
     print(f"judgment   {judgment['source']}")
     print(
         f"           tier={judgment['tier']} size={judgment['size']:.2f} "
@@ -1287,10 +1379,10 @@ def cmd_route(args, config):
         print(f"  why      {reason}")
     for note in decision["notes"]:
         print(f"  quota    {note}")
-    launcher = "orca" if args.orca else args.launcher
+    launcher = "orca" if getattr(args, "orca", False) else args.launcher
     if launcher:
         print()
-        print(launch_command(decision, config, launcher, args.spec))
+        print(launch_command(decision, config, launcher, getattr(args, "spec", None)))
     return 0 if cand and not decision["blocked"] else 1
 
 
@@ -1433,6 +1525,18 @@ def main(argv=None):
     route_cmd.add_argument("--reserve", action="store_true",
                            help="hold this dispatch's estimated cost until it is reported done")
     route_cmd.set_defaults(func=cmd_route)
+
+    rerun_cmd = sub.add_parser("rerun", help="route again after an attempt did not work out")
+    rerun_group = rerun_cmd.add_mutually_exclusive_group(required=True)
+    rerun_group.add_argument("--task", help="the same task description")
+    rerun_group.add_argument("--spec", help="the same spec file")
+    rerun_cmd.add_argument("--because", required=True,
+                           help="what happened: the failure, the review finding, what it got stuck on")
+    rerun_cmd.add_argument("--previous", help="provider:model that already tried, so it is not picked again")
+    rerun_cmd.add_argument("--json", action="store_true")
+    rerun_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
+    rerun_cmd.add_argument("--launcher", help="also print the launch command")
+    rerun_cmd.set_defaults(func=cmd_rerun)
 
     plan_cmd = sub.add_parser("plan", help="route a whole fan-out at once, spreading it across plans")
     plan_cmd.add_argument("--specs", help="file with one task per line")

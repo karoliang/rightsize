@@ -28,18 +28,58 @@ ROOT = Path(__file__).resolve().parent.parent
 RIGHTSIZE = ROOT / "rightsize"
 TIMEOUT = 20
 
-# Commands that mean "a worker is about to start". Extend freely: a miss here
-# costs nothing but the advice.
-LAUNCHERS = re.compile(
-    r"orca\s+(orchestration\s+worker-start|worktree\s+create|terminal\s+create)"
-    r"|^\s*(opencode|codex|claude)\s+(run|exec|-p)\b"
+# A worker launch, recognised only at the start of a command segment. Text that
+# merely contains a launch line (an echo, a grep, a config file being written)
+# is not a launch, and judging it spends a request on a question nobody asked.
+LAUNCH = re.compile(
+    r"^(?:[\w./-]*/)?(?:"
+    r"orca\s+(?:orchestration\s+worker-start|worktree\s+create|terminal\s+create)"
+    r"|(?:opencode|codex|claude)\s+(?:run|exec|-p)\b"
+    r")"
 )
+# Commands whose arguments are text about other commands, never a launch.
+QUOTING = {"echo", "printf", "cat", "grep", "rg", "sed", "awk", "jq", "diff", "head", "tail",
+           "less", "python", "python3", "node", "git", "tee", "rightsize"}
+SEPARATORS = re.compile(r"[\n;&|]+")
+HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?")
 # The task text, in the spellings the launchers use.
 SPEC = re.compile(r"--(?:spec|prompt|task|message)[= ]+(\"[^\"]*\"|'[^']*'|\S+)")
 CAT = re.compile(r"\$\(\s*cat\s+([^)]+?)\s*\)")
-# Do not route a rightsize call. Matched as an invocation, not as a substring:
-# a path can contain the word (a worktree named after this repo, for one).
-SELF = re.compile(r"(?:^|[|;&]\s*|\s)rightsize\s+(?:route|probe|report|refresh|deals|models)\b")
+
+
+def strip_heredocs(command: str) -> str:
+    """Drop heredoc bodies.
+
+    Their lines are data being written to a file, not commands. Writing a
+    document that contains a launch line is not launching anything, and every
+    line of a heredoc starts at column zero, so without this a docs commit reads
+    as a dispatch.
+    """
+    lines, out, marker = command.splitlines(), [], None
+    for line in lines:
+        if marker is not None:
+            if line.strip() == marker:
+                marker = None
+            continue
+        out.append(line)
+        found = HEREDOC.search(line)
+        if found:
+            marker = found.group(1)
+    return "\n".join(out)
+
+
+def launch_segment(command: str) -> str | None:
+    """The part of the command line that actually starts a worker, if any."""
+    for segment in SEPARATORS.split(strip_heredocs(command)):
+        segment = segment.strip()
+        if not segment:
+            continue
+        first = segment.split()[0].rsplit("/", 1)[-1]
+        if first in QUOTING:
+            continue
+        if LAUNCH.match(segment):
+            return segment
+    return None
 
 
 def spec_text(command: str) -> str | None:
@@ -50,10 +90,23 @@ def spec_text(command: str) -> str | None:
     inner = CAT.search(value)
     if inner:
         try:
-            return Path(inner.group(1).strip("\"'")).expanduser().read_text()
+            value = Path(inner.group(1).strip("\"'")).expanduser().read_text()
         except OSError:
             return None
-    return value or None
+    return value if usable_brief(value) else None
+
+
+def usable_brief(value: str) -> bool:
+    """Is this an actual task, or the shape of one?
+
+    Template placeholders and one-word arguments come from config files, docs
+    and examples. Judging those spends a request to answer a question nobody
+    asked, and the answer is noise in the transcript either way.
+    """
+    text = value.strip()
+    if len(text) < 20 or "{" in text:
+        return False
+    return not (text.startswith("<") and text.endswith(">"))
 
 
 def advise(spec: str) -> str | None:
@@ -100,15 +153,11 @@ def main() -> int:
         print("{}")
         return 0
     command = (event.get("tool_input") or {}).get("command", "")
-    if (
-        event.get("tool_name") != "Bash"
-        or SELF.search(command)
-        or not LAUNCHERS.search(command)
-        or not shutil.which(str(RIGHTSIZE))
-    ):
+    segment = launch_segment(command) if event.get("tool_name") == "Bash" else None
+    if not segment or not shutil.which(str(RIGHTSIZE)):
         print("{}")
         return 0
-    spec = spec_text(command)
+    spec = spec_text(segment)
     context = advise(spec) if spec else None
     if not context:
         print("{}")

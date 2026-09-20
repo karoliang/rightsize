@@ -136,6 +136,37 @@ another vendor reviewing it.
 marked `confirm_first`. rightsize never decides that a migration or a deploy may
 run unattended; it only makes sure nobody dispatches one without noticing.
 
+## 6. Effort: the second dial
+
+The band chooses which model. For CLIs that expose a reasoning-effort setting,
+`config.effort` maps band to a level per provider, and three things raise it one
+step without touching the model choice:
+
+```
+size >= size_escalates_band   -> +1   (a wide blast radius wants more care)
+destructive >= destructive_min -> +1  (an irreversible step wants more care)
+attempt (a rerun)             -> +1   (the last attempt at this level failed)
+```
+
+A candidate that names its own effort on the ladder (`codex:gpt-6-astra:high`)
+starts from that. A provider absent from `config.effort` gets `None`, and its
+launcher template leaves the flag off rather than inventing a level.
+
+## 7. Reroute: the work is better evidence than the brief
+
+The first judgment sees only what was written down. What happened when someone
+tried it is a stronger signal, so `rightsize rerun` judges again with the
+outcome appended to the state, and applies three rules that a fresh route
+cannot:
+
+- the band starts one above the band that already failed, capped at 3;
+- the `provider:model` that failed is excluded from every ladder;
+- effort goes up a level.
+
+This is the intended path when a worker comes back with work that does not hold
+up, and it is deliberately not automatic: something has to observe the outcome,
+and rightsize is not in the token path.
+
 ## Fan-out: many dispatches, one quota reading
 
 A quota reading says what has been **billed**, not what is about to be. Route a

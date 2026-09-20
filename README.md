@@ -67,10 +67,37 @@ rightsize plan --specs tasks.txt --reserve --launcher orca
 rightsize report opencode --done               # that worker finished, release its capacity
 rightsize report opencode --quota-error        # skip that plan until its bucket resets
 
+# It came back and the work does not hold up: judge again, knowing that.
+rightsize rerun --spec task.md --previous opencode:deepseek-v4.1-flash \
+  --because "changed the response shape and could not make the tests pass"
+
 # What the catalogues offer, and what got cheaper overnight.
 rightsize models
 rightsize deals
 ```
+
+## Effort, and changing your mind later
+
+The band picks the model. **Effort** is the second dial on that model, for the
+CLIs that take it (Codex and Claude here, configured per band in
+`config.json`). Three things turn it up without changing the model: a wide blast
+radius, a step that cannot be undone, and a retry after an attempt that failed.
+A provider with no effort setting gets no flag, rather than a made-up one.
+
+The first judgment is made from the brief alone. What the work turns into is
+better evidence, and `rerun` uses it:
+
+```
+$ rightsize rerun --spec task.md --previous opencode:deepseek-v4.1-flash \
+    --because "changed the response shape and could not make the tests pass after three tries"
+rerun      opencode:deepseek-v4.1-flash did not finish it: changed the response shape ...
+dispatch   band 2 -> agent opencode, model minimax-m3
+  why      a previous attempt was band 1, so this starts at band 2
+```
+
+It judges the task again with the outcome attached, starts one band above the
+attempt that failed, raises effort a level, and takes the model that just failed
+out of the running. A task is allowed to turn out harder than it read.
 
 ## Fanning out: ten agents, or a hundred
 

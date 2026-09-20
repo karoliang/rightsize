@@ -246,6 +246,38 @@ def main():
     solo = route_with(judged("implementation"), probes(opencode=99, codex=99))
     assert solo["pick"] is None or solo["band"] == 3, solo
 
+    # Effort is a second dial on the chosen model, for the CLIs that take it.
+    decision = route_with(judged("design"), probes(codex=10))
+    if decision["pick"]["provider"] in ("codex", "claude"):
+        assert decision["pick"]["effort"] in ar.EFFORTS, decision["pick"]
+    assert ar.effort_for(CONFIG, {"provider": "opencode", "effort": None}, 1, judged("mechanical")) \
+        == (None, None), "opencode has no effort knob and must not be given one"
+
+    # A wide blast radius or an irreversible step raises effort without
+    # changing the model, and a retry raises it again.
+    base, _ = ar.effort_for(CONFIG, {"provider": "codex", "effort": None}, 3, judged("design"))
+    wide, why = ar.effort_for(CONFIG, {"provider": "codex", "effort": None}, 3,
+                              judged("design", size=2.0))
+    assert ar.EFFORTS.index(wide) > ar.EFFORTS.index(base), (base, wide)
+    assert why and "blast radius" in why, why
+    retry, _ = ar.effort_for(CONFIG, {"provider": "codex", "effort": None}, 3,
+                             judged("design", size=2.0), attempt=1)
+    assert ar.EFFORTS.index(retry) >= ar.EFFORTS.index(wide), (wide, retry)
+    assert retry == ar.EFFORTS[min(ar.EFFORTS.index(base) + 2, len(ar.EFFORTS) - 1)]
+
+    # A rerun starts above the band that already failed and never picks the
+    # model that just failed.
+    elig = ar.eligibility(CONFIG, probes(), record=False)
+    again = ar.decide(judged("implementation"), CONFIG, elig, floor_band=2,
+                      exclude={"opencode:deepseek-v4.1-flash"}, attempt=1)
+    assert again["band"] >= 2, again["band"]
+    assert again["pick"]["model"] != "deepseek-v4.1-flash", again["pick"]
+    # And within the band it already failed in, it is passed over by name.
+    same_band = ar.decide(judged("implementation"), CONFIG, elig,
+                          exclude={"opencode:deepseek-v4.1-flash"}, attempt=1)
+    assert same_band["pick"]["model"] != "deepseek-v4.1-flash", same_band["pick"]
+    assert any("already had a go" in note for note in same_band["notes"]), same_band["notes"]
+
     print("all checks passed")
 
 
