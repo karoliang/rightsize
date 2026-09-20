@@ -78,7 +78,6 @@ def codex_homes() -> list[Path]:
     return roots
 
 
-CODEX_SESSIONS = HOME / ".codex/sessions"
 CODEX_MODELS = HOME / ".codex/models_cache.json"
 CLAUDE_PROJECTS = HOME / ".claude/projects"
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
@@ -1026,6 +1025,7 @@ def route(spec: str, config: dict, probes: dict | None = None, max_age: float | 
         fresh = False
     elig = eligibility(config, probes, record=fresh)
     decision = decide(judge(spec), config, elig)
+    decision["worktree_name"] = worktree_name(spec)
     if hold:
         decision["reservation"] = hold_capacity(decision, config, spec)
     return decision
@@ -1270,6 +1270,7 @@ def rerun(spec: str, because: str, previous: str | None, config: dict,
                       exclude={previous} if previous else None, attempt=1)
     decision["reason_for_rerun"] = because
     decision["previous"] = previous
+    decision["worktree_name"] = worktree_name(spec)
     return decision
 
 

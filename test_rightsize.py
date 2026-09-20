@@ -377,10 +377,18 @@ def main():
     second = ar.worktree_name("add pagination to the invoices endpoint", taken)
     assert first != second, (first, second)
 
-    rendered = ar.launch_command(route_with(judged("implementation"), probes()), CONFIG,
-                                 "orca", None, "fix the disabled control treatment (#381)")
-    assert "--name fix-disabled-control-treatment-381" in rendered, rendered
+    # The name the decision carries wins, because a batch deduplicates there.
+    decision = route_with(judged("implementation"), probes())
+    decision["worktree_name"] = "disabled-controls-381"
+    rendered = ar.launch_command(decision, CONFIG, "orca", None, "any other text")
+    assert "--name disabled-controls-381" in rendered, rendered
     assert "--worktree new-child" in rendered, rendered
+
+    # With none carried, it is derived from the brief passed in.
+    decision.pop("worktree_name")
+    derived = ar.launch_command(decision, CONFIG, "orca", None,
+                                "fix the disabled control treatment (#381)")
+    assert "--name fix-disabled-control-treatment-381" in derived, derived
 
     # Codex writes where it is told. Orca gives each account its own
     # CODEX_HOME, so reading only ~/.codex believed a 20h-old rollout from a
@@ -437,6 +445,11 @@ def main():
             os.environ[key] = value if value is not None else ""
             if value is None:
                 os.environ.pop(key, None)
+
+    # A JSON caller builds its own worker-start line, and new-child is refused
+    # without a name, so the decision has to carry one.
+    named = route_with(judged("implementation"), probes())
+    assert named.get("worktree_name"), named.keys()
 
     print("all checks passed")
 
