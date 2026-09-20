@@ -1457,7 +1457,7 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
                 task["points"] += debit(elig, config, decision["review"]["provider"], 1)
             task["wave"] = wave
             decision["worktree_name"] = task["name"]
-            log_decision(decision, task["spec"])
+            log_decision(decision, task["spec"], dispatched=hold)
             if hold:
                 decision["reservation"] = reserve(provider, task["points"], decision["band"],
                                                   task["spec"], ttl, task["name"])
@@ -1922,7 +1922,7 @@ def cmd_deals(args, config):
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve)
-    log_decision(decision, spec)
+    log_decision(decision, spec, dispatched=args.reserve)
     return print_decision(decision, args, config, spec)
 
 
@@ -2360,7 +2360,7 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
     return rows
 
 
-def log_decision(decision: dict, spec: str) -> None:
+def log_decision(decision: dict, spec: str, dispatched: bool = False) -> None:
     """Remember what was recommended, so it can be checked against what ran.
 
     A recommendation nobody can verify is a recommendation nobody has to
@@ -2368,6 +2368,10 @@ def log_decision(decision: dict, spec: str) -> None:
     a launch flag, so Orca records the provider and a null model, and "the pick
     was applied" looks exactly like "the pick was ignored and the config default
     ran". This log is the half rightsize can supply.
+
+    `dispatched` separates a route run to read the numbers from one that a
+    launch followed. Auditing the two together buries the dispatches that
+    really did go missing among the ones nobody ever started.
     """
     if not decision.get("pick"):
         return
@@ -2377,22 +2381,28 @@ def log_decision(decision: dict, spec: str) -> None:
         # One dispatch, one decision. The hook routes on PreToolUse to advise
         # and again on PostToolUse to reserve, so the same task arrives twice
         # within seconds and would be audited as two dispatches.
-        recent = brief_key(spec)
-        if any(e["at"] > now() - 120 and brief_key(e.get("task") or "") == recent
-               and e.get("model") == decision["pick"]["model"] for e in entries[-20:]):
-            return
+        key = brief_key(spec)
+        for existing in reversed(entries[-20:]):
+            if (existing["at"] > now() - 120 and brief_key(existing.get("task") or "") == key
+                    and existing.get("model") == decision["pick"]["model"]):
+                # The second visit is the one that knows a launch happened.
+                if dispatched and not existing.get("dispatched"):
+                    existing["dispatched"] = True
+                    state["decisions"] = entries
+                    save_json(STATE, state)
+                return
         entries.append({
-        "at": now(),
-        "provider": decision["pick"]["provider"],
-        "model": decision["pick"]["model"],
-        "effort": decision["pick"].get("effort"),
-        "band": decision["band"],
-        "name": decision.get("worktree_name"),
-        "task": " ".join(spec.split())[:120],
-    })
+            "at": now(),
+            "provider": decision["pick"]["provider"],
+            "model": decision["pick"]["model"],
+            "effort": decision["pick"].get("effort"),
+            "band": decision["band"],
+            "name": decision.get("worktree_name"),
+            "task": " ".join(spec.split())[:120],
+            "dispatched": dispatched,
+        })
         state["decisions"] = entries[-200:]
         save_json(STATE, state)
-
 
 def opencode_sessions_since(epoch: float) -> list[dict]:
     """What opencode actually ran, from its own database, read-only."""
@@ -2471,8 +2481,13 @@ def audit(config: dict, days: float = 7.0) -> dict:
         found = [x for x in sessions
                  if Path(x["directory"]).name in wanted and x["last_at"] >= decision["at"] - 300]
         if not found:
-            rows.append({**decision, "verdict": "no session",
-                         "why": "nothing ran in a worktree of that name; not dispatched, or dispatched elsewhere"})
+            if not decision.get("dispatched"):
+                rows.append({**decision, "verdict": "not dispatched",
+                             "why": "routed to read the numbers, never launched"})
+            else:
+                rows.append({**decision, "verdict": "no session",
+                             "why": "a dispatch was reserved for this and nothing ran under"
+                                    " either worktree name"})
             continue
         ran = max(found, key=lambda x: x["messages"])
         outcome = outcomes.get(name)
@@ -2512,7 +2527,8 @@ def cmd_audit(args, config):
         print(f"no decisions recorded in the last {args.days:g} days."
               " Routing records one per dispatch; this fills as you use it.")
         return 0
-    order = {"mismatch": 0, "ran as picked": 1, "finished": 2, "no session": 3, "not checkable": 4}
+    order = {"mismatch": 0, "no session": 1, "ran as picked": 2, "finished": 3,
+             "not checkable": 4, "not dispatched": 5}
     for row in sorted(result["decisions"],
                       key=lambda r: (order.get(r["verdict"], -1), -r["at"])):
         failed = row["verdict"].startswith("obeyed but")
