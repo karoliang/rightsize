@@ -2105,7 +2105,14 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
             # scan reads every transcript and is the number to size against.
             measured = claude_tokens(7 * 86400)
             row["tokens_in_window"] = measured
-            row["suggested_budget"] = int(measured * 1.2)
+            # A budget has to leave room above the reserve, or declaring one
+            # blocks the provider the moment it is set: measured x 1.2 against a
+            # 30 point reserve reads as 84 per cent used and -14 points usable.
+            reserve = float((config.get("reserves") or {}).get("claude", 30))
+            headroom_wanted = 15.0
+            row["suggested_budget"] = int(measured / max(0.05, (100 - reserve - headroom_wanted) / 100))
+            row["budget_note"] = (f"leaves about {headroom_wanted:.0f} points usable above the"
+                                  f" {reserve:.0f} point reserve")
             row["token_source"] = "rightsize transcript scan (Orca's totals omit cache creation)"
             row["verdict"] = "no percentage published; budget suggestion only"
         else:
@@ -2271,8 +2278,8 @@ def cmd_calibrate(args, config):
         elif "suggested_budget" in row:
             print(f"  {row['dispatches']} sessions recorded; {row['tokens_in_window']:,} tokens"
                   f" over 7 days, counted by {row['token_source']}")
-            print(f"  -> set claude.weekly_token_budget to {row['suggested_budget']:,}"
-                  " (measured plus 20 percent)")
+            print(f"  -> set claude.weekly_token_budget to {row['suggested_budget']:,},"
+                  f" which {row['budget_note']}")
         else:
             print(f"  {row['verdict']}")
     if not changes:

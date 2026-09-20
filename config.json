@@ -8,9 +8,9 @@
     "opencode_zen": 0
   },
   "claude": {
-    "weekly_token_budget": null,
+    "weekly_token_budget": 400000000,
     "rolling_token_budget": null,
-    "_note": "Claude Code publishes no quota API. Leave null and Claude stays escalation-only (band 3). Set a token budget to let it take ordinary work."
+    "_note": "Claude Code publishes no quota API, so this is a declared allowance rather than a measured limit: rightsize counts tokens from transcripts and divides by it. Set 2026-09-20 from 219M observed in a week, rounded up so Claude sits near 55 per cent used with about 15 points usable above its 30 point reserve. Lower it to hold Claude back, raise it if your plan allows more, null to make Claude escalation-only again."
   },
   "openrouter": {
     "free_requests_per_day": 1000,
