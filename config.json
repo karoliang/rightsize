@@ -117,5 +117,9 @@
       "3": "high"
     }
   },
-  "_comment_openrouter": "OpenRouter is probed but deliberately not on a worker ladder. Verified 2026-09-20: its free models answer a direct API call, but dispatching one through the opencode CLI fails with 413 Request too large, because an agent sends a system prompt and tool definitions that the free endpoint will not accept. Put it back on a ladder once either a paid model is laddered (the key here carries its own 0.01 USD spend limit, so raise that first at openrouter.ai/settings/keys) or a launcher exists that dispatches with a small payload."
+  "_comment_openrouter": "OpenRouter is probed but deliberately not on a worker ladder. Verified 2026-09-20: its free models answer a direct API call, but dispatching one through the opencode CLI fails with 413 Request too large, because an agent sends a system prompt and tool definitions that the free endpoint will not accept. Put it back on a ladder once either a paid model is laddered (the key here carries its own 0.01 USD spend limit, so raise that first at openrouter.ai/settings/keys) or a launcher exists that dispatches with a small payload.",
+  "staleness_seconds": {
+    "codex": 21600
+  },
+  "_comment_staleness": "How old a file-sourced reading may be before it is treated as unknown rather than current. Only Codex needs this: its numbers are written when Codex runs, so between sessions the reading ages while the real quota moves. An old HIGH reading is the dangerous direction, because it blocks a provider that may have reset hours ago, and unknown already means escalation-only rather than unusable. Verified 2026-09-20: `codex exec` does not write a rollout, so only an interactive Codex session refreshes this."
 }

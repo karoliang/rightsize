@@ -131,6 +131,15 @@ def iso_to_epoch(text: str) -> float | None:
         return None
 
 
+def human_age(seconds: float | None) -> str:
+    if not seconds:
+        return "unknown"
+    hours, rem = divmod(int(seconds), 3600)
+    if hours >= 24:
+        return f"{hours // 24}d {hours % 24}h"
+    return f"{hours}h {rem // 60}m" if hours else f"{rem // 60}m"
+
+
 def human_reset(epoch: float | None) -> str:
     if not epoch:
         return "unknown"
@@ -196,7 +205,7 @@ def newest_codex_rollout() -> Path | None:
     return newest
 
 
-def probe_codex() -> dict:
+def probe_codex(config: dict | None = None) -> dict:
     path = newest_codex_rollout()
     if not path:
         return {"name": "codex", "status": "no-session-data", "buckets": []}
@@ -217,23 +226,47 @@ def probe_codex() -> dict:
         return {"name": "codex", "status": f"error: {exc}", "buckets": []}
     if not found:
         return {"name": "codex", "status": "no-rate-limits", "buckets": []}
+    return {"name": "codex", "status": "ok" if found else "empty",
+            "buckets": codex_buckets(found, path.stat().st_mtime, config)}
+
+
+def codex_buckets(found: dict, observed_at: float, config: dict | None = None) -> list[dict]:
+    """Turn one rate_limits block into buckets, with its age taken seriously."""
+    age = now() - observed_at
+    limit = float(((config or {}).get("staleness_seconds") or {}).get("codex", 21600))
     buckets = []
     for slot in ("primary", "secondary"):
         value = found.get(slot)
         if not value:
             continue
         minutes = value.get("window_minutes") or 0
-        buckets.append(
-            {
-                "id": f"{slot}-{minutes}m",
-                "percent": value.get("used_percent"),
-                "resets_at": value.get("resets_at"),
-                # Written only when Codex runs, so usage can only be higher.
-                "source": "stale-lower-bound",
-                "observed_at": path.stat().st_mtime,
-            }
-        )
-    return {"name": "codex", "status": "ok" if buckets else "empty", "buckets": buckets}
+        percent = value.get("used_percent")
+        resets_at = value.get("resets_at")
+        # Written only when Codex runs, so usage can only be higher.
+        source = "stale-lower-bound"
+        if resets_at and resets_at <= now():
+            # The window rolled over after this was written. Usage only accrues
+            # by running Codex, and running Codex writes a rollout, so a window
+            # newer than the newest rollout has nothing spent in it yet.
+            window = (minutes or 0) * 60
+            while resets_at <= now() and window:
+                resets_at += window
+            percent, source = 0.0, "post-reset-assumed-zero"
+        elif age > limit:
+            # An old high reading is the dangerous direction: it blocks a
+            # provider that may have reset or been topped up hours ago. Unknown
+            # is the honest answer, and unknown already means escalation-only
+            # rather than unusable.
+            percent, source = None, "expired-reading"
+        buckets.append({
+            "id": f"{slot}-{minutes}m",
+            "percent": percent,
+            "resets_at": resets_at,
+            "source": source,
+            "observed_at": observed_at,
+            "age_seconds": round(age),
+        })
+    return buckets
 
 
 def find_key(node, key):
@@ -426,7 +459,7 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
     probing just adds their latencies together."""
     jobs = {
         "opencode": probe_opencode,
-        "codex": probe_codex,
+        "codex": lambda: probe_codex(config),
         "claude": lambda: probe_claude(config, count_tokens),
         "openrouter": lambda: probe_openrouter(config),
     }
@@ -1320,6 +1353,11 @@ def refresh() -> dict:
 
 def cmd_probe(args, config):
     probes = probe_all(config, count_tokens=True)
+    # Warm the cache the router reads, so looking at the numbers and then
+    # routing does not probe twice.
+    state = load_json(STATE, {}) or {}
+    state["probe_cache"] = {"at": now(), "probes": probes}
+    save_json(STATE, state)
     elig = eligibility(config, probes)
     if args.json:
         print(json.dumps({"probes": probes, "eligibility": elig}, indent=2))
@@ -1330,6 +1368,8 @@ def cmd_probe(args, config):
         print(f"{name:<11} {mark:<8} usable {usable:<9} binding {info['bucket'] or '-':<18} resets {human_reset(info['resets_at'])}")
         for bucket in info["buckets"]:
             percent = "-" if bucket["percent"] is None else f"{bucket['percent']}%"
+            age = bucket.get("age_seconds")
+            stale = f"  observed {human_age(age)} ago" if age and age > 900 else ""
             if bucket.get("tokens_used"):
                 extra = f" ({bucket['tokens_used']:,} tokens)"
             elif bucket.get("requests_left") is not None:
@@ -1338,7 +1378,7 @@ def cmd_probe(args, config):
                 extra = f" ({bucket['remaining_usd']} of {bucket['limit_usd']} USD left)"
             else:
                 extra = ""
-            print(f"    {bucket['id']:<20} used {percent:<7} {bucket['source']}{extra}")
+            print(f"    {bucket['id']:<20} used {percent:<7} {bucket['source']}{extra}{stale}")
         if info.get("inflight"):
             print(f"    in flight            {info['inflight']} dispatches holding "
                   f"{info['reserved']:.1f} points")
@@ -1607,6 +1647,18 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     if not (config.get("claude") or {}).get("weekly_token_budget"):
         out.append(("warn", "claude.weekly_token_budget is null, so Claude stays escalation-only."
                             " rightsize probe prints the token counts to choose one from"))
+
+    codex = probe_codex(config)
+    for bucket in codex["buckets"]:
+        if bucket["source"] == "expired-reading":
+            out.append(("warn", f"codex usage was last written {human_age(bucket['age_seconds'])}"
+                                " ago and is now treated as unknown, so Codex is escalation-only."
+                                " Only an interactive Codex session rewrites it: `codex exec` does"
+                                " not write a rollout (verified 2026-09-20)"))
+            break
+        if bucket["source"] == "post-reset-assumed-zero":
+            out.append(("ok", "codex window rolled over since its last reading, counted as empty"))
+            break
 
     state = load_json(STATE, {}) or {}
     live = [r for r in (state.get("reservations") or []) if r["expires"] > now()]

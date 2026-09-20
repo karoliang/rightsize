@@ -139,8 +139,12 @@ Two traps worth checking on your own key:
 Neither needs a credential here, and neither publishes a usage API.
 
 - **Codex**: usage comes from the `rate_limits` block in the newest
-  `~/.codex/sessions/**/rollout-*.jsonl`. It is exact, but only written while
-  Codex runs, so it is a lower bound: run Codex once to refresh it.
+  `~/.codex/sessions/**/rollout-*.jsonl`. It is exact when written, but only an
+  **interactive** Codex session writes it. Verified 2026-09-20: `codex exec`
+  runs fine and writes no rollout, and the numbers are not in Codex's sqlite
+  stores either. Past `staleness_seconds` (6h) rightsize stops trusting the
+  file and treats Codex as unknown, which means escalation-only rather than
+  blocked; `rightsize doctor` says so and `rightsize probe` prints the age.
 - **Claude Code**: usage is reconstructed from token counts in
   `~/.claude/projects/**/*.jsonl` (cache reads excluded deliberately; counting
   them overstates usage several times over). There is no published budget to

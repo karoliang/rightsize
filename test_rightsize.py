@@ -304,6 +304,25 @@ def main():
     finally:
         ar.REGISTRY = original_registry
 
+    # A file-sourced reading ages. An old high number is the dangerous
+    # direction: it blocks a provider that may have reset hours ago.
+    rollout = {"primary": {"used_percent": 93.0, "window_minutes": 10080,
+                           "resets_at": time.time() + 26 * HOUR}}
+    fresh = ar.codex_buckets(rollout, observed_at=time.time() - 60, config=CONFIG)
+    assert fresh[0]["percent"] == 93.0 and fresh[0]["source"] == "stale-lower-bound", fresh
+    old_reading = ar.codex_buckets(rollout, observed_at=time.time() - 20 * HOUR, config=CONFIG)
+    assert old_reading[0]["percent"] is None, old_reading
+    assert old_reading[0]["source"] == "expired-reading", old_reading
+
+    # And a window that has already rolled over is empty, not still full:
+    # usage only accrues by running Codex, which writes a newer reading.
+    rolled = {"primary": {"used_percent": 93.0, "window_minutes": 10080,
+                          "resets_at": time.time() - 2 * HOUR}}
+    after = ar.codex_buckets(rolled, observed_at=time.time() - 3 * HOUR, config=CONFIG)
+    assert after[0]["percent"] == 0.0, after
+    assert after[0]["source"] == "post-reset-assumed-zero", after
+    assert after[0]["resets_at"] > time.time(), "the next reset must be in the future"
+
     print("all checks passed")
 
 

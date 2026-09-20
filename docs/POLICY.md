@@ -27,6 +27,34 @@ unknown; it is never rounded into "probably fine".
 | OpenRouter | `GET /api/v1/key` for credit, a local counter for free requests | `live` / `local-count` |
 | OpenCode Zen free models | no meter exists | `free: true` |
 
+### A reading has an age, and age is not the same as caching
+
+Caching is about not asking the same question twice in a minute. **Staleness is
+about a source that cannot be asked at all.** OpenCode and OpenRouter answer
+live whenever you ask. Codex does not: its numbers exist only in the transcript
+of the last Codex session, so between sessions the file ages while the real
+quota moves underneath it.
+
+That failed in exactly the dangerous direction. A 19-hour-old reading of 93 per
+cent used kept Codex hard-blocked after its quota had moved on, and nothing in
+the output said the number was from yesterday. An old **high** reading is worse
+than no reading, because it looks authoritative and removes a provider.
+
+So a file-sourced bucket now carries `age_seconds`, and:
+
+- past `staleness_seconds` (6h for Codex) the percentage becomes `None`, which
+  means escalation-only rather than unusable, and `probe` prints
+  `expired-reading  observed 19h 51m ago`;
+- if its `resets_at` has already passed, the window rolled over and the bucket
+  is counted as **empty**, with the reset time rolled forward. Codex usage only
+  accrues by running Codex, and running Codex writes a newer reading, so a
+  window newer than the newest transcript has nothing spent in it.
+
+Refreshing it needs an interactive Codex session. Verified 2026-09-20:
+`codex exec` answers but writes no rollout, and neither Codex's own sqlite
+stores nor Orca's local files carry the numbers, which is what
+[Orca issue #21746](https://github.com/stablyai/orca/issues/21746) asks for.
+
 Probes run in parallel and the reading is cached for `cache_seconds` (60 by
 default). A dispatch takes minutes; a quota number from a minute ago is the
 same number. `rightsize probe` and `route --fresh` always re-read.

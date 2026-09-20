@@ -70,6 +70,16 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Fixed
 
+- A stale Codex reading was treated as current, and hard-blocked the provider.
+  The number is only written when Codex runs, so a 19-hour-old 93 per cent kept
+  Codex out of every ladder long after its quota had moved on, with nothing in
+  the output saying the reading was from yesterday. File-sourced buckets now
+  carry `age_seconds`; past `staleness_seconds` the percentage becomes unknown
+  (escalation-only, not blocked), and a window whose reset has passed counts as
+  empty with its reset rolled forward.
+- `rightsize probe` now warms the cache the router reads, so looking at the
+  numbers and then routing no longer probes twice.
+
 - OpenRouter's free-tier counter was kept locally and guessed from config, while
   OpenRouter publishes it: `free_model_daily_requests` on `/api/v1/key` gives
   used, limit and remaining. A local tally only ever saw the dispatches it was
