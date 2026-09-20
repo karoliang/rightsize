@@ -1072,6 +1072,27 @@ def exhausted_until(name: str) -> float:
     return (state.get("exhausted") or {}).get(name, 0)
 
 
+def admission_block(info: dict, config: dict, provider: str, band: int | None,
+                    reserve_suffix: str = "") -> str | None:
+    """Return the quota admission veto, including the reserve floor.
+
+    ``band`` is absent while eligibility is being built because that is a
+    provider-level diagnostic.  A candidate check also includes its cost;
+    equality is affordable, but a numeric zero still fails the reserve floor
+    even for a zero-cost dispatch.
+    """
+    if info.get("usable") is None:
+        return None
+    if info["usable"] <= 0:
+        return (f"below reserve on {info['bucket']}" + reserve_suffix)
+    if band is not None:
+        cost = dispatch_cost(config, provider, band)
+        if info["usable"] < cost:
+            return (f"{info['usable']:.1f} points left cannot cover a band {band}"
+                    f" dispatch costing about {cost:.2f}")
+    return None
+
+
 def mark_exhausted(name: str, until: float) -> None:
     with state_lock():
         state = load_json(STATE, {}) or {}
@@ -1085,6 +1106,7 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
     out = {}
     for name, probe in probes.items():
         info = headroom(probe, float(reserves.get(name, 10)), previous, name)
+        info["provider"] = name
         info["free"] = bool(probe.get("free"))
         reserved, inflight = reservation_load(name)
         info["reserved"], info["inflight"] = reserved, inflight
@@ -1099,9 +1121,10 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
             blocked = f"quota error, retry after {human_reset(exhausted_until(name))}"
         elif inflight >= limit:
             blocked = f"{inflight} dispatches already in flight, limit {limit}"
-        elif info["usable"] is not None and info["usable"] <= 0:
-            blocked = (f"below reserve on {info['bucket']}"
-                       + (f" once {reserved:.1f} reserved points are counted" if reserved else ""))
+        elif (reserve_block := admission_block(
+                info, config, name, None,
+                f" once {reserved:.1f} reserved points are counted" if reserved else "")):
+            blocked = reserve_block
         out[name] = {
             **info,
             "status": probe["status"],
@@ -1388,11 +1411,9 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
                          " that has nowhere cheaper to go")
             continue
         resets = info["resets_at"] or float("inf")
-        cost = dispatch_cost(config or {}, cand["provider"], band)
         room = info["usable"]
-        if room is not None and room < cost:
-            notes.append(f"{text} skipped: {room:.1f} points left cannot cover a band {band}"
-                         f" dispatch costing about {cost:.2f}")
+        if (admission := admission_block(info, config or {}, cand["provider"], band)):
+            notes.append(f"{text} skipped: {admission}")
             continue
         expensive = band >= int((config or {}).get("expensive_band", 3))
         if expensive:
@@ -1494,8 +1515,9 @@ def debit(elig: dict, config: dict, provider: str, band: int) -> float:
     limit = int(limits.get(provider, limits.get("_default", 8)))
     if info["inflight"] >= limit:
         info["blocked"] = f"{info['inflight']} dispatches already in flight, limit {limit}"
-    elif info["usable"] is not None and info["usable"] <= 0:
-        info["blocked"] = f"below reserve on {info['bucket']} once this batch is counted"
+    elif (reserve_block := admission_block(
+            info, config, provider, None, " once this batch is counted")):
+        info["blocked"] = reserve_block
     info["eligible"] = info["blocked"] is None
     return points
 
@@ -1507,11 +1529,12 @@ def start_wave(elig: dict, config: dict) -> None:
     debit, which is why a plan runs out of capacity eventually instead of
     scheduling waves forever.
     """
-    for info in elig.values():
+    for provider, info in elig.items():
         info["inflight"] = 0
         blocked = info.get("hard_blocked")
-        if not blocked and info["usable"] is not None and info["usable"] <= 0:
-            blocked = f"below reserve on {info['bucket']} once this plan is counted"
+        if not blocked:
+            blocked = admission_block(info, config, provider, None,
+                                      " once this plan is counted")
         info["blocked"] = blocked
         info["eligible"] = blocked is None
 

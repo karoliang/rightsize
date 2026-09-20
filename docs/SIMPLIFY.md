@@ -15,13 +15,17 @@ Recommendations 1 and 3 are applied: the duplicate `usable is None` predicate is
 gone from `pick`, and the pasted second docstring in `plan` is merged into the
 first.
 
-Recommendation 2, the duplicated reserve-floor veto, is deliberately **not**
-applied. This report's own reasoning is why: numeric `usable` 0 with cost 0 is a
-supported configuration that the reserve veto rejects and `0 < 0` does not, and
-`eligible`, `blocked` and the decision notes are observable even when the chosen
-worker is identical. It is a merge of three checks into one admission
-calculation, not a deletion, and it is worth doing deliberately rather than at
-the end of a long session.
+Recommendation 2 is now applied: `admission_block` is the shared reserve-floor
+and dispatch-affordability calculation used by eligibility, picking, batch
+debit, and wave transitions. The reserve veto remains first, so numeric zero
+with zero dispatch cost is still rejected, and the existing diagnostic wording
+is retained at each observable call site.
+
+The implementation deliberately does not simply erase all three checks. This
+report's own reasoning is why: numeric `usable` 0 with cost 0 is a supported
+configuration that the reserve veto rejects and `0 < 0` does not, and `eligible`,
+`blocked` and the decision notes are observable even when the chosen worker is
+identical. This is a merge into one admission calculation, not a relaxation.
 
 The report's other conclusion held up the same day: burn rate, reserves, the two
 clocks, the band 3 inversion and `relax_pace` all survived a separate
