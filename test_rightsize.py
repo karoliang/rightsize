@@ -511,14 +511,19 @@ def main():
     finally:
         ar.orca_settled, ar.orca_settled_tasks = original
     freed = {r["provider"]: r["matched"] for r in result["released"]}
-    assert freed == {"codex": "brief", "claude": "worktree"}, result["released"]
-    assert [k["id"] for k in result["kept"]] == [kept_id], result["kept"]
+    # Only the brief releases. A worktree name is one rightsize suggested and
+    # any later dispatch may reuse, so matching on it would let an older worker
+    # settling in a reused checkout free the hold of the worker running there
+    # now. An unmatched hold waits for its expiry instead.
+    assert freed == {"codex": "brief"}, result["released"]
+    assert kept_id in {k["id"] for k in result["kept"]}, result["kept"]
     assert ar.reservation_load("opencode")[1] == 1, "the running worker keeps its capacity"
+    assert ar.reservation_load("claude")[1] == 1, "an unmatched hold waits for its expiry"
     # Reservations made in the same millisecond must still be distinguishable,
     # or releasing one frees every one of them.
     ids = {ar.reserve("opencode", 0.1, 1, f"batch task {i}", 60, f"wt-{i}") for i in range(20)}
     assert len(ids) == 20, "reservation ids collided"
-    assert ar.reservation_load("codex")[1] == 0 and ar.reservation_load("claude")[1] == 0
+    assert ar.reservation_load("codex")[1] == 0, "the matched brief was released"
     ar.save_json(ar.STATE, {})
 
     # money.financial, 2026-09-20: opencode's weekly had 8 usable points and
@@ -534,6 +539,9 @@ def main():
 
     # The cheap rung still spends the expiring bucket, which is the whole point
     # of rule 3: it is the expensive rung that must not land there.
+    # Cleared first: a snapshot left by an earlier case would now be read as
+    # this provider's burn rate, since every bucket is paced against one.
+    ar.save_json(ar.STATE, {})
     cheap = route_with(judged("implementation"), probes(opencode=77, codex=0, resets=thin))
     assert cheap["pick"]["provider"] == "opencode", cheap["pick"]
 
@@ -623,6 +631,7 @@ def main():
         f"{len(written.get('reservations', []))} of 12 concurrent reservations survived"
 
     adversarial()
+    adversarial_two()
     print("all checks passed")
 
 
@@ -702,8 +711,96 @@ def adversarial():
         (result["tasks"][1]["decision"]["review"], result["quota_after"]["codex"])
 
 
-if __name__ == "__main__":
-    main()
+def adversarial_two():
+    """New rule interactions that still produce indefensible routing decisions."""
+    # An unavailable monthly reading should send cheap work to Codex because a readable weekly bucket cannot prove the month has room.
+    ar.save_json(ar.STATE, {})
+    state = probes()
+    state["opencode"]["buckets"].append(
+        {"id": "monthly", "percent": None, "resets_at": time.time() + 27 * 86400,
+         "source": "unavailable"})
+    decision = route_with(judged("implementation"), state)
+    assert decision["pick"]["provider"] == "codex", decision["pick"]
+
+    # An accelerating monthly burn should send cheap work to Codex because its 115% projection matters even while the weekly bucket binds and whole-window pace is safe.
+    ar.save_json(ar.STATE, {"snapshots": {
+        "opencode:monthly": {"at": time.time() - 48 * HOUR, "percent": 30},
+    }})
+    state = probes(opencode=80, codex=0)
+    state["opencode"]["buckets"].append(
+        {"id": "monthly", "percent": 40, "resets_at": time.time() + 15 * 86400,
+         "source": "live"})
+    decision = route_with(judged("implementation"), state)
+    assert decision["pick"]["provider"] == "codex", decision["pick"]
+
+    # A measured burn overrun should fall back to funded Claude because relaxing average pacing must not erase a 135% recent-burn projection on another plan.
+    ar.save_json(ar.STATE, {"snapshots": {
+        "opencode:weekly": {"at": time.time() - 9 * HOUR, "percent": 40},
+    }})
+    state = probes(opencode=60, codex=99, claude_percent=20,
+                   resets={"opencode": time.time() + 33.6 * HOUR})
+    decision = route_with(judged("implementation"), state)
+    assert decision["pick"]["provider"] == "claude", decision["pick"]
+
+    # The ninth batch task should use Codex because eight commitments raise OpenCode from 1.9% to 5.42% spent in a 5.1%-elapsed week, crossing both the guard and its pace allowance.
+    ar.save_json(ar.STATE, {})
+    state = probes(opencode=1.9, codex=0,
+                   resets={"opencode": time.time() + 0.949 * 7 * 86400,
+                           "codex": time.time() + 0.97 * 7 * 86400})
+    original = ar.judge
+    ar.judge = lambda spec: judged("implementation")
+    try:
+        result = ar.plan([f"guard crossing task {i}" for i in range(10)], CONFIG,
+                         probes=state)
+    finally:
+        ar.judge = original
+    assert result["tasks"][8]["decision"]["pick"]["provider"] == "codex", result["spread"]
+
+    # Two concurrent held routes must not both take OpenCode's single slot because locking only the reservation write leaves the capacity check stale.
+    ar.save_json(ar.STATE, {})
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    config = json.loads(json.dumps(CONFIG))
+    config["max_inflight"]["opencode"] = 1
+    state = probes()
+    barrier = Barrier(2)
+    original = ar.judge
+
+    def concurrent_judgment(spec):
+        barrier.wait(timeout=5)
+        return judged("implementation")
+
+    ar.judge = concurrent_judgment
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            decisions = list(pool.map(
+                lambda spec: ar.route(spec, config, probes=state, hold=True),
+                ["first concurrent dispatch", "second concurrent dispatch"]))
+    finally:
+        ar.judge = original
+    assert sum(d["pick"]["provider"] == "opencode" for d in decisions) <= 1, \
+        [d["pick"] for d in decisions]
+
+    # An older settlement on a reused worktree must leave new confirmed holds intact so the next route uses Codex while OpenCode's new worker still owns its room.
+    ar.save_json(ar.STATE, {})
+    state = probes()
+    for i in range(CONFIG["max_inflight"]["opencode"]):
+        ar.reserve("opencode", ar.dispatch_cost(CONFIG, "opencode", 1), 1,
+                   f"new task {i} still running", 1800,
+                   "reused-checkout" if i == 0 else f"active-worker-{i}")
+    original_workers, original_tasks = ar.orca_settled, ar.orca_settled_tasks
+    ar.orca_settled = lambda run: ([
+        {"dispatch": "older-finished-dispatch", "state": "succeeded",
+         "worktree": "reused-checkout"}], None)
+    ar.orca_settled_tasks = lambda run: {ar.brief_key("older finished task")}
+    try:
+        ar.release_settled()
+    finally:
+        ar.orca_settled, ar.orca_settled_tasks = original_workers, original_tasks
+    decision = route_with(judged("implementation"), state)
+    assert decision["pick"]["provider"] == "codex", decision["pick"]
+
+
 
 
 if __name__ == "__main__":

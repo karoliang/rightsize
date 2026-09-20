@@ -62,6 +62,8 @@ OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 # notice.
 ORCA_CODEX_ACCOUNTS = HOME / "Library/Application Support/orca/codex-accounts"
 ORCA_SUPPORT = HOME / "Library/Application Support/orca"
+# How old a remembered reading may be before the window counts as unknown.
+STALE_READING = 6 * 3600
 OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
 # Providers whose worker is launched by the opencode CLI, so its sessions land
 # in opencode's own database and can be checked after the fact.
@@ -682,6 +684,24 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
     at which the binding bucket resets, and whether this provider is on course
     to exhaust any of its windows before that window resets.
     """
+    # A bucket the provider declined this minute is not a bucket we know
+    # nothing about: the last good reading is usually minutes old and the
+    # window is days long. Remember it rather than choosing between trusting
+    # the provider blindly and disabling a workhorse over a hiccup.
+    buckets = []
+    for bucket in probe["buckets"]:
+        if bucket.get("percent") is None and bucket.get("source") == "unavailable":
+            remembered = previous.get(f"{name}:{bucket['id']}")
+            age = now() - remembered["at"] if remembered else None
+            if remembered and age < float(STALE_READING):
+                bucket = {**bucket, "percent": remembered["percent"],
+                          "source": "remembered", "age_seconds": round(age)}
+            else:
+                # Nothing to fall back on, so this window really is unknown.
+                bucket = {**bucket, "source": "expired-reading"}
+        buckets.append(bucket)
+    probe = {**probe, "buckets": buckets}
+
     worst = None
     unknown = False
     for bucket in probe["buckets"]:
@@ -712,33 +732,44 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
         }
     bucket = worst["bucket"]
     overrun = False
+    # Whole-window pace and a recent burn rate answer different questions, and
+    # a bucket can pass one while failing the other: a month at 40 per cent
+    # with half its window left is fine on average and on course for 115 per
+    # cent if the last two days are the rate that continues. Both run on every
+    # bucket, not only the one that binds.
+    burn_over = None
+    for candidate in probe["buckets"]:
+        percent, resets = candidate.get("percent"), candidate.get("resets_at")
+        before = previous.get(f"{name}:{candidate['id']}")
+        window = bucket_window(candidate.get("id") or "") or 0
+        if percent is None or not resets or not before or not window:
+            continue
+        sample = now() - before["at"]
+        climb = percent - before["percent"]
+        if sample < max(600.0, 0.05 * window) or climb <= 0:
+            continue
+        projected = percent + (climb / sample) * max(0.0, resets - now())
+        if projected > 100 and (burn_over is None or projected > burn_over["projected"]):
+            burn_over = {"id": candidate["id"], "projected": projected,
+                         "rate": climb / sample * 86400}
     # Every window, not only the binding one. The binding bucket is about what
     # stops you first; pacing is about what you are on course to run out of.
     paces = [x for x in (bucket_pace(b) for b in probe["buckets"]) if x]
     ahead = [x for x in paces if x["projected"] > 100]
     over_pace = max(ahead, key=lambda x: x["projected"]) if ahead else None
-    key = f"{name}:{bucket['id']}"
-    before = previous.get(key)
     resets_at = bucket.get("resets_at")
-    if before and resets_at:
-        elapsed = now() - before["at"]
-        climb = bucket["percent"] - before["percent"]
-        # The sample has to be worth extrapolating. Two minutes of a seven day
-        # window says nothing about the week, and projecting it anyway turns a
-        # bucket that has just reset into one that is about to overrun.
-        window = bucket_window(bucket.get("id") or "") or 0
-        long_enough = elapsed >= max(600.0, 0.05 * window)
-        if long_enough and climb > 0:
-            rate = climb / elapsed
-            projected = bucket["percent"] + rate * max(0.0, resets_at - now())
-            overrun = projected > 100.0
+    if burn_over:
+        overrun = True
     return {
         "usable": worst["free"],
         "unknown": unknown,
         "resets_at": resets_at,
         "bucket": bucket["id"],
         "overrun": overrun or bool(over_pace),
-        "over_pace": over_pace,
+        "over_pace": over_pace or (
+            {"id": burn_over["id"], "pace": burn_over["rate"] / 100,
+             "projected": burn_over["projected"]} if burn_over else None),
+        "burn_over": burn_over,
         "paces": paces,
     }
 
@@ -764,10 +795,20 @@ def reservation_load(name: str) -> tuple[float, int]:
 
 
 def reserve(name: str, points: float, band: int, task: str, ttl: float,
-            worktree: str | None = None) -> str:
+            worktree: str | None = None, limit: int | None = None) -> str | None:
+    """Take a hold, or refuse it because the last slot went to someone else.
+
+    Eligibility is read outside the lock, so two coordinators can both see one
+    free slot and both take it. Counting again inside the lock is the only
+    place that can be decided, and the caller routes again when it loses.
+    """
     with state_lock():
         state = load_json(STATE, {}) or {}
         sweep_reservations(state)
+        if limit is not None:
+            live = sum(1 for r in state["reservations"] if r["provider"] == name)
+            if live >= limit:
+                return None
         entry = {
         # Unique per reservation, not per millisecond: a batch reserves many in
         # the same tick, and releasing by a shared id would free every one of
@@ -933,24 +974,21 @@ def orca_settled_tasks(run: str | None = None) -> set[str]:
 def release_settled(run: str | None = None) -> dict:
     """Give back the capacity held for workers that have finished.
 
-    Two keys, because either alone misses cases: the brief, which both sides
-    share whatever the worktree ended up being called, and the worktree name,
-    which catches a worker whose task record has already been cleared.
+    Matched on the brief alone. The worktree name is a name rightsize
+    suggested and any dispatch may reuse, so an older worker settling in a
+    reused checkout would release the hold of the new worker running there now.
+    A hold whose brief never matches expires on its own instead.
     """
     settled, error = orca_settled(run)
     if error:
         return {"error": error, "released": [], "kept": []}
-    finished_worktrees = {w["worktree"] for w in settled if w["worktree"]}
     finished_briefs = orca_settled_tasks(run)
     state = load_json(STATE, {}) or {}
     released, kept = [], []
     for held in list(sweep_reservations(state)):
-        worktree = held.get("worktree")
-        by_brief = brief_key(held.get("task") or "") in finished_briefs
-        by_worktree = bool(worktree) and worktree in finished_worktrees
-        if by_brief or by_worktree:
+        if brief_key(held.get("task") or "") in finished_briefs:
             release(held["provider"], held["id"])
-            released.append({**held, "matched": "brief" if by_brief else "worktree"})
+            released.append({**held, "matched": "brief"})
         else:
             kept.append(held)
     return {"released": released, "kept": kept, "settled": len(settled),
@@ -1276,7 +1314,12 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
                    else "one of its windows could not be read, so the rest cannot be trusted")
             notes.append(f"{text} skipped: {why}, escalation only")
             continue
-        if info["overrun"] and band < 3 and not relax_pace:
+        # Relaxing is for the whole-window average, which is a forecast from a
+        # rate nobody has measured. A burn rate taken between two readings is
+        # evidence, and staying cheap on a plan that is actually running away
+        # is not the lesser of the two evils.
+        relaxable = relax_pace and not info.get("burn_over")
+        if info["overrun"] and band < 3 and not relaxable:
             pace = info.get("over_pace")
             why = (f"its {pace['id']} window is {pace['pace']:.1f}x over pace and projects to"
                    f" {pace['projected']:.0f}% by reset" if pace
@@ -1329,10 +1372,22 @@ def route(spec: str, config: dict, probes: dict | None = None, max_age: float | 
         # Injected probes (tests, replay) must not move the burn-rate baseline.
         fresh = False
     elig = eligibility(config, probes, record=fresh)
-    decision = decide(judge(spec), config, elig)
+    judgment = judge(spec)
+    decision = decide(judgment, config, elig)
     decision["worktree_name"] = worktree_name(spec)
     if hold:
         decision["reservation"] = hold_capacity(decision, config, spec)
+        if decision["pick"] and decision["reservation"] is None:
+            # Somebody else took the slot between deciding and holding it, so
+            # this decision was never true. Ask again with that provider full.
+            taken = decision["pick"]["provider"]
+            elig[taken] = {**elig[taken], "eligible": False,
+                           "blocked": "its last slot was taken while this was being decided"}
+            decision = decide(judgment, config, elig)
+            decision["worktree_name"] = worktree_name(spec)
+            decision["reservation"] = hold_capacity(decision, config, spec)
+            decision["reasons"].append(f"{taken} lost its last slot to another dispatch"
+                                       " between deciding and holding it")
     return decision
 
 
@@ -1348,8 +1403,10 @@ def hold_capacity(decision: dict, config: dict, spec: str) -> str | None:
     provider = decision["pick"]["provider"]
     ttl = float(config.get("reservation_ttl_seconds", 1800))
     points = dispatch_cost(config, provider, decision["band"])
+    limits = config.get("max_inflight") or {}
+    limit = int(limits.get(provider, limits.get("_default", 8)))
     return reserve(provider, points, decision["band"], spec, ttl,
-                   decision.get("worktree_name"))
+                   decision.get("worktree_name"), limit)
 
 
 def debit(elig: dict, config: dict, provider: str, band: int) -> float:
@@ -1362,16 +1419,17 @@ def debit(elig: dict, config: dict, provider: str, band: int) -> float:
     info["reserved"] = info.get("reserved", 0.0) + points
     if info["usable"] is not None:
         info["usable"] -= points
-    # What a batch commits counts toward pace as much as what has been billed:
-    # a plan that was just inside its rate does not stay there while a fan-out
-    # loads more onto it. percent is projected * elapsed, so committing `points`
-    # raises the projection by points / elapsed.
-    for pace in info.get("paces") or []:
-        if pace.get("elapsed"):
-            pace["projected"] += points / pace["elapsed"]
-            if pace["projected"] > 100 and not info["overrun"]:
-                info["overrun"] = True
-                info["over_pace"] = pace
+    # What a batch commits counts toward pace as much as what has been billed.
+    # Recomputed from the buckets rather than adjusted in place, because a
+    # bucket too early in its window to have a pace at probe time has no entry
+    # to adjust, and that is exactly the bucket a fan-out can fill unnoticed.
+    for bucket in info.get("buckets") or []:
+        if bucket.get("percent") is None:
+            continue
+        committed = bucket_pace({**bucket, "percent": bucket["percent"] + info["reserved"]})
+        if committed and committed["projected"] > 100 and not info["overrun"]:
+            info["overrun"] = True
+            info["over_pace"] = committed
     limits = config.get("max_inflight") or {}
     limit = int(limits.get(provider, limits.get("_default", 8)))
     if info["inflight"] >= limit:
