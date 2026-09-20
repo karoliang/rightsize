@@ -73,6 +73,9 @@ rightsize route --spec task.md --json          # for scripts; exit 1 if blocked
 # Decide a whole fan-out, spread across plans, in waves.
 rightsize plan --specs tasks.txt --reserve --launcher orca
 
+# Did the workers run what was picked for them?
+rightsize audit
+
 # Tell it how a dispatch went, so the next one knows.
 rightsize report opencode --done               # that worker finished, release its capacity
 rightsize report opencode --quota-error        # skip that plan until its bucket resets
@@ -158,6 +161,33 @@ so `plan` holds the task instead. Sending ordinary implementation work to a
 band 3 model because the cheap plans are momentarily busy is the expensive
 mistake this tool exists to prevent, and across a hundred tasks it is expensive
 a hundred times over.
+
+## Check that the pick was actually used
+
+For opencode the model is chosen inside the terminal, not by a launch flag, so
+an orchestrator records the provider and a null model. That makes two very
+different things look identical: the pick being applied, and the pick being
+ignored while the worker runs whatever `~/.config/opencode/opencode.json`
+names. Six real workers in a row ran the config default, and there was no way
+to tell which had happened.
+
+Two changes close that. The Orca launcher now **binds the model at launch**, by
+creating the terminal with `opencode -m <model>` and attaching the worker to
+it, rather than printing the model as a line for a human to run afterwards.
+(`OPENCODE_MODEL` does not work: it is accepted and ignored.) And every routing
+decision is logged, so it can be compared with what actually ran:
+
+```
+$ rightsize audit
+ran as picked    12m ago  band 1  add-cursor-pagination-get-412
+                 deepseek-v4.1-flash, 58 messages
+MISMATCH          2h ago  band 3  rotate-stripe-webhook-secret
+                 picked opencode:glm-5.3, ran deepseek-v4.1-flash over 41 messages
+held             opencode 1.02 points for 15m, nothing running: rightsize report opencode --done
+```
+
+The session data comes from opencode's own database, read-only. Exit code 1 on
+any mismatch, so a coordinator can stop and look.
 
 ## Wire it into your agent
 

@@ -158,8 +158,13 @@ def main():
     # A launcher renders from config, so adding one is config and not code.
     decision = route_with(judged("implementation"), probes())
     line = ar.launch_command(decision, CONFIG, "orca", "task.md")
-    assert "--agent opencode" in line and '--spec "$(cat task.md)"' in line, line
+    assert '--spec "$(cat task.md)"' in line, line
+    # The model has to be bound at launch. `--agent opencode` takes no model
+    # flag and OPENCODE_MODEL is ignored, so a worker started without this
+    # silently runs whatever ~/.config/opencode/opencode.json names.
     assert "opencode -m opencode-go/deepseek-v4.1-flash" in line, line
+    assert '--terminal "$HANDLE"' in line, line
+    assert "--worktree name:" in line, line
     shell = ar.launch_command(decision, CONFIG, "shell", None)
     assert shell.startswith("opencode run -m opencode-go/deepseek-v4.1-flash"), shell
     inline = ar.launch_command(decision, CONFIG, "orca", None,
@@ -351,6 +356,14 @@ def main():
     finally:
         os.chdir(cwd)
 
+    # Every opencode worker launched through Orca must carry its model, or the
+    # band is decorative: six real workers once ran the config default and it
+    # was indistinguishable from the pick being applied.
+    for provider, template in CONFIG["launchers"]["orca"].items():
+        if provider in ("codex", "claude") or provider.startswith("_"):
+            continue
+        assert "opencode -m {model_ref}" in template, (provider, template)
+
     # The shipped Orca launcher must never reuse the coordinator's checkout: a
     # worker in the main tree shares its branch and cleanup cannot find it.
     for name, templates in CONFIG["launchers"].items():
@@ -386,7 +399,10 @@ def main():
     decision["worktree_name"] = "disabled-controls-381"
     rendered = ar.launch_command(decision, CONFIG, "orca", None, "any other text")
     assert "--name disabled-controls-381" in rendered, rendered
-    assert "--worktree new-child" in rendered, rendered
+    # opencode gets its own worktree by name; codex and claude say new-child.
+    assert "--worktree name:disabled-controls-381" in rendered, rendered
+    codex_line = CONFIG["launchers"]["orca"]["codex"]
+    assert "--worktree new-child" in codex_line and "--name {name}" in codex_line, codex_line
 
     # With none carried, it is derived from the brief passed in.
     decision.pop("worktree_name")

@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import subprocess
 import sys
 import time
@@ -58,6 +59,10 @@ OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 # notice.
 ORCA_CODEX_ACCOUNTS = HOME / "Library/Application Support/orca/codex-accounts"
 ORCA_SUPPORT = HOME / "Library/Application Support/orca"
+OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
+# Providers whose worker is launched by the opencode CLI, so its sessions land
+# in opencode's own database and can be checked after the fact.
+OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter")
 # Windows a bucket id implies, in seconds. Codex spells its own in the id.
 BUCKET_WINDOWS = {"rolling": 5 * 3600, "weekly": 7 * 86400, "monthly": 30 * 86400,
                   "credit": None, "key-credit": None, "account-credit": None,
@@ -665,7 +670,8 @@ def reservation_load(name: str) -> tuple[float, int]:
     return sum(r["points"] for r in live), len(live)
 
 
-def reserve(name: str, points: float, band: int, task: str, ttl: float) -> str:
+def reserve(name: str, points: float, band: int, task: str, ttl: float,
+            worktree: str | None = None) -> str:
     state = load_json(STATE, {}) or {}
     sweep_reservations(state)
     entry = {
@@ -674,6 +680,7 @@ def reserve(name: str, points: float, band: int, task: str, ttl: float) -> str:
         "points": points,
         "band": band,
         "task": task[:80],
+        "worktree": worktree,
         "at": now(),
         "expires": now() + ttl,
     }
@@ -1048,7 +1055,8 @@ def hold_capacity(decision: dict, config: dict, spec: str) -> str | None:
     provider = decision["pick"]["provider"]
     ttl = float(config.get("reservation_ttl_seconds", 1800))
     points = dispatch_cost(config, provider, decision["band"])
-    return reserve(provider, points, decision["band"], spec, ttl)
+    return reserve(provider, points, decision["band"], spec, ttl,
+                   decision.get("worktree_name"))
 
 
 def debit(elig: dict, config: dict, provider: str, band: int) -> float:
@@ -1130,9 +1138,11 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
             provider = decision["pick"]["provider"]
             task["points"] = debit(elig, config, provider, decision["band"])
             task["wave"] = wave
+            decision["worktree_name"] = task["name"]
+            log_decision(decision, task["spec"])
             if hold:
                 decision["reservation"] = reserve(provider, task["points"], decision["band"],
-                                                  task["spec"], ttl)
+                                                  task["spec"], ttl, task["name"])
             placed_this_wave.append(task)
         pending = still_pending
         if not placed_this_wave:
@@ -1546,12 +1556,14 @@ def cmd_deals(args, config):
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve)
+    log_decision(decision, spec)
     return print_decision(decision, args, config, spec)
 
 
 def cmd_rerun(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = rerun(spec, args.because, args.previous, config)
+    log_decision(decision, spec)
     return print_decision(decision, args, config, spec)
 
 
@@ -1915,6 +1927,133 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
     return rows
 
 
+def log_decision(decision: dict, spec: str) -> None:
+    """Remember what was recommended, so it can be checked against what ran.
+
+    A recommendation nobody can verify is a recommendation nobody has to
+    follow. For opencode the model is chosen inside the terminal rather than by
+    a launch flag, so Orca records the provider and a null model, and "the pick
+    was applied" looks exactly like "the pick was ignored and the config default
+    ran". This log is the half rightsize can supply.
+    """
+    if not decision.get("pick"):
+        return
+    state = load_json(STATE, {}) or {}
+    entries = state.get("decisions") or []
+    entries.append({
+        "at": now(),
+        "provider": decision["pick"]["provider"],
+        "model": decision["pick"]["model"],
+        "effort": decision["pick"].get("effort"),
+        "band": decision["band"],
+        "name": decision.get("worktree_name"),
+        "task": " ".join(spec.split())[:120],
+    })
+    state["decisions"] = entries[-200:]
+    save_json(STATE, state)
+
+
+def opencode_sessions_since(epoch: float) -> list[dict]:
+    """What opencode actually ran, from its own database, read-only."""
+    if not OPENCODE_DB.exists():
+        return []
+    query = """
+        SELECT s.directory,
+               json_extract(m.data, '$.modelID')    AS model,
+               json_extract(m.data, '$.providerID') AS provider,
+               count(*)                             AS messages,
+               max(m.time_created) / 1000.0         AS last_at
+        FROM session s JOIN message m ON m.session_id = s.id
+        WHERE s.time_created > ?
+        GROUP BY s.id, model
+    """
+    try:
+        with sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=5) as db:
+            rows = db.execute(query, (int(epoch * 1000),)).fetchall()
+    except sqlite3.Error:
+        return []
+    return [{"directory": r[0] or "", "model": r[1], "provider": r[2],
+             "messages": r[3], "last_at": r[4]} for r in rows if r[1]]
+
+
+def audit(config: dict, days: float = 7.0) -> dict:
+    """Compare what was recommended with what ran."""
+    state = load_json(STATE, {}) or {}
+    since = now() - days * 86400
+    decisions = [d for d in (state.get("decisions") or []) if d["at"] >= since]
+    sessions = opencode_sessions_since(since)
+    rows = []
+    for decision in decisions:
+        if decision["provider"] not in OPENCODE_LAUNCHED:
+            rows.append({**decision, "verdict": "not checkable",
+                         "why": f"{decision['provider']} workers are not recorded in opencode's database"})
+            continue
+        name = decision.get("name") or ""
+        found = [x for x in sessions
+                 if name and Path(x["directory"]).name == name and x["last_at"] >= decision["at"] - 300]
+        if not found:
+            rows.append({**decision, "verdict": "no session",
+                         "why": "nothing ran in a worktree of that name; not dispatched, or dispatched elsewhere"})
+            continue
+        ran = max(found, key=lambda x: x["messages"])
+        rows.append({**decision, "verdict": "ran as picked" if ran["model"] == decision["model"] else "mismatch",
+                     "ran_model": ran["model"], "messages": ran["messages"],
+                     "directory": ran["directory"]})
+    counts = {}
+    for row in rows:
+        counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
+    # Capacity held by a dispatch that is not running. Either it never
+    # launched, or it finished and nobody said so.
+    stale = []
+    for held in sweep_reservations(state):
+        if now() - held["at"] <= 900:
+            continue
+        worktree = held.get("worktree")
+        active = [x for x in sessions
+                  if worktree and Path(x["directory"]).name == worktree
+                  and now() - x["last_at"] < 900]
+        if not active:
+            stale.append(held)
+    return {"decisions": rows, "counts": counts, "sessions_seen": len(sessions),
+            "held": [{"provider": h["provider"], "points": h["points"], "age": now() - h["at"],
+                      "worktree": h.get("worktree"), "task": h["task"]} for h in stale]}
+
+
+def cmd_audit(args, config):
+    result = audit(config, days=args.days)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    if not result["decisions"]:
+        print(f"no decisions recorded in the last {args.days:g} days."
+              " Routing records one per dispatch; this fills as you use it.")
+        return 0
+    order = {"mismatch": 0, "ran as picked": 1, "no session": 2, "not checkable": 3}
+    for row in sorted(result["decisions"], key=lambda r: (order.get(r["verdict"], 9), -r["at"])):
+        mark = row["verdict"].upper() if row["verdict"] == "mismatch" else row["verdict"]
+        line = f"{mark:<14} {human_age(now() - row['at']):>7} ago  band {row['band']}  {row['name'] or '-'}"
+        print(line)
+        if row["verdict"] == "mismatch":
+            print(f"               picked {row['provider']}:{row['model']}, ran {row['ran_model']}"
+                  f" over {row['messages']} messages")
+        elif row["verdict"] == "ran as picked":
+            print(f"               {row['model']}, {row['messages']} messages")
+        else:
+            print(f"               {row['why']}")
+    print()
+    print("  ".join(f"{count} {verdict}" for verdict, count in sorted(result["counts"].items())))
+    for held in result["held"]:
+        print(f"held           {held['provider']} {held['points']} points for"
+              f" {human_age(held['age'])}, nothing running in {held['worktree'] or 'any worktree'}:"
+              f" rightsize report {held['provider']} --done")
+    if result["counts"].get("mismatch"):
+        print("\nA mismatch means the worker ran a different model than the one picked."
+              "\nFor opencode that usually means the `opencode -m <model>` line was not run,"
+              "\nso the worker fell back to the default in ~/.config/opencode/opencode.json.")
+        return 1
+    return 0
+
+
 def cmd_calibrate(args, config):
     rows = calibrate(config)
     if args.json:
@@ -2015,6 +2154,11 @@ def main(argv=None):
     plan_cmd.add_argument("--launcher", help="also print a launch command per task")
     plan_cmd.add_argument("--json", action="store_true")
     plan_cmd.set_defaults(func=cmd_plan)
+
+    audit_cmd = sub.add_parser("audit", help="did workers run the model that was picked for them")
+    audit_cmd.add_argument("--days", type=float, default=7.0)
+    audit_cmd.add_argument("--json", action="store_true")
+    audit_cmd.set_defaults(func=cmd_audit)
 
     calibrate_cmd = sub.add_parser(
         "calibrate", help="measure what a dispatch actually costs, from recorded sessions")

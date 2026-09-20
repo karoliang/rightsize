@@ -65,6 +65,14 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   from rightsize's own transcript scan. Measured here: 0.34 points per
   opencode dispatch against a configured guess of 0.6.
 
+- `rightsize audit` compares every recommendation against what opencode's own
+  database says actually ran, and names reservations holding capacity with
+  nothing running. Routing now logs its decisions (capped at 200) so there is
+  something to compare against.
+- The Orca launcher binds the model at launch, creating the terminal with
+  `opencode -m <model>` and attaching the worker to it, instead of printing the
+  model as a line for a human to run afterwards.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of
@@ -83,6 +91,14 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   and a fan-out that escalates is wrong a hundred times over.
 
 ### Fixed
+
+- An opencode worker launched with `--agent opencode` runs whatever
+  `~/.config/opencode/opencode.json` names, because that flag takes no model and
+  `OPENCODE_MODEL` is accepted and ignored (verified). The model was printed as
+  a follow-up line for a human to run inside the terminal, so skipping it was
+  silent and indistinguishable from applying it: six consecutive real workers
+  ran the config default. The launcher now binds the model when the terminal is
+  created, verified end to end on a fresh worktree.
 
 - Codex usage was read only from `~/.codex`, but Codex does not always write
   there: Orca gives each account its own `CODEX_HOME`, so every session started
