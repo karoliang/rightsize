@@ -382,6 +382,62 @@ def main():
     assert "--name fix-disabled-control-treatment-381" in rendered, rendered
     assert "--worktree new-child" in rendered, rendered
 
+    # Codex writes where it is told. Orca gives each account its own
+    # CODEX_HOME, so reading only ~/.codex believed a 20h-old rollout from a
+    # plan that had been replaced while the live one sat unread. Nothing failed
+    # visibly: Codex simply stopped being picked.
+    import os
+    sandbox = ar.STATE.parent / "codex-homes"
+    default_home = sandbox / "default"
+    account_home = sandbox / "orca" / "codex-accounts" / "acct-1" / "home"
+    env_home = sandbox / "env-home"
+
+    def rollout(home, name, age_seconds):
+        day = home / "sessions" / "2026" / "09" / "20"
+        day.mkdir(parents=True, exist_ok=True)
+        path = day / f"rollout-{name}.jsonl"
+        path.write_text('{"rate_limits": {}}\n')
+        stamp = time.time() - age_seconds
+        os.utime(path, (stamp, stamp))
+        return path
+
+    old_one = rollout(default_home / ".codex", "old", 20 * HOUR)
+    live = rollout(account_home, "live", 60)
+    from_env = rollout(env_home, "env", 5 * HOUR)
+
+    saved_home, saved_accounts = ar.HOME, ar.ORCA_CODEX_ACCOUNTS
+    saved_env = {k: os.environ.get(k) for k in ("CODEX_HOME", "ORCA_CODEX_HOME")}
+    try:
+        ar.HOME = default_home
+        ar.ORCA_CODEX_ACCOUNTS = sandbox / "orca" / "codex-accounts"
+        for key in saved_env:
+            os.environ.pop(key, None)
+
+        # The launchd case: no CODEX_HOME in the environment at all, and the
+        # account home must still be found, or the timer reads the stale plan.
+        assert ar.newest_codex_rollout() == live, ar.newest_codex_rollout()
+
+        # An explicit CODEX_HOME is searched too, and the newest still wins.
+        os.environ["CODEX_HOME"] = str(env_home)
+        assert ar.newest_codex_rollout() == live, ar.newest_codex_rollout()
+        os.utime(from_env, (time.time(), time.time()))
+        assert ar.newest_codex_rollout() == from_env, ar.newest_codex_rollout()
+
+        # The same directory named twice is searched once.
+        os.environ["ORCA_CODEX_HOME"] = str(env_home)
+        assert len(ar.codex_homes()) == len(set(map(str, ar.codex_homes()))), ar.codex_homes()
+
+        # With nothing newer anywhere, the default home is still read.
+        for path in (live, from_env):
+            os.utime(path, (time.time() - 40 * 86400,) * 2)
+        assert ar.newest_codex_rollout() == old_one, ar.newest_codex_rollout()
+    finally:
+        ar.HOME, ar.ORCA_CODEX_ACCOUNTS = saved_home, saved_accounts
+        for key, value in saved_env.items():
+            os.environ[key] = value if value is not None else ""
+            if value is None:
+                os.environ.pop(key, None)
+
     print("all checks passed")
 
 

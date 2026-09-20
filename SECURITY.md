@@ -19,7 +19,10 @@ worth being explicit.
 - API keys, from the environment, from Infisical when the repo is linked, and
   from `~/.local/share/opencode/auth.json` (a file the OpenCode CLI already
   maintains).
-- `~/.codex/sessions/**/rollout-*.jsonl`, for the `rate_limits` block only.
+- `sessions/**/rollout-*.jsonl` under each Codex home (`CODEX_HOME`,
+  `ORCA_CODEX_HOME`, `~/.codex`, and Orca's per-account homes under
+  `~/Library/Application Support/orca/codex-accounts`), for the `rate_limits`
+  block only.
 - `~/.claude/projects/**/*.jsonl`, for `usage` token counts only, and only when
   a Claude token budget is configured or `rightsize probe` is run.
 - Your task text, which is sent to the TypeSafe API to be judged.

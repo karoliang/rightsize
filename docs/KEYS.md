@@ -139,7 +139,15 @@ Two traps worth checking on your own key:
 Neither needs a credential here, and neither publishes a usage API.
 
 - **Codex**: usage comes from the `rate_limits` block in the newest
-  `~/.codex/sessions/**/rollout-*.jsonl`. It is exact when written, but only an
+  `sessions/**/rollout-*.jsonl` under any Codex home. There is usually more
+  than one: Orca gives each Codex account its own `CODEX_HOME` under
+  `~/Library/Application Support/orca/codex-accounts/<id>/home`, so a session
+  started from an Orca terminal writes there and leaves `~/.codex` untouched.
+  rightsize searches `CODEX_HOME`, `ORCA_CODEX_HOME`, `~/.codex` and every
+  discovered Orca account home, and the newest rollout wins. Discovery matters
+  as much as the environment variables: a launchd job inherits `CODEX_HOME`
+  from nobody, so an environment-only lookup reads correctly from an Orca
+  terminal and wrongly from the timer. It is exact when written, but only an
   **interactive** Codex session writes it. Verified 2026-09-20: `codex exec`
   runs fine and writes no rollout, and the numbers are not in Codex's sqlite
   stores either. Past `staleness_seconds` (6h) rightsize stops trusting the

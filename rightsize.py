@@ -51,9 +51,23 @@ OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 # new plan. Both roots are searched and the newest rollout wins, because which
 # one is current depends on how Codex was launched, and the launchd refresh does
 # not inherit CODEX_HOME from anyone.
-def _codex_homes() -> list[Path]:
+# Orca keeps its per-account homes here, one directory per Codex account. They
+# are discovered rather than only read from the environment, because the launchd
+# refresh inherits CODEX_HOME from nobody: an env-only fix reads correctly from
+# an Orca terminal and wrongly from the timer, which is the harder failure to
+# notice.
+ORCA_CODEX_ACCOUNTS = HOME / "Library/Application Support/orca/codex-accounts"
+
+
+def codex_homes() -> list[Path]:
+    """Every directory Codex might have written a rollout to."""
+    candidates = [os.environ.get("CODEX_HOME"), os.environ.get("ORCA_CODEX_HOME"), HOME / ".codex"]
+    try:
+        candidates += sorted(ORCA_CODEX_ACCOUNTS.glob("*/home"))
+    except OSError:
+        pass
     roots, seen = [], set()
-    for raw in (os.environ.get("CODEX_HOME"), os.environ.get("ORCA_CODEX_HOME"), HOME / ".codex"):
+    for raw in candidates:
         if not raw:
             continue
         path = Path(raw).expanduser()
@@ -260,7 +274,7 @@ def probe_opencode() -> dict:
 def newest_codex_rollout() -> Path | None:
     newest, newest_mtime = None, 0.0
     cutoff = now() - 30 * 86400
-    for home in _codex_homes():
+    for home in codex_homes():
         sessions = home / "sessions"
         if not sessions.exists():
             continue

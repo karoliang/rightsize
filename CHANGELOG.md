@@ -77,6 +77,17 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Fixed
 
+- Codex usage was read only from `~/.codex`, but Codex does not always write
+  there: Orca gives each account its own `CODEX_HOME`, so every session started
+  from an Orca terminal wrote where rightsize could not see. The newest visible
+  rollout was 20 hours old and recorded 93 per cent of a weekly bucket on a plan
+  that had since been replaced, while the live rollout sat at 0 per cent. The
+  staleness guard behaved correctly on that bad input, reporting unknown rather
+  than trusting it, which is why the failure was silent: Codex was never picked,
+  and nothing errored. Every Codex home is now searched, including Orca's
+  per-account homes discovered on disk rather than only read from the
+  environment, because a launchd job inherits `CODEX_HOME` from nobody.
+
 - The Orca templates printed `--worktree new-child` without `--name`, which
   Orca rejects with `invalid_argument: New worktrees require --name`, so the
   command was unrunnable as printed the moment `new-child` became the default.
