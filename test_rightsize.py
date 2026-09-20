@@ -6,6 +6,8 @@ the policy can be checked without spending a token or touching a provider.
 """
 
 import json
+import os
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -594,6 +596,31 @@ def main():
     assert ar.capacity_in_dispatches(CONFIG, "opencode", -3.0) == ""
     # A provider whose dispatches cost nothing has no such limit to report.
     assert ar.capacity_in_dispatches(CONFIG, "opencode_zen", 50.0) == ""
+
+    # Concurrency. Every mutator loads the whole document, changes a field and
+    # writes it back, and a hook fires on every Bash command while a batch
+    # reserves in a loop. Twelve concurrent writers once kept one reservation
+    # and left the file unparseable, after which every load returned {}.
+    import subprocess
+    sandbox = Path(tempfile.mkdtemp(prefix="rightsize-race-"))
+    (sandbox / ".local/state/rightsize").mkdir(parents=True)
+    writer = (
+        "import sys; sys.path.insert(0, %r)\n"
+        "import rightsize as r\n"
+        "r.reserve('opencode', 0.1, 1, 'task ' + sys.argv[1], 600, 'wt-' + sys.argv[1])\n"
+        % str(ar.ROOT)
+    )
+    script = sandbox / "writer.py"
+    script.write_text(writer)
+    env = {**os.environ, "HOME": str(sandbox)}
+    running = [subprocess.Popen([sys.executable, str(script), str(i)], env=env,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+               for i in range(12)]
+    for process in running:
+        process.wait()
+    written = json.loads((sandbox / ".local/state/rightsize/state.json").read_text())
+    assert len(written.get("reservations", [])) == 12, \
+        f"{len(written.get('reservations', []))} of 12 concurrent reservations survived"
 
     print("all checks passed")
 

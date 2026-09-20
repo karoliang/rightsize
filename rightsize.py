@@ -15,6 +15,8 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -158,9 +160,46 @@ def load_json(path: Path, default=None):
         return default
 
 
+@contextlib.contextmanager
+def state_lock():
+    """Hold the state file for a read-modify-write.
+
+    Every mutator here loads the whole document, changes one field and writes
+    it back, and several can run at once: a hook on every Bash command, a batch
+    reserving in a loop, and each worker terminal's own agent. Without this,
+    twelve concurrent writes lost eleven of them and left the file unparseable,
+    after which every load returned {} and the next write erased the rest.
+    """
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    lock = STATE.with_name(STATE.name + ".lock")
+    handle = open(lock, "w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def save_json(path: Path, value) -> None:
+    """Write whole or not at all.
+
+    Writing in place leaves the file empty or half-written for as long as the
+    write takes, and a reader landing there gets nothing back and then saves
+    that nothing over the document. A temporary file in the same directory
+    followed by os.replace is atomic, so a reader sees the old file or the new
+    one and never a partial one.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2) + "\n")
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(value, indent=2) + "\n")
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def get(url: str, token: str | None = None, timeout: int = 20):
@@ -530,12 +569,13 @@ def free_requests_today() -> tuple[int, float]:
 
 
 def count_free_request() -> None:
-    state = load_json(STATE, {}) or {}
-    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    counter = state.get("openrouter_free", {})
-    count = counter.get("count", 0) if counter.get("day") == day else 0
-    state["openrouter_free"] = {"day": day, "count": count + 1}
-    save_json(STATE, state)
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        counter = state.get("openrouter_free", {})
+        count = counter.get("count", 0) if counter.get("day") == day else 0
+        state["openrouter_free"] = {"day": day, "count": count + 1}
+        save_json(STATE, state)
 
 
 def probe_free(name: str) -> dict:
@@ -581,9 +621,10 @@ def probes_cached(config: dict, max_age: float | None = None) -> tuple[dict, boo
     if max_age > 0 and cached.get("at") and now() - cached["at"] < max_age:
         return cached["probes"], False
     probes = probe_all(config)
-    state = load_json(STATE, {}) or {}
-    state["probe_cache"] = {"at": now(), "probes": probes}
-    save_json(STATE, state)
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        state["probe_cache"] = {"at": now(), "probes": probes}
+        save_json(STATE, state)
     return probes, True
 
 
@@ -600,8 +641,10 @@ def record_snapshot(probes: dict) -> dict:
         for bucket in probe["buckets"]:
             if bucket.get("percent") is not None:
                 current[f"{name}:{bucket['id']}"] = {"at": now(), "percent": bucket["percent"]}
-    state["snapshots"] = current
-    save_json(STATE, state)
+    with state_lock():
+        fresh = load_json(STATE, {}) or {}
+        fresh["snapshots"] = current
+        save_json(STATE, fresh)
     return previous
 
 
@@ -705,9 +748,10 @@ def reservation_load(name: str) -> tuple[float, int]:
 
 def reserve(name: str, points: float, band: int, task: str, ttl: float,
             worktree: str | None = None) -> str:
-    state = load_json(STATE, {}) or {}
-    sweep_reservations(state)
-    entry = {
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        sweep_reservations(state)
+        entry = {
         # Unique per reservation, not per millisecond: a batch reserves many in
         # the same tick, and releasing by a shared id would free every one of
         # them while their workers were still running.
@@ -720,24 +764,25 @@ def reserve(name: str, points: float, band: int, task: str, ttl: float,
         "at": now(),
         "expires": now() + ttl,
     }
-    state["reservations"].append(entry)
-    save_json(STATE, state)
+        state["reservations"].append(entry)
+        save_json(STATE, state)
     return entry["id"]
 
 
 def release(name: str, reservation_id: str | None = None) -> int:
     """Give the capacity back. Without an id, the oldest on that provider."""
-    state = load_json(STATE, {}) or {}
-    live = sweep_reservations(state)
-    mine = [r for r in live if r["provider"] == name]
-    if reservation_id:
-        mine = [r for r in mine if r["id"] == reservation_id]
-    if not mine:
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        live = sweep_reservations(state)
+        mine = [r for r in live if r["provider"] == name]
+        if reservation_id:
+            mine = [r for r in mine if r["id"] == reservation_id]
+        if not mine:
+            save_json(STATE, state)
+            return 0
+        drop = min(mine, key=lambda r: r["at"])
+        state["reservations"] = [r for r in live if r["id"] != drop["id"]]
         save_json(STATE, state)
-        return 0
-    drop = min(mine, key=lambda r: r["at"])
-    state["reservations"] = [r for r in live if r["id"] != drop["id"]]
-    save_json(STATE, state)
     return 1
 
 
@@ -847,9 +892,10 @@ def exhausted_until(name: str) -> float:
 
 
 def mark_exhausted(name: str, until: float) -> None:
-    state = load_json(STATE, {}) or {}
-    state.setdefault("exhausted", {})[name] = until
-    save_json(STATE, state)
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        state.setdefault("exhausted", {})[name] = until
+        save_json(STATE, state)
 
 
 def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
@@ -1679,9 +1725,10 @@ def cmd_probe(args, config):
     probes = probe_all(config, count_tokens=True)
     # Warm the cache the router reads, so looking at the numbers and then
     # routing does not probe twice.
-    state = load_json(STATE, {}) or {}
-    state["probe_cache"] = {"at": now(), "probes": probes}
-    save_json(STATE, state)
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        state["probe_cache"] = {"at": now(), "probes": probes}
+        save_json(STATE, state)
     elig = eligibility(config, probes)
     if args.json:
         print(json.dumps({"probes": probes, "eligibility": elig}, indent=2))
@@ -2176,9 +2223,10 @@ def log_decision(decision: dict, spec: str) -> None:
     """
     if not decision.get("pick"):
         return
-    state = load_json(STATE, {}) or {}
-    entries = state.get("decisions") or []
-    entries.append({
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        entries = state.get("decisions") or []
+        entries.append({
         "at": now(),
         "provider": decision["pick"]["provider"],
         "model": decision["pick"]["model"],
@@ -2187,8 +2235,8 @@ def log_decision(decision: dict, spec: str) -> None:
         "name": decision.get("worktree_name"),
         "task": " ".join(spec.split())[:120],
     })
-    state["decisions"] = entries[-200:]
-    save_json(STATE, state)
+        state["decisions"] = entries[-200:]
+        save_json(STATE, state)
 
 
 def opencode_sessions_since(epoch: float) -> list[dict]:
