@@ -1943,8 +1943,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     live = [r for r in (state.get("reservations") or []) if r["expires"] > now()]
     if live:
         oldest = min(r["at"] for r in live)
-        out.append(("warn", f"{len(live)} reservations in flight, oldest {human_reset(oldest)} ago."
-                            " If those workers are finished: rightsize report <provider> --done"))
+        out.append(("warn", f"{len(live)} reservations in flight, oldest {human_age(now() - oldest)} ago."
+                            " If those workers are finished: rightsize report --from-orca"))
     exhausted = {n: t for n, t in (state.get("exhausted") or {}).items() if t > now()}
     for name, until in exhausted.items():
         out.append(("warn", f"{name} is marked exhausted until {human_reset(until)} from now"))
