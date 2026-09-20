@@ -343,7 +343,67 @@ def newest_codex_rollout() -> Path | None:
     return newest
 
 
+def codex_rate_limits(timeout: float = 15.0) -> dict | None:
+    """Ask Codex itself, rather than reading what it left behind.
+
+    `codex app-server` answers `account/rateLimits/read` with live percentages
+    and the account id they belong to. That matters twice over. It needs no
+    interactive session, so the number stops ageing between runs; and the
+    reading carries its own identity, where a rollout file does not: Orca
+    hardlinks session files across account homes, so a `rate_limits` block
+    found under one account may have been written by another.
+    """
+    start = now()
+    try:
+        proc = subprocess.Popen(["codex", "app-server"], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                text=True, bufsize=1)
+    except OSError:
+        return None
+    try:
+        proc.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+                         '{"clientInfo":{"name":"rightsize","version":"1"}}}\n')
+        proc.stdin.write('{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read",'
+                         '"params":{}}\n')
+        proc.stdin.flush()
+        while now() - start < timeout:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            try:
+                message = json.loads(line)
+            except ValueError:
+                continue
+            if message.get("id") == 2:
+                return message.get("result")
+    except (OSError, ValueError):
+        return None
+    finally:
+        proc.kill()
+    return None
+
+
 def probe_codex(config: dict | None = None) -> dict:
+    live = codex_rate_limits()
+    if live and (live.get("rateLimits") or {}).get("primary"):
+        limits = live["rateLimits"]
+        buckets = []
+        for slot in ("primary", "secondary"):
+            value = limits.get(slot)
+            if not value:
+                continue
+            minutes = value.get("windowDurationMins") or 0
+            buckets.append({
+                "id": f"{slot}-{minutes}m",
+                "percent": value.get("usedPercent"),
+                "resets_at": value.get("resetsAt"),
+                "source": "live",
+                "account": (live.get("accountId") or "")[:8],
+                "plan": limits.get("planType"),
+            })
+        if buckets:
+            return {"name": "codex", "status": "ok", "buckets": buckets}
+
     path = newest_codex_rollout()
     if not path:
         return {"name": "codex", "status": "no-session-data", "buckets": []}

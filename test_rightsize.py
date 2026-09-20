@@ -632,6 +632,34 @@ def main():
 
     adversarial()
     adversarial_two()
+    # Codex answers live over its own app-server, which is both fresher than
+    # the file it leaves behind and attributable: Orca hardlinks rollouts
+    # across account homes, so a rate_limits block found under one account may
+    # have been written by another.
+    original = ar.codex_rate_limits
+    ar.codex_rate_limits = lambda timeout=15.0: {
+        "accountId": "e81eb3ba-1ed5-420f-8196-abb639352b15",
+        "rateLimits": {"planType": "pro",
+                       "primary": {"usedPercent": 7, "windowDurationMins": 10080,
+                                   "resetsAt": time.time() + 6 * 86400}},
+    }
+    try:
+        probe = ar.probe_codex(CONFIG)
+    finally:
+        ar.codex_rate_limits = original
+    assert probe["buckets"][0]["percent"] == 7, probe
+    assert probe["buckets"][0]["source"] == "live", probe
+    assert probe["buckets"][0]["account"] == "e81eb3ba", probe
+    assert "age_seconds" not in probe["buckets"][0], "a live reading does not age"
+
+    # With no answer it falls back to the newest rollout, which does age.
+    ar.codex_rate_limits = lambda timeout=15.0: None
+    try:
+        fallback = ar.probe_codex(CONFIG)
+    finally:
+        ar.codex_rate_limits = original
+    assert fallback["status"] in ("ok", "no-session-data", "no-rate-limits"), fallback
+
     print("all checks passed")
 
 
