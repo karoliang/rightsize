@@ -63,5 +63,27 @@
   "free_providers": [
     "opencode_zen"
   ],
-  "_comment_free": "opencode_zen entries here are the -free models, served to the OpenCode client without touching the Go subscription buckets. Slower than the paid cheap band, so the ladder keeps them last: overflow capacity, not the default."
+  "_comment_free": "opencode_zen entries here are the -free models, served to the OpenCode client without touching the Go subscription buckets. Slower than the paid cheap band, so the ladder keeps them last: overflow capacity, not the default.",
+  "cache_seconds": 60,
+  "_comment_cache": "Seconds a quota reading stays usable for routing. A dispatch takes minutes, so a reading a minute old is the same reading. `rightsize probe` and `route --fresh` always re-read.",
+  "model_prefixes": {
+    "opencode": "opencode-go/",
+    "opencode_zen": "opencode/",
+    "openrouter": "openrouter/",
+    "codex": "",
+    "claude": ""
+  },
+  "launchers": {
+    "_doc": "How a decision becomes a command. Each launcher maps a provider to a template, with `default` covering the rest. Fields: {provider} {agent} {model} {model_ref} {effort} {band} {spec} {spec_path}. Adding a launcher is config, not code: see docs/ADAPTERS.md.",
+    "orca": {
+      "default": "orca orchestration worker-start --spec {spec} --worktree current --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
+      "codex": "orca orchestration worker-start --spec {spec} --worktree current --agent codex --json --model {model} --effort {effort}",
+      "claude": "orca orchestration worker-start --spec {spec} --worktree current --agent claude --json --model {model}"
+    },
+    "shell": {
+      "default": "opencode run -m {model_ref} {spec}",
+      "codex": "codex exec --model {model} -c model_reasoning_effort={effort} {spec}",
+      "claude": "claude -p --model {model} {spec}"
+    }
+  }
 }

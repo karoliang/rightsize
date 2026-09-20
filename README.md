@@ -8,6 +8,20 @@ small decision: which plan has headroom, which bucket is about to reset and
 expire unused, and how much model this particular task actually needs. This
 answers that in about two seconds, with a stated reason.
 
+```
+$ rightsize route --task "add a rate limit to the signup endpoint" --orca
+judgment   jev (jev-1.13.0)
+           tier=implementation size=0.83 second_opinion=0.21 spec_complete=0.94 destructive=0.03
+dispatch   band 1 -> agent opencode, model deepseek-v4.1-flash
+  why      tier implementation starts at band 1
+  quota    codex:gpt-5.6-luna:low skipped: below reserve on primary-10080m
+  quota    opencode:deepseek-v4.1-flash chosen: its weekly bucket resets in 21h 50m
+           with 9 points usable, so spend it before it expires
+
+orca orchestration worker-start --spec "<task>" --worktree current --agent opencode --json
+# then inside that terminal: opencode -m opencode-go/deepseek-v4.1-flash
+```
+
 The split it is built on: **quota is arithmetic, the task is a judgment.**
 Headroom, reserves, burn rate and fallback are ordinary code, because the
 numbers are already exact and a model asked to do subtraction can be wrong
@@ -15,16 +29,24 @@ about them. What kind of work a task is, and how much model it needs, goes to
 a typed judgment. The model is never asked which provider to use, because
 providers change every few months and the questions do not.
 
+It decides and steps out. It is not a proxy and never sits in the token path.
+
 No dependencies. Python 3 standard library only.
 
 ## Install
 
 ```bash
 git clone https://github.com/karoliang/rightsize ~/Github/rightsize
-ln -s ~/Github/rightsize/rightsize ~/.local/bin/rightsize
+ln -s ~/Github/rightsize/rightsize ~/.local/bin/rightsize   # anywhere on PATH
 rightsize refresh
 rightsize probe
 ```
+
+Keys are optional to start: without them you get fewer providers and a crude
+heuristic in place of the judgment, and the output says so. See
+[docs/KEYS.md](docs/KEYS.md) for where each one comes from, what it costs, and
+what you lose without it. The short version: `TYPESAFE_API_KEY` is the one that
+matters, at roughly three cents per thousand routing decisions.
 
 ## Use
 
@@ -34,24 +56,35 @@ rightsize probe
 
 # Decide one dispatch.
 rightsize route --task "add a rate limit to the signup endpoint"
-rightsize route --spec task.md --orca      # prints the worker-start command
-rightsize route --spec task.md --json      # for scripts
+rightsize route --spec task.md --orca          # print the Orca worker-start line
+rightsize route --spec task.md --launcher shell # print a plain CLI invocation
+rightsize route --spec task.md --json          # for scripts; exit 1 if blocked
+
+# Tell it how a dispatch went, so the next one knows.
+rightsize report opencode --quota-error        # skip that plan until its bucket resets
 
 # What the catalogues offer, and what got cheaper overnight.
 rightsize models
 rightsize deals
 ```
 
-Example route:
+## Wire it into your agent
 
+The decision is only worth having if it happens on every dispatch, not on the
+ones you remember. `hooks/claude_pretooluse.py` is a working Claude Code
+PreToolUse hook: it watches for Bash commands that start a worker, routes the
+task, and injects the answer as context.
+
+```json
+{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+  {"type": "command", "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py", "timeout": 25}
+]}]}}
 ```
-judgment   jev (jev-1.13)
-           tier=implementation size=0.83 second_opinion=0.21 spec_complete=0.94 destructive=0.03
-dispatch   band 1 -> agent opencode, model deepseek-v4.1-flash
-  why      tier implementation starts at band 1
-  quota    opencode:deepseek-v4.1-flash chosen: its weekly bucket resets in 21h 50m
-           with 9 points usable, so spend it before it expires
-```
+
+It is advisory by construction: it prints, it never blocks, and it exits 0 on
+every failure path. A routing helper that can stop a dispatch is a routing
+helper that can strand a run. Ports to other orchestrators are welcome, and
+[docs/ADAPTERS.md](docs/ADAPTERS.md) has the JSON contract they build on.
 
 ## Where the quota numbers come from
 
@@ -66,6 +99,10 @@ The differences matter and the policy keeps them. An exact number can be spent
 down to a thin reserve. An estimate cannot, so a provider whose headroom is
 unknown is only ever used for work that has already earned an escalation.
 
+Probes run in parallel and a reading is cached for 60 seconds, because a
+dispatch takes minutes and a quota number from a minute ago is the same number.
+`rightsize probe` and `route --fresh` always re-read.
+
 ## The policy, in five rules
 
 1. **Band from the judgment.** Mechanical and ordinary implementation sit in
@@ -79,13 +116,17 @@ unknown is only ever used for work that has already earned an escalation.
 4. **Drop a tier before the wall, not at it.** If the current burn rate
    projects past 100 percent before the reset, that provider stops being
    offered for cheap work while it still has room for the expensive work.
-5. **Fallback is code.** A worker that comes back with a quota error marks its
-   provider exhausted until the known reset and the same spec is re-dispatched
-   to the next eligible one.
+5. **Fallback is code.** A worker that comes back with a quota error is reported
+   with `rightsize report`, which marks that provider exhausted until its known
+   reset; the same spec then routes to the next eligible one.
 
 Price is the burn multiplier on a percent-bucket subscription: a model at
 `$3/M` input eats your weekly allowance twenty times faster than one at
 `$0.15/M`. That is why band 1 is the default and escalation needs a reason.
+
+[docs/POLICY.md](docs/POLICY.md) walks the whole decision, including the
+arithmetic for burn rate and the rule that keeps an estimate from masquerading
+as spendable capacity.
 
 ## The judgment
 
@@ -139,12 +180,12 @@ rather than argued with.
 ## Configuration
 
 Everything tunable is in `config.json`: reserves per provider, the ordered
-candidate ladder per band, the review ladder, and the thresholds. Edit that,
-not the code.
+candidate ladder per band, the review ladder, thresholds, cache lifetime, and
+the launcher templates. Edit that, not the code.
 
 Claude Code publishes no quota API, so `claude.weekly_token_budget` is `null`
 by default and Claude stays escalation-only. Set a token budget to let it take
-ordinary work.
+ordinary work; `rightsize probe` prints the raw token counts to pick one from.
 
 ## Credentials
 
@@ -164,7 +205,8 @@ Read in this order, and never written into the repository:
 | `OPENCODE_ZEN_API_KEY` | the OpenCode Zen catalogue; falls back to the same file |
 
 Codex and Claude Code need no credential here: both are read from files their
-own CLIs already write.
+own CLIs already write. Full instructions per provider, including costs and
+free-tier limits, are in [docs/KEYS.md](docs/KEYS.md).
 
 ## Daily refresh
 
@@ -186,9 +228,22 @@ python3 test_rightsize.py    # policy, offline, no tokens
 ```
 
 Synthetic quota states and judgments, asserted end to end. No network, no
-tokens spent. Every policy rule above has a case, including the two that are
-easy to get wrong: unknown headroom must not be treated as free capacity, and
-an exhausted ladder must escalate rather than return nothing.
+tokens spent, no dependency on the machine's own quota. Every policy rule above
+has a case, including the ones that are easy to get wrong: unknown headroom must
+not be treated as free capacity, an exhausted ladder must escalate rather than
+return nothing, and a reported quota error must take a provider out of the next
+route.
+
+## Documentation
+
+- [docs/POLICY.md](docs/POLICY.md): how a decision is made, rule by rule.
+- [docs/KEYS.md](docs/KEYS.md): getting each API key, what it costs, what
+  breaks without it.
+- [docs/ADAPTERS.md](docs/ADAPTERS.md): adding a launcher (config), a caller
+  (JSON), or a provider (one function).
+- [CONTRIBUTING.md](CONTRIBUTING.md): the design rules, and the evidence a
+  question change needs.
+- [SECURITY.md](SECURITY.md): what this reads, what it writes, what it sends.
 
 ## Licence
 

@@ -23,6 +23,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -289,7 +290,15 @@ def claude_tokens(window_seconds: int) -> int:
     return total
 
 
-def probe_claude(config: dict) -> dict:
+def probe_claude(config: dict, count_tokens: bool = False) -> dict:
+    """Claude Code headroom, from a declared budget and reconstructed usage.
+
+    The transcript scan is the slowest thing here (seconds, and it grows with
+    the size of ~/.claude/projects). With no budget set the percentage is None
+    whatever the count says, so routing never pays for it: only `rightsize
+    probe` asks for the number, and it asks because a human is choosing a
+    budget from it.
+    """
     settings = config.get("claude") or {}
     buckets = []
     for bucket_id, seconds, budget_key in (
@@ -297,7 +306,7 @@ def probe_claude(config: dict) -> dict:
         ("weekly", 7 * 86400, "weekly_token_budget"),
     ):
         budget = settings.get(budget_key)
-        used = claude_tokens(seconds)
+        used = claude_tokens(seconds) if (budget or count_tokens) else 0
         percent = round(100.0 * used / budget, 1) if budget else None
         buckets.append(
             {
@@ -377,16 +386,42 @@ def probe_free(name: str) -> dict:
     return {"name": name, "status": "ok", "buckets": [], "free": True}
 
 
-def probe_all(config: dict) -> dict:
-    probes = {
-        "opencode": probe_opencode(),
-        "codex": probe_codex(),
-        "claude": probe_claude(config),
-        "openrouter": probe_openrouter(config),
+def probe_all(config: dict, count_tokens: bool = False) -> dict:
+    """Every provider at once. They are independent network reads, so serial
+    probing just adds their latencies together."""
+    jobs = {
+        "opencode": probe_opencode,
+        "codex": probe_codex,
+        "claude": lambda: probe_claude(config, count_tokens),
+        "openrouter": lambda: probe_openrouter(config),
     }
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futures = {name: pool.submit(fn) for name, fn in jobs.items()}
+        probes = {name: future.result() for name, future in futures.items()}
     for name in config.get("free_providers", []):
         probes[name] = probe_free(name)
     return probes
+
+
+def probes_cached(config: dict, max_age: float | None = None) -> tuple[dict, bool]:
+    """Probes from the last reading when it is still young enough.
+
+    Routing happens once per dispatch and a dispatch takes minutes, so a quota
+    number a minute old is the same number. Returns (probes, fresh); `fresh`
+    is False for a cache hit, which is what stops a cached reading from
+    overwriting the burn-rate baseline with a copy of itself.
+    """
+    if max_age is None:
+        max_age = float(config.get("cache_seconds", 60))
+    state = load_json(STATE, {}) or {}
+    cached = state.get("probe_cache") or {}
+    if max_age > 0 and cached.get("at") and now() - cached["at"] < max_age:
+        return cached["probes"], False
+    probes = probe_all(config)
+    state = load_json(STATE, {}) or {}
+    state["probe_cache"] = {"at": now(), "probes": probes}
+    save_json(STATE, state)
+    return probes, True
 
 
 # --------------------------------------------------------------------------
@@ -464,8 +499,8 @@ def mark_exhausted(name: str, until: float) -> None:
     save_json(STATE, state)
 
 
-def eligibility(config: dict, probes: dict) -> dict:
-    previous = record_snapshot(probes)
+def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
+    previous = record_snapshot(probes) if record else (load_json(STATE, {}) or {}).get("snapshots", {})
     reserves = config.get("reserves", {})
     out = {}
     for name, probe in probes.items():
@@ -688,9 +723,13 @@ def pick(candidates: list[str], elig: dict, band: int) -> tuple[dict | None, lis
     return cand, notes
 
 
-def route(spec: str, config: dict, probes: dict | None = None) -> dict:
-    probes = probes if probes is not None else probe_all(config)
-    elig = eligibility(config, probes)
+def route(spec: str, config: dict, probes: dict | None = None, max_age: float | None = None) -> dict:
+    if probes is None:
+        probes, fresh = probes_cached(config, max_age)
+    else:
+        # Injected probes (tests, replay) must not move the burn-rate baseline.
+        fresh = False
+    elig = eligibility(config, probes, record=fresh)
     judgment = judge(spec)
     band, reasons = band_for(judgment, config)
     thresholds = config.get("thresholds", {})
@@ -752,19 +791,43 @@ def route(spec: str, config: dict, probes: dict | None = None) -> dict:
     }
 
 
-def orca_command(decision: dict, spec_path: str | None) -> str:
+def launch_fields(decision: dict, config: dict, spec_path: str | None) -> dict:
+    """The substitutions a launcher template may use.
+
+    `model_ref` is the model id spelled the way the target CLI wants it, which
+    is the only provider-specific knowledge in here and lives in config.
+    """
     cand = decision["pick"]
-    if not cand:
+    prefix = (config.get("model_prefixes") or {}).get(cand["provider"], "")
+    quoted = f'"$(cat {spec_path})"' if spec_path else '"<task>"'
+    return {
+        "provider": cand["provider"],
+        "agent": decision["agent"] or cand["provider"],
+        "model": cand["model"],
+        "model_ref": f"{prefix}{cand['model']}",
+        "effort": cand["effort"] or "medium",
+        "band": decision["band"],
+        "spec": quoted,
+        "spec_path": spec_path or "<task file>",
+    }
+
+
+def launch_command(decision: dict, config: dict, launcher: str, spec_path: str | None) -> str:
+    """Render one launcher template. Adding a launcher is config, not code."""
+    if not decision["pick"]:
         return "# no eligible provider"
-    agent = decision["agent"]
-    spec = f'--spec "$(cat {spec_path})"' if spec_path else '--spec "<task>"'
-    line = f"orca orchestration worker-start {spec} --worktree current --agent {agent} --json"
-    prefixes = {"opencode": "opencode-go/", "openrouter": "openrouter/", "opencode_zen": "opencode/"}
-    if cand["provider"] in prefixes:
-        line += f"\n# then inside that terminal: opencode -m {prefixes[cand['provider']]}{cand['model']}"
-    elif cand["effort"]:
-        line += f" --model {cand['model']} --effort {cand['effort']}"
-    return line
+    templates = (config.get("launchers") or {}).get(launcher)
+    if not templates:
+        known = ", ".join(sorted(k for k in (config.get("launchers") or {}) if not k.startswith("_")))
+        return f"# unknown launcher {launcher!r}; configured: {known or 'none'}"
+    fields = launch_fields(decision, config, spec_path)
+    template = templates.get(fields["provider"]) or templates.get("default")
+    if not template:
+        return f"# launcher {launcher!r} has no template for provider {fields['provider']}"
+    try:
+        return template.format(**fields)
+    except KeyError as exc:
+        return f"# launcher {launcher!r} template uses unknown field {exc}"
 
 
 # --------------------------------------------------------------------------
@@ -912,7 +975,7 @@ def refresh() -> dict:
 
 
 def cmd_probe(args, config):
-    probes = probe_all(config)
+    probes = probe_all(config, count_tokens=True)
     elig = eligibility(config, probes)
     if args.json:
         print(json.dumps({"probes": probes, "eligibility": elig}, indent=2))
@@ -968,7 +1031,7 @@ def cmd_deals(args, config):
 
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
-    decision = route(spec, config)
+    decision = route(spec, config, max_age=0 if args.fresh else None)
     if args.json:
         print(json.dumps(decision, indent=2))
         return 0
@@ -997,9 +1060,10 @@ def cmd_route(args, config):
         print(f"  why      {reason}")
     for note in decision["notes"]:
         print(f"  quota    {note}")
-    if args.orca:
+    launcher = "orca" if args.orca else args.launcher
+    if launcher:
         print()
-        print(orca_command(decision, args.spec))
+        print(launch_command(decision, config, launcher, args.spec))
     return 0 if cand and not decision["blocked"] else 1
 
 
@@ -1021,6 +1085,42 @@ def cmd_models(args, config):
     return 0
 
 
+def cmd_report(args, config):
+    """Feed a dispatch outcome back, so rule 5 (fallback is code) can fire.
+
+    rightsize decides and steps out, so it never sees the worker fail. The
+    caller that does see it reports here, and the next route skips that
+    provider until its bucket is known to have reset.
+    """
+    name = args.provider
+    if name not in config.get("reserves", {}) and name not in config.get("free_providers", []):
+        print(f"unknown provider {name!r}", file=sys.stderr)
+        return 2
+    if args.clear:
+        state = load_json(STATE, {}) or {}
+        (state.get("exhausted") or {}).pop(name, None)
+        save_json(STATE, state)
+        print(f"{name}: cleared, eligible again from now")
+        return 0
+    if args.free_request:
+        count_free_request()
+        used, resets_at = free_requests_today()
+        cap = (config.get("openrouter") or {}).get("free_requests_per_day") or 1000
+        print(f"{name}: {used}/{cap} free requests today, resets in {human_reset(resets_at)}")
+        return 0
+    # A quota error: believe the provider's own reset time when the last
+    # reading carries one, and fall back to a short cooldown when it does not.
+    until = now() + args.minutes * 60
+    probes = ((load_json(STATE, {}) or {}).get("probe_cache") or {}).get("probes") or {}
+    for bucket in (probes.get(name) or {}).get("buckets", []):
+        if bucket.get("resets_at") and bucket["resets_at"] > now():
+            until = bucket["resets_at"]
+            break
+    mark_exhausted(name, until)
+    print(f"{name}: marked exhausted, skipped until {human_reset(until)} from now")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="rightsize", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1038,12 +1138,25 @@ def main(argv=None):
     group.add_argument("--task", help="task description inline")
     group.add_argument("--spec", help="file holding the task spec")
     route_cmd.add_argument("--json", action="store_true")
-    route_cmd.add_argument("--orca", action="store_true", help="also print the worker-start command")
+    route_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
+    route_cmd.add_argument("--launcher", help="also print the launch command for this launcher (see config.json)")
+    route_cmd.add_argument("--fresh", action="store_true", help="re-probe instead of using the cached reading")
     route_cmd.set_defaults(func=cmd_route)
 
     models = sub.add_parser("models", help="what the current registry offers")
     models.add_argument("--limit", type=int, default=12)
     models.set_defaults(func=cmd_models)
+
+    report = sub.add_parser("report", help="report a dispatch outcome back to the router")
+    report.add_argument("provider", help="the provider the worker ran on")
+    report.add_argument("--quota-error", action="store_true", default=True,
+                        help="the worker failed on quota (default)")
+    report.add_argument("--free-request", action="store_true",
+                        help="count one OpenRouter free-tier request instead")
+    report.add_argument("--clear", action="store_true", help="clear an exhausted mark early")
+    report.add_argument("--minutes", type=int, default=60,
+                        help="cooldown when the provider publishes no reset time")
+    report.set_defaults(func=cmd_report)
 
     deals_cmd = sub.add_parser("deals", help="free models, price drops and catalogue changes")
     deals_cmd.add_argument("--limit", type=int, default=12)

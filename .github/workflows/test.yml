@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # No dependencies on purpose: this tool must import on a bare interpreter.
+      - name: syntax
+        run: python -m compileall -q .
+      - name: policy tests (offline, no tokens)
+        run: python test_rightsize.py
+      - name: config is valid json
+        run: python -c "import json;json.load(open('config.json'))"
+      - name: cli responds without credentials
+        run: |
+          python rightsize.py --help
+          python rightsize.py route --task "rename a local variable" --json || true

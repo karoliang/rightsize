@@ -1,0 +1,29 @@
+name: Provider or launcher support
+description: A plan whose quota should be routed over, or a tool that should be launched.
+labels: ["provider"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Which seam
+      options:
+        - Provider (a plan with its own quota)
+        - Launcher (a CLI or orchestrator to dispatch to)
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Provider or tool
+    validations:
+      required: true
+  - type: textarea
+    id: usage
+    attributes:
+      label: How usage can be read
+      description: >
+        An endpoint, a file the CLI writes, or nothing at all. Include a sample
+        response with the numbers redacted, plus whether it is live or a lower
+        bound, and whether it carries a reset time.
+    validations:
+      required: true

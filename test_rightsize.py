@@ -6,12 +6,18 @@ the policy can be checked without spending a token or touching a provider.
 """
 
 import json
+import tempfile
 import time
+from pathlib import Path
 
 import rightsize as ar
 
 CONFIG = json.loads((ar.ROOT / "config.json").read_text())
 HOUR = 3600
+
+# Never touch the real state file: it carries this machine's quota snapshots
+# and exhausted marks, which would make these results depend on when they ran.
+ar.STATE = Path(tempfile.mkdtemp(prefix="rightsize-test-")) / "state.json"
 
 
 def probes(opencode=20, codex=20, openrouter=None, claude_percent=None, resets=None):
@@ -143,6 +149,41 @@ def main():
     assert found["free"][0]["model"] == "b:free", found
     assert found["new_models"][0]["model"] == "b:free", found
     assert found["removed_models"][0]["model"] == "gone", found
+
+    # A launcher renders from config, so adding one is config and not code.
+    decision = route_with(judged("implementation"), probes())
+    line = ar.launch_command(decision, CONFIG, "orca", "task.md")
+    assert "--agent opencode" in line and '--spec "$(cat task.md)"' in line, line
+    assert "opencode -m opencode-go/deepseek-v4.1-flash" in line, line
+    shell = ar.launch_command(decision, CONFIG, "shell", None)
+    assert shell.startswith("opencode run -m opencode-go/deepseek-v4.1-flash"), shell
+    unknown = ar.launch_command(decision, CONFIG, "nope", None)
+    assert "unknown launcher" in unknown and "orca, shell" in unknown, unknown
+
+    # Rule 5: a reported quota error takes the provider out until its reset,
+    # and the next route goes elsewhere rather than failing.
+    ar.mark_exhausted("opencode", time.time() + 2 * HOUR)
+    try:
+        decision = route_with(judged("implementation"), probes())
+        assert decision["pick"]["provider"] != "opencode", decision["pick"]
+        assert any("quota error" in note for note in decision["notes"]), decision["notes"]
+    finally:
+        ar.mark_exhausted("opencode", 0)
+    decision = route_with(judged("implementation"), probes())
+    assert decision["pick"]["provider"] == "opencode", decision["pick"]
+
+    # No budget means no transcript scan: the answer cannot depend on it.
+    scanned = []
+    original = ar.claude_tokens
+    ar.claude_tokens = lambda seconds: scanned.append(seconds) or 0
+    try:
+        probe = ar.probe_claude({"claude": {}})
+        assert scanned == [], "scanned transcripts for a number nothing reads"
+        assert all(bucket["percent"] is None for bucket in probe["buckets"]), probe
+        ar.probe_claude({"claude": {}}, count_tokens=True)
+        assert scanned, "probe asked for the count and did not get it"
+    finally:
+        ar.claude_tokens = original
 
     print("all checks passed")
 

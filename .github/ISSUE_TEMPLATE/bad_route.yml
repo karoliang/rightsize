@@ -1,0 +1,27 @@
+name: Bad routing decision
+description: It picked something that was wrong for the task or the quota state.
+labels: ["routing"]
+body:
+  - type: textarea
+    id: decision
+    attributes:
+      label: The decision
+      description: "Output of `rightsize route --task \"...\" --json`. It contains no secrets."
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: quota
+    attributes:
+      label: The state it decided from
+      description: "Output of `rightsize probe`."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead, and which rule you think it broke
+      description: "The five rules are in docs/POLICY.md."
+    validations:
+      required: true
