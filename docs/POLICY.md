@@ -210,17 +210,46 @@ Three things close that gap.
 
 ### Reservations
 
-A dispatch that has been decided but not finished holds an estimated cost:
+A dispatch that has been decided but not finished holds a cost:
 
 ```
 points held = dispatch_cost[provider] * band
 usable      = 100 - percent - reserve - points held by live reservations
 ```
 
-`dispatch_cost` is a coarse estimate in `config.json`, and coarse on purpose:
-the exact burn is unknowable before the worker runs, and being roughly right is
-enough to stop a fan-out from overcommitting a plan. Multiplying by the band is
-the cheap approximation of "a deeper model costs more".
+`dispatch_cost` starts as a coarse estimate in `config.json`, because the exact
+burn is unknowable before the worker runs, and being roughly right is enough to
+stop a fan-out from overcommitting a plan. Multiplying by the band is the cheap
+approximation of "a deeper model costs more".
+
+It does not have to stay a guess. `rightsize calibrate` measures it:
+
+```
+opencode
+  weekly window opened 6d 4h ago, 226 dispatches since
+  measured 0.34 points per dispatch, config says 0.6
+  tokens 35,652,505 in (35,268,071 cached), 3,883,646 out, 174,938 per dispatch
+  -> set dispatch_cost.opencode to 0.34
+```
+
+The arithmetic needs no history, because a bucket's window already has a start:
+its reset time minus its length. Orca records every session it sees from
+opencode's database and Claude's transcripts, so counting the sessions inside
+that window gives the denominator, and the bucket's own percentage gives the
+numerator. Percentage points divided by dispatches is `dispatch_cost` in the
+unit the config uses. `--apply` writes it.
+
+Two things make the answer an upper bound, and both are printed when they
+apply: a session record that begins after the window did cannot have counted
+every dispatch, and a scan that last ran hours ago has not seen what happened
+since. Providers with no local session record (Codex, OpenRouter, the Zen free
+models) keep their estimate and say so.
+
+Claude is the exception in the other direction: it publishes no percentage to
+divide, so calibration reports tokens instead and suggests a
+`weekly_token_budget` from them. That number comes from rightsize's own
+transcript scan rather than Orca's totals, which keep only the most recent
+sessions and omit cache creation: 18M against an actual 218M.
 
 Reservations are taken by `route --reserve` and by `plan --reserve`, never by a
 plain `route`: a decision made to look at the numbers must not eat capacity

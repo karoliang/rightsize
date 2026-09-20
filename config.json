@@ -93,7 +93,7 @@
   },
   "dispatch_cost": {
     "_default": 1.0,
-    "opencode": 0.6,
+    "opencode": 0.34,
     "codex": 1.2,
     "claude": 2.0,
     "openrouter": 0.1,

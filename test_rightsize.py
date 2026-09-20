@@ -56,6 +56,10 @@ def probes(opencode=20, codex=20, openrouter=None, claude_percent=None, resets=N
     return out
 
 
+def iso(epoch):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
 def judged(tier, size=0.5, second=0.1, complete=0.9, destructive=0.05):
     return {
         "tier": tier,
@@ -450,6 +454,29 @@ def main():
     # without a name, so the decision has to carry one.
     named = route_with(judged("implementation"), probes())
     assert named.get("worktree_name"), named.keys()
+
+    # Calibration: percentage points burned in a window, divided by the
+    # dispatches made in it, is dispatch_cost in the unit the config uses.
+    window_hours = 7 * 24
+    now_epoch = time.time()
+    sessions = [
+        {"primaryModel": "opencode-go/deepseek-v4.1-flash", "lastTimestamp": iso(now_epoch - h * HOUR),
+         "totalInputTokens": 1000, "totalCachedInputTokens": 900, "totalOutputTokens": 100}
+        for h in (1, 5, 20, 40, 100)
+    ]
+    # Plus one outside the window and one on another provider: neither counts.
+    sessions.append({"primaryModel": "opencode-go/deepseek-v4.1-flash",
+                     "lastTimestamp": iso(now_epoch - 300 * HOUR)})
+    sessions.append({"primaryModel": "openrouter/something", "lastTimestamp": iso(now_epoch - 2 * HOUR)})
+    spent = ar.dispatches_since(sessions, now_epoch - window_hours * HOUR, "opencode-go/")
+    assert spent["dispatches"] == 5, spent
+    assert spent["input"] == 5000 and spent["output"] == 500, spent
+    assert spent["record_from"] < now_epoch - 299 * HOUR, "the record start spans every model"
+
+    # A window is inferred from the bucket, including Codex's explicit minutes.
+    assert ar.bucket_window("weekly") == 7 * 86400
+    assert ar.bucket_window("primary-10080m") == 10080 * 60
+    assert ar.bucket_window("key-credit") is None, "a credit balance has no window to divide"
 
     print("all checks passed")
 

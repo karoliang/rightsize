@@ -58,6 +58,13 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 - A second Orca launcher, `orca-current`, for the case where sharing the
   coordinator's checkout is deliberate.
 
+- `rightsize calibrate` measures `dispatch_cost` instead of guessing it, from
+  the percentage a bucket has burned in its current window divided by the
+  sessions Orca recorded inside that window. `--apply` writes the result. For
+  Claude, which publishes no percentage, it suggests a `weekly_token_budget`
+  from rightsize's own transcript scan. Measured here: 0.34 points per
+  opencode dispatch against a configured guess of 0.6.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of

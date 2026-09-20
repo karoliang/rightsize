@@ -57,6 +57,11 @@ OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 # an Orca terminal and wrongly from the timer, which is the harder failure to
 # notice.
 ORCA_CODEX_ACCOUNTS = HOME / "Library/Application Support/orca/codex-accounts"
+ORCA_SUPPORT = HOME / "Library/Application Support/orca"
+# Windows a bucket id implies, in seconds. Codex spells its own in the id.
+BUCKET_WINDOWS = {"rolling": 5 * 3600, "weekly": 7 * 86400, "monthly": 30 * 86400,
+                  "credit": None, "key-credit": None, "account-credit": None,
+                  "free-requests-day": 86400}
 
 
 def codex_homes() -> list[Path]:
@@ -1798,6 +1803,165 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     return out
 
 
+def orca_sessions(kind: str) -> list[dict]:
+    """Sessions Orca has already accounted for, or nothing.
+
+    Orca scans opencode's database and Claude's transcripts and writes what it
+    finds beside its own state. This is another application's private file, so
+    every failure here is silent and the caller falls back to an estimate.
+    """
+    path = ORCA_SUPPORT / f"orca-{kind}-usage.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+    sessions = data.get("sessions")
+    return sessions if isinstance(sessions, list) else []
+
+
+def bucket_window(bucket_id: str) -> float | None:
+    """How long the bucket's window is, in seconds, when that is knowable."""
+    match = re.search(r"-(\d+)m$", bucket_id or "")
+    if match:
+        return int(match.group(1)) * 60
+    return BUCKET_WINDOWS.get(bucket_id)
+
+
+def dispatches_since(sessions: list[dict], since: float, model_prefix: str) -> dict:
+    """What has been spent on one provider since a moment, as Orca saw it.
+
+    A session is the closest thing to a dispatch: one worker, one model, its own
+    id. Sessions are attributed by when they last did something, because that is
+    when the quota moved.
+    """
+    count, tokens, cached, output, models = 0, 0, 0, 0, {}
+    # How far back the record itself goes, across every model: the question is
+    # when Orca's history begins, not when this provider was last used.
+    stamps = [iso_to_epoch(x.get("lastTimestamp") or "") for x in sessions]
+    stamps = [x for x in stamps if x]
+    oldest, newest = (min(stamps), max(stamps)) if stamps else (None, None)
+    for session in sessions:
+        model = session.get("primaryModel") or session.get("model") or ""
+        if not model.startswith(model_prefix):
+            continue
+        last = iso_to_epoch(session.get("lastTimestamp") or "")
+        if last is None or last < since:
+            continue
+        count += 1
+        tokens += session.get("totalInputTokens") or 0
+        cached += (session.get("totalCachedInputTokens") or session.get("totalCacheReadTokens") or 0)
+        output += session.get("totalOutputTokens") or 0
+        models[model] = models.get(model, 0) + 1
+    return {"dispatches": count, "input": tokens, "cached": cached, "output": output,
+            "models": models, "record_from": oldest, "record_to": newest}
+
+
+def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
+    """Measure what a dispatch actually costs, instead of guessing it.
+
+    `dispatch_cost` is the one number in the policy that was invented. It does
+    not have to stay invented: a bucket's window has a start, which is its reset
+    time minus its length, and Orca already records every session inside that
+    window. Percentage points burned divided by dispatches made is the number
+    the config is asking for, in the unit the config uses.
+    """
+    if probes is None:
+        probes, _ = probes_cached(config, max_age=None)
+    rows = []
+    sources = {"opencode": ("opencode", "opencode-go/"), "claude": ("claude", "claude")}
+    for name, probe in probes.items():
+        kind = sources.get(name)
+        if not kind:
+            rows.append({"provider": name, "verdict": "no local session record to count against"})
+            continue
+        sessions = orca_sessions(kind[0])
+        if not sessions:
+            rows.append({"provider": name,
+                         "verdict": f"no {ORCA_SUPPORT.name}/orca-{kind[0]}-usage.json to read"})
+            continue
+        # The binding bucket is the one worth calibrating against.
+        best = None
+        for bucket in probe["buckets"]:
+            window = bucket_window(bucket["id"])
+            if window is None or bucket.get("resets_at") is None:
+                continue
+            if best is None or bucket.get("percent") is None or (
+                    bucket["percent"] or 0) > (best["percent"] or 0):
+                best = {**bucket, "window": window}
+        window_start = (best["resets_at"] - best["window"]) if best else now() - 7 * 86400
+        spent = dispatches_since(sessions, window_start, kind[1])
+        row = {"provider": name, "bucket": best["id"] if best else None,
+               "window_started": window_start, **spent}
+        # A record that begins after the window did cannot have counted every
+        # dispatch in it, so the cost that falls out is an upper bound.
+        row["partial_record"] = bool(spent["record_from"] and spent["record_from"] > window_start)
+        percent = best.get("percent") if best else None
+        if percent and spent["dispatches"]:
+            row["measured_cost"] = round(percent / spent["dispatches"], 2)
+            row["configured_cost"] = dispatch_cost(config, name, 1)
+            row["verdict"] = "measured"
+        elif spent["dispatches"] and name == "claude":
+            # Orca keeps only the most recent Claude sessions and counts no
+            # cache creation, so its totals are not a budget. rightsize's own
+            # scan reads every transcript and is the number to size against.
+            measured = claude_tokens(7 * 86400)
+            row["tokens_in_window"] = measured
+            row["suggested_budget"] = int(measured * 1.2)
+            row["token_source"] = "rightsize transcript scan (Orca's totals omit cache creation)"
+            row["verdict"] = "no percentage published; budget suggestion only"
+        else:
+            row["verdict"] = "no dispatches recorded in the current window"
+        rows.append(row)
+    return rows
+
+
+def cmd_calibrate(args, config):
+    rows = calibrate(config)
+    if args.json:
+        print(json.dumps(rows, indent=2))
+        return 0
+    changes = {}
+    for row in rows:
+        print(f"{row['provider']}")
+        if "measured_cost" in row:
+            print(f"  {row['bucket']} window opened {human_age(now() - row['window_started'])} ago, "
+                  f"{row['dispatches']} dispatches since")
+            print(f"  measured {row['measured_cost']} points per dispatch, "
+                  f"config says {row['configured_cost']}")
+            print(f"  tokens {row['input']:,} in ({row['cached']:,} cached), {row['output']:,} out"
+                  + (f", {(row['input'] + row['output']) // row['dispatches']:,} per dispatch"
+                     if row["dispatches"] else ""))
+            for model, count in sorted(row["models"].items(), key=lambda kv: -kv[1])[:4]:
+                print(f"    {count:>4}  {model}")
+            if row.get("partial_record"):
+                print("  the session record starts inside this window, so dispatches are"
+                      " undercounted and this cost is an upper bound")
+            if row.get("record_to") and now() - row["record_to"] > 6 * 3600:
+                print(f"  last recorded session was {human_age(now() - row['record_to'])} ago;"
+                      " anything since is uncounted, which also inflates the cost")
+            if abs(row["measured_cost"] - row["configured_cost"]) >= 0.05:
+                changes[row["provider"]] = row["measured_cost"]
+                print(f"  -> set dispatch_cost.{row['provider']} to {row['measured_cost']}")
+        elif "suggested_budget" in row:
+            print(f"  {row['dispatches']} sessions recorded; {row['tokens_in_window']:,} tokens"
+                  f" over 7 days, counted by {row['token_source']}")
+            print(f"  -> set claude.weekly_token_budget to {row['suggested_budget']:,}"
+                  " (measured plus 20 percent)")
+        else:
+            print(f"  {row['verdict']}")
+    if not changes:
+        print("\nnothing to change: the configured costs match what was measured")
+        return 0
+    if not args.apply:
+        print("\nre-run with --apply to write these into config.json")
+        return 0
+    current = load_json(CONFIG) or {}
+    current.setdefault("dispatch_cost", {}).update(changes)
+    CONFIG.write_text(json.dumps(current, indent=2) + "\n")
+    print(f"\nwrote {', '.join(f'{k}={v}' for k, v in changes.items())} to {CONFIG}")
+    return 0
+
+
 def cmd_doctor(args, config):
     findings = doctor(config)
     for level, message in findings:
@@ -1851,6 +2015,13 @@ def main(argv=None):
     plan_cmd.add_argument("--launcher", help="also print a launch command per task")
     plan_cmd.add_argument("--json", action="store_true")
     plan_cmd.set_defaults(func=cmd_plan)
+
+    calibrate_cmd = sub.add_parser(
+        "calibrate", help="measure what a dispatch actually costs, from recorded sessions")
+    calibrate_cmd.add_argument("--apply", action="store_true",
+                               help="write the measured costs into config.json")
+    calibrate_cmd.add_argument("--json", action="store_true")
+    calibrate_cmd.set_defaults(func=cmd_calibrate)
 
     doctor_cmd = sub.add_parser("doctor", help="preflight: config, catalogue, credentials, state")
     doctor_cmd.set_defaults(func=cmd_doctor)
