@@ -685,7 +685,13 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
     for bucket in probe["buckets"]:
         percent = bucket.get("percent")
         if percent is None:
-            unknown = True
+            # A bucket nobody declared a budget for is a measurement not taken,
+            # and the reserve covers it. A bucket that should have been readable
+            # and was not is a number we have lost, and it could be at 95 per
+            # cent: the rest of this provider's headroom cannot be trusted while
+            # one of its windows is missing.
+            if bucket.get("source") != "no-budget-set":
+                unknown = True
             continue
         free = 100.0 - percent - reserve
         if worst is None or free < worst["free"]:
@@ -711,7 +717,12 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
     if before and resets_at:
         elapsed = now() - before["at"]
         climb = bucket["percent"] - before["percent"]
-        if elapsed > 60 and climb > 0:
+        # The sample has to be worth extrapolating. Two minutes of a seven day
+        # window says nothing about the week, and projecting it anyway turns a
+        # bucket that has just reset into one that is about to overrun.
+        window = bucket_window(bucket.get("id") or "") or 0
+        long_enough = elapsed >= max(600.0, 0.05 * window)
+        if long_enough and climb > 0:
             rate = climb / elapsed
             projected = bucket["percent"] + rate * max(0.0, resets_at - now())
             overrun = projected > 100.0
@@ -1162,7 +1173,7 @@ def parse_candidate(text: str) -> dict:
 
 
 def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None = None,
-         config: dict | None = None) -> tuple[dict | None, list[str]]:
+         config: dict | None = None, relax_pace: bool = False) -> tuple[dict | None, list[str]]:
     """Among eligible candidates, spend the bucket that expires first, unless
     this dispatch is too expensive for what that bucket has left.
 
@@ -1188,10 +1199,12 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
         if not info["eligible"]:
             notes.append(f"{text} skipped: {info['blocked']}")
             continue
-        if info["usable"] is None and band < 3 and not info.get("free"):
-            notes.append(f"{text} skipped: headroom unknown, escalation only")
+        if (info["usable"] is None or info.get("unknown")) and band < 3 and not info.get("free"):
+            why = ("headroom unknown" if info["usable"] is None
+                   else "one of its windows could not be read, so the rest cannot be trusted")
+            notes.append(f"{text} skipped: {why}, escalation only")
             continue
-        if info["overrun"] and band < 3:
+        if info["overrun"] and band < 3 and not relax_pace:
             pace = info.get("over_pace")
             why = (f"its {pace['id']} window is {pace['pace']:.1f}x over pace and projects to"
                    f" {pace['projected']:.0f}% by reset" if pace
@@ -1277,6 +1290,16 @@ def debit(elig: dict, config: dict, provider: str, band: int) -> float:
     info["reserved"] = info.get("reserved", 0.0) + points
     if info["usable"] is not None:
         info["usable"] -= points
+    # What a batch commits counts toward pace as much as what has been billed:
+    # a plan that was just inside its rate does not stay there while a fan-out
+    # loads more onto it. percent is projected * elapsed, so committing `points`
+    # raises the projection by points / elapsed.
+    for pace in info.get("paces") or []:
+        if pace.get("elapsed"):
+            pace["projected"] += points / pace["elapsed"]
+            if pace["projected"] > 100 and not info["overrun"]:
+                info["overrun"] = True
+                info["over_pace"] = pace
     limits = config.get("max_inflight") or {}
     limit = int(limits.get(provider, limits.get("_default", 8)))
     if info["inflight"] >= limit:
@@ -1357,6 +1380,9 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
                 continue
             provider = decision["pick"]["provider"]
             task["points"] = debit(elig, config, provider, decision["band"])
+            # A review leg is a second dispatch and costs like one.
+            if decision.get("review"):
+                task["points"] += debit(elig, config, decision["review"]["provider"], 1)
             task["wave"] = wave
             decision["worktree_name"] = task["name"]
             log_decision(decision, task["spec"])
@@ -1366,7 +1392,13 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
             placed_this_wave.append(task)
         pending = still_pending
         if not placed_this_wave:
-            break  # no capacity anywhere: more waves would place nothing
+            # Placing nothing is not the same as having nothing. Workers that
+            # were already running when the batch was planned hold slots a wave
+            # boundary gives back, so a batch that starts against a full
+            # provider waits for the next wave rather than declaring defeat.
+            slots_held = any(info.get("inflight") for info in elig.values())
+            if not slots_held:
+                break  # no capacity anywhere: more waves would place nothing
 
     spread, waves = {}, {}
     for task in tasks:
@@ -1428,6 +1460,17 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         reasons.append(f"nothing eligible in band {used_band + 1}, dropping to band {used_band}")
         chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude, config)
         notes += more
+    if fallback and chosen is None and band < 3:
+        # Pacing holds a provider's room back for work that has nowhere cheaper
+        # to go. This task has nowhere cheaper to go, and escalating it would
+        # spend the same strained plan on the priciest rung, which is the
+        # opposite of what holding it back was for.
+        chosen, more = pick(ladders[str(band)], elig, band, exclude, config, relax_pace=True)
+        notes += more
+        if chosen is not None:
+            reasons.append(f"every band {band} candidate is over pace, but escalating would spend"
+                           " the same plans on a dearer model, so this stays where it is")
+            used_band = band
     if fallback and chosen is None and band < 3:
         reasons.append("nothing eligible below band 3, escalating instead of failing")
         chosen, more = pick(ladders["3"], elig, 3, exclude, config)

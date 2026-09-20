@@ -622,7 +622,88 @@ def main():
     assert len(written.get("reservations", [])) == 12, \
         f"{len(written.get('reservations', []))} of 12 concurrent reservations survived"
 
+    adversarial()
     print("all checks passed")
+
+
+def adversarial():
+    """Cases a worker was dispatched to find, by attacking the policy.
+
+    Each one failed when it was written. They are kept because every one of
+    them was a rule combining with another rule to produce an answer no
+    careful engineer would defend.
+    """
+    # A newly reset bucket should serve band 1 because a sample from the previous window cannot establish its current burn rate.
+    ar.save_json(ar.STATE, {"snapshots": {
+        "opencode:weekly": {"at": time.time() - 120, "percent": 1.0},
+    }})
+    state = probes(opencode=2, codex=99, claude_percent=99,
+                   resets={"opencode": time.time() + 7 * 86400 - 60})
+    decision = route_with(judged("implementation"), state)
+    assert decision["band"] == 1, (decision["band"], decision["pick"])
+
+    # A provider with an unknown monthly bucket should remain escalation-only even when its known weekly bucket has room.
+    ar.save_json(ar.STATE, {})
+    state = probes()
+    state["opencode"]["buckets"].append(
+        {"id": "monthly", "percent": None, "resets_at": time.time() + 27 * 86400,
+         "source": "expired-reading"})
+    decision = route_with(judged("implementation"), state)
+    assert decision["pick"]["provider"] == "codex", decision["pick"]
+
+    # When every metered plan is over pace, cheap work should wait or stay cheap because buying band 3 on those same plans accelerates exhaustion.
+    ar.save_json(ar.STATE, {})
+    state = probes(opencode=40, codex=40, claude_percent=99,
+                   resets={"opencode": time.time() + 6 * 86400,
+                           "codex": time.time() + 6 * 86400})
+    decision = route_with(judged("mechanical"), state)
+    assert decision["pick"] is None or decision["band"] == 1, \
+        (decision["band"], decision["pick"])
+
+    # A batch whose only funded provider starts at its in-flight limit should place work in wave 2 because completion returns those slots.
+    ar.save_json(ar.STATE, {})
+    state = probes(opencode=99, codex=20, claude_percent=99)
+    for _ in range(CONFIG["max_inflight"]["codex"]):
+        ar.reserve("codex", ar.dispatch_cost(CONFIG, "codex", 1), 1,
+                   "already running", 1800)
+    original = ar.judge
+    ar.judge = lambda spec: judged("implementation")
+    try:
+        result = ar.plan(["task after running workers finish"], CONFIG, probes=state)
+    finally:
+        ar.judge = original
+    assert result["tasks"][0]["wave"] == 2, (result["waves"], result["unplaced"])
+
+    # After the first dispatch spends the last on-pace allowance, the second should use Codex because batch commitments count toward pace too.
+    ar.save_json(ar.STATE, {})
+    state = probes(opencode=49.8, codex=0,
+                   resets={"opencode": time.time() + 84 * HOUR,
+                           "codex": time.time() + 100 * HOUR})
+    original = ar.judge
+    ar.judge = lambda spec: judged("implementation")
+    try:
+        result = ar.plan(["last on-pace dispatch", "next dispatch"], CONFIG, probes=state)
+    finally:
+        ar.judge = original
+    assert result["tasks"][1]["decision"]["pick"]["provider"] == "codex", result["spread"]
+
+    # The second task should have no review leg because the first review spends Codex's last affordable dispatch and no other review provider qualifies.
+    ar.save_json(ar.STATE, {})
+    state = probes(opencode=20, codex=88.5, claude_percent=99,
+                   resets={"opencode": time.time() + 2 * HOUR,
+                           "codex": time.time() + 10 * HOUR})
+    original = ar.judge
+    ar.judge = lambda spec: judged("implementation", second=0.9)
+    try:
+        result = ar.plan(["first reviewed task", "second reviewed task"], CONFIG, probes=state)
+    finally:
+        ar.judge = original
+    assert result["tasks"][1]["decision"]["review"] is None, \
+        (result["tasks"][1]["decision"]["review"], result["quota_after"]["codex"])
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
