@@ -185,6 +185,67 @@ def main():
     finally:
         ar.claude_tokens = original
 
+    # Reservations: a dispatch in flight is capacity that is already spoken
+    # for, even though no quota reading has moved yet.
+    ar.save_json(ar.STATE, {})
+    elig = ar.eligibility(CONFIG, probes(opencode=76), record=False)
+    before = elig["opencode"]["usable"]
+    ar.reserve("opencode", 3.0, 1, "a worker that is running", 1800)
+    elig = ar.eligibility(CONFIG, probes(opencode=76), record=False)
+    assert elig["opencode"]["usable"] == before - 3.0, (before, elig["opencode"])
+    assert elig["opencode"]["inflight"] == 1
+    assert ar.release("opencode") == 1
+    assert ar.eligibility(CONFIG, probes(opencode=76), record=False)["opencode"]["usable"] == before
+
+    # A reservation nobody releases expires, so a worker that dies silently
+    # cannot hold a plan hostage.
+    ar.reserve("opencode", 3.0, 1, "a worker that died", -1)
+    assert ar.eligibility(CONFIG, probes(opencode=76), record=False)["opencode"]["usable"] == before
+    ar.save_json(ar.STATE, {})
+
+    # Too many dispatches in flight blocks a provider before its quota does.
+    limit = CONFIG["max_inflight"]["opencode"]
+    for _ in range(limit):
+        ar.reserve("opencode", 0.0, 1, "in flight", 1800)
+    elig = ar.eligibility(CONFIG, probes(), record=False)
+    assert not elig["opencode"]["eligible"], elig["opencode"]
+    assert "in flight" in elig["opencode"]["blocked"], elig["opencode"]
+    ar.save_json(ar.STATE, {})
+
+    # Cost estimate scales with the band: a band 3 dispatch is not a band 1 one.
+    assert ar.dispatch_cost(CONFIG, "opencode", 3) == 3 * ar.dispatch_cost(CONFIG, "opencode", 1)
+
+    # A fan-out spreads across providers instead of sending everything to the
+    # one whose bucket happens to expire first.
+    original = ar.judge
+    ar.judge = lambda spec: judged("implementation")
+    try:
+        result = ar.plan([f"task {i}" for i in range(60)], CONFIG, concurrency=4,
+                         probes=probes(openrouter=0))
+    finally:
+        ar.judge = original
+    assert len(result["spread"]) > 1, result["spread"]
+    assert max(row["dispatches"] for row in result["spread"].values()) <= \
+        max(CONFIG["max_inflight"].values()) * len(result["waves"]), result["spread"]
+
+    # Cheap work is never answered with a band 3 model just because the cheap
+    # providers are busy: inside a batch it waits for the next wave instead.
+    placed = [t for t in result["tasks"] if t["wave"]]
+    assert all(t["decision"]["band"] == 1 for t in placed), \
+        [t["decision"]["band"] for t in placed if t["decision"]["band"] != 1]
+    assert all(t["decision"]["pick"]["provider"] != "claude" for t in placed)
+
+    # Waves are ordered and every task lands in one of them, or is named as
+    # having nowhere to go. Nothing is silently dropped.
+    assert sorted(result["waves"]) == list(range(1, len(result["waves"]) + 1)), result["waves"]
+    accounted = len(placed) + len(result["blocked"]) + len(result["unplaced"])
+    assert accounted == 60, (accounted, len(placed), result["blocked"], result["unplaced"])
+
+    # A single route still escalates rather than stranding one task, which is
+    # the opposite call from the batch and deliberately so.
+    solo = route_with(judged("implementation"), probes(opencode=99, codex=99))
+    assert solo["pick"] is None or solo["band"] == 3, solo
+
     print("all checks passed")
 
 

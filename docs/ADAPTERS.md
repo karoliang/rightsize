@@ -83,6 +83,42 @@ rightsize report <provider> --clear           # lift the mark early
 rightsize report openrouter --free-request    # count one free-tier request
 ```
 
+### Batch: `rightsize plan --json`
+
+For a fan-out, route the whole set in one call rather than looping `route`:
+one probe instead of N, judgments in parallel, and allocation that knows what
+the earlier tasks in the same batch already took.
+
+```bash
+rightsize plan --specs tasks.txt --reserve --launcher orca
+rightsize plan --dir specs/ --glob '*.md' --json
+cat tasks.txt | rightsize plan --concurrency 16
+```
+
+Each task in the result carries `index`, `spec`, `wave`, `points` and the same
+`decision` object a single route returns. `waves` groups them: **wave 2 is
+dispatched after wave 1 reports done**, not immediately. `blocked` lists tasks
+whose brief is not self-contained (fix the brief), `unplaced` lists tasks the
+plans genuinely cannot afford (wait for a reset, or add a provider).
+
+Exit code is 1 when anything is blocked or unplaced, so a script can stop and
+look.
+
+### Telling it a dispatch finished
+
+Capacity held by a reservation comes back three ways: explicitly, by expiry, or
+when the plan resets.
+
+```bash
+rightsize report opencode --done          # release the oldest reservation
+rightsize report opencode --done --id 1a2b3c
+rightsize report opencode --quota-error   # it failed on quota: skip it until reset
+```
+
+An integration that reserves should release. One that cannot (a fire-and-forget
+launcher) can rely on `reservation_ttl_seconds`, at the cost of looking busier
+than it is until the TTL passes.
+
 ### Example: a pre-dispatch hook
 
 `hooks/claude_pretooluse.py` is a working example for Claude Code. It watches

@@ -21,6 +21,18 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   credential, including TypeSafe), `docs/ADAPTERS.md` (the three seams),
   `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, CI on 3.11 to 3.13.
 
+- `rightsize plan` routes a whole fan-out: one probe, judgments in parallel,
+  then allocation task by task against headroom the earlier ones already spent.
+  Tasks that do not fit are scheduled into later waves rather than being
+  downgraded or dropped. Reads `--specs file`, `--dir`, or stdin.
+- In-flight reservations. A decided-but-unfinished dispatch holds
+  `dispatch_cost[provider] * band` points, taken by `route --reserve` /
+  `plan --reserve`, released by `rightsize report <provider> --done`, and
+  expiring on their own after `reservation_ttl_seconds`. `max_inflight` caps how
+  many dispatches may run on one provider at once. Without these, 100 dispatches
+  inside one cache window all went to the same provider: measured, not
+  theorised.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of
@@ -32,6 +44,11 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   number) asks for it.
 - A cached reading no longer overwrites the burn-rate baseline with a copy of
   itself, which would have flattened the rate to zero.
+
+- Inside a batch, a task whose band is full now waits for the next wave instead
+  of falling to a cheaper band or escalating to band 3. A single `route` still
+  escalates rather than stranding one task; the two cases want opposite answers,
+  and a fan-out that escalates is wrong a hundred times over.
 
 ### Fixed
 

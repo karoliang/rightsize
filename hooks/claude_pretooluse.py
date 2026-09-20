@@ -59,7 +59,10 @@ def spec_text(command: str) -> str | None:
 def advise(spec: str) -> str | None:
     try:
         result = subprocess.run(
-            [str(RIGHTSIZE), "route", "--task", spec, "--json"],
+            # --reserve books this dispatch's estimated cost, so a fan-out of
+            # twenty workers does not hand all twenty the same untouched
+            # headroom. It expires on its own if the launch never happens.
+            [str(RIGHTSIZE), "route", "--task", spec, "--json", "--reserve"],
             capture_output=True, text=True, timeout=TIMEOUT,
         )
         decision = json.loads(result.stdout)
@@ -85,6 +88,8 @@ def advise(spec: str) -> str | None:
     if decision.get("blocked"):
         lines.append(f"  WARNING {decision['blocked']}")
     lines.append("  Use this agent and model unless you have a stated reason not to.")
+    if decision.get("reservation"):
+        lines.append(f"  when this worker finishes: rightsize report {pick['provider']} --done")
     return "\n".join(lines)
 
 

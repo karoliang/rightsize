@@ -60,13 +60,67 @@ rightsize route --spec task.md --orca          # print the Orca worker-start lin
 rightsize route --spec task.md --launcher shell # print a plain CLI invocation
 rightsize route --spec task.md --json          # for scripts; exit 1 if blocked
 
+# Decide a whole fan-out, spread across plans, in waves.
+rightsize plan --specs tasks.txt --reserve --launcher orca
+
 # Tell it how a dispatch went, so the next one knows.
+rightsize report opencode --done               # that worker finished, release its capacity
 rightsize report opencode --quota-error        # skip that plan until its bucket resets
 
 # What the catalogues offer, and what got cheaper overnight.
 rightsize models
 rightsize deals
 ```
+
+## Fanning out: ten agents, or a hundred
+
+A quota reading says what has been billed, not what is about to be. Route a
+hundred tasks inside one cache window and all hundred see the same untouched
+headroom, so all hundred pick the same provider. That was measured, not
+theorised: 100 tasks, 100 dispatches to one plan, `usable` unchanged at 9
+points throughout.
+
+`rightsize plan` routes the batch instead of the task:
+
+```
+$ rightsize plan --specs tasks.txt --reserve
+   0  w1  band 1  opencode:deepseek-v4.1-flash                       add cursor pagination to GET /api/invoices
+   2  w1  band 3  opencode:glm-5.3                          CONFIRM  drop the legacy invoices_v1 table
+   7  -   band 1  -                                         BLOCKED  make the change we discussed
+  10  w1  band 3  claude:claude-opus-5                      CONFIRM  rotate the Stripe webhook secret
+
+waves (each one runs after the previous reports done)
+  wave 1:  37 tasks  (openrouter x12, opencode x10, opencode_zen x8, codex x4, claude x3)
+  wave 2:  37 tasks
+  wave 3:  26 tasks
+```
+
+What makes that work:
+
+- **Judgments in parallel, allocation in sequence.** The five questions are
+  independent per task, so they go out concurrently (`--concurrency`, default
+  8; 100 tasks judge in about ten seconds and cost roughly three cents). Each
+  task is then placed against headroom the earlier ones have already spent.
+- **Reservations.** A decided-but-unfinished dispatch holds an estimated cost
+  (`dispatch_cost[provider] * band`) so it stops being invisible.
+  `rightsize report <provider> --done` gives it back, and a reservation expires
+  on its own after 30 minutes so a worker that dies silently cannot hold a plan
+  hostage.
+- **An in-flight cap per provider** (`max_inflight`). A full provider is
+  blocked like one below its reserve, so the next task goes elsewhere instead of
+  queueing. This is what spreads the fan-out; a quota debit alone would not,
+  since a free provider has no quota to debit.
+- **Waves.** When everything is full, remaining tasks wait for the next wave
+  rather than being sent to a model that suits them worse. A wave returns the
+  in-flight slots but keeps every quota debit, so a plan runs out of capacity
+  eventually instead of scheduling forever.
+
+One rule deliberately inverts here. A single `route` never strands a task: a
+full band drops a tier and then escalates. Inside a batch there is a next wave,
+so `plan` holds the task instead. Sending ordinary implementation work to a
+band 3 model because the cheap plans are momentarily busy is the expensive
+mistake this tool exists to prevent, and across a hundred tasks it is expensive
+a hundred times over.
 
 ## Wire it into your agent
 
@@ -80,6 +134,10 @@ task, and injects the answer as context.
   {"type": "command", "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py", "timeout": 25}
 ]}]}}
 ```
+
+It routes with `--reserve`, so twenty workers launched one after another are
+not all handed the same untouched headroom, and it tells the agent to run
+`rightsize report <provider> --done` when the worker finishes.
 
 It is advisory by construction: it prints, it never blocks, and it exits 0 on
 every failure path. A routing helper that can stop a dispatch is a routing

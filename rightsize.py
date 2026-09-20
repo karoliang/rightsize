@@ -488,6 +488,71 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
     }
 
 
+def sweep_reservations(state: dict) -> list:
+    """Drop reservations whose worker must be finished or dead by now."""
+    live = [r for r in state.get("reservations", []) if r["expires"] > now()]
+    state["reservations"] = live
+    return live
+
+
+def reservation_load(name: str) -> tuple[float, int]:
+    """Points and dispatch count currently in flight on one provider.
+
+    A quota reading says what has been billed, not what is about to be. Fan out
+    a hundred workers inside one cache window and every one of them sees the
+    same untouched headroom and picks the same provider. A reservation is the
+    difference between those two questions.
+    """
+    state = load_json(STATE, {}) or {}
+    live = [r for r in sweep_reservations(state) if r["provider"] == name]
+    return sum(r["points"] for r in live), len(live)
+
+
+def reserve(name: str, points: float, band: int, task: str, ttl: float) -> str:
+    state = load_json(STATE, {}) or {}
+    sweep_reservations(state)
+    entry = {
+        "id": f"{int(now() * 1000):x}",
+        "provider": name,
+        "points": points,
+        "band": band,
+        "task": task[:80],
+        "at": now(),
+        "expires": now() + ttl,
+    }
+    state["reservations"].append(entry)
+    save_json(STATE, state)
+    return entry["id"]
+
+
+def release(name: str, reservation_id: str | None = None) -> int:
+    """Give the capacity back. Without an id, the oldest on that provider."""
+    state = load_json(STATE, {}) or {}
+    live = sweep_reservations(state)
+    mine = [r for r in live if r["provider"] == name]
+    if reservation_id:
+        mine = [r for r in mine if r["id"] == reservation_id]
+    if not mine:
+        save_json(STATE, state)
+        return 0
+    drop = min(mine, key=lambda r: r["at"])
+    state["reservations"] = [r for r in live if r["id"] != drop["id"]]
+    save_json(STATE, state)
+    return 1
+
+
+def dispatch_cost(config: dict, provider: str, band: int) -> float:
+    """What one dispatch is expected to cost, in percentage points.
+
+    An estimate, and deliberately a coarse one: the exact number is unknowable
+    before the worker runs, and being roughly right stops a fan-out from
+    overcommitting a plan, which is the whole job.
+    """
+    costs = config.get("dispatch_cost") or {}
+    base = float(costs.get(provider, costs.get("_default", 1.0)))
+    return base * band
+
+
 def exhausted_until(name: str) -> float:
     state = load_json(STATE, {}) or {}
     return (state.get("exhausted") or {}).get(name, 0)
@@ -506,16 +571,28 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
     for name, probe in probes.items():
         info = headroom(probe, float(reserves.get(name, 10)), previous, name)
         info["free"] = bool(probe.get("free"))
+        reserved, inflight = reservation_load(name)
+        info["reserved"], info["inflight"] = reserved, inflight
+        if info["usable"] is not None:
+            info["usable"] -= reserved
+        limits = config.get("max_inflight") or {}
+        limit = int(limits.get(name, limits.get("_default", 8)))
         blocked = None
         if probe["status"].startswith("error") or probe["status"] == "no-credential":
             blocked = probe["status"]
         elif exhausted_until(name) > now():
             blocked = f"quota error, retry after {human_reset(exhausted_until(name))}"
+        elif inflight >= limit:
+            blocked = f"{inflight} dispatches already in flight, limit {limit}"
         elif info["usable"] is not None and info["usable"] <= 0:
-            blocked = f"below reserve on {info['bucket']}"
+            blocked = (f"below reserve on {info['bucket']}"
+                       + (f" once {reserved:.1f} reserved points are counted" if reserved else ""))
         out[name] = {
             **info,
             "status": probe["status"],
+            # A block that a finished wave cannot lift: no credential, a probe
+            # error, a quota error. Running out of in-flight slots is not one.
+            "hard_blocked": blocked if (blocked and "in flight" not in blocked) else None,
             "blocked": blocked,
             "eligible": blocked is None,
             "buckets": probe["buckets"],
@@ -723,17 +800,158 @@ def pick(candidates: list[str], elig: dict, band: int) -> tuple[dict | None, lis
     return cand, notes
 
 
-def route(spec: str, config: dict, probes: dict | None = None, max_age: float | None = None) -> dict:
+def route(spec: str, config: dict, probes: dict | None = None, max_age: float | None = None,
+          hold: bool = False) -> dict:
     if probes is None:
         probes, fresh = probes_cached(config, max_age)
     else:
         # Injected probes (tests, replay) must not move the burn-rate baseline.
         fresh = False
     elig = eligibility(config, probes, record=fresh)
-    judgment = judge(spec)
+    decision = decide(judge(spec), config, elig)
+    if hold:
+        decision["reservation"] = hold_capacity(decision, config, spec)
+    return decision
+
+
+def hold_capacity(decision: dict, config: dict, spec: str) -> str | None:
+    """Book the estimated cost of this dispatch until it is reported done.
+
+    Only the caller that is about to launch should ask for this, which is why
+    it is a flag and not the default: a route run to look at the numbers must
+    not eat capacity nobody is going to spend.
+    """
+    if not decision["pick"] or decision["blocked"]:
+        return None
+    provider = decision["pick"]["provider"]
+    ttl = float(config.get("reservation_ttl_seconds", 1800))
+    points = dispatch_cost(config, provider, decision["band"])
+    return reserve(provider, points, decision["band"], spec, ttl)
+
+
+def debit(elig: dict, config: dict, provider: str, band: int) -> float:
+    """Spend the estimate in this process, so the next task in a batch sees it."""
+    points = dispatch_cost(config, provider, band)
+    info = elig.get(provider)
+    if not info:
+        return points
+    info["inflight"] = info.get("inflight", 0) + 1
+    info["reserved"] = info.get("reserved", 0.0) + points
+    if info["usable"] is not None:
+        info["usable"] -= points
+    limits = config.get("max_inflight") or {}
+    limit = int(limits.get(provider, limits.get("_default", 8)))
+    if info["inflight"] >= limit:
+        info["blocked"] = f"{info['inflight']} dispatches already in flight, limit {limit}"
+    elif info["usable"] is not None and info["usable"] <= 0:
+        info["blocked"] = f"below reserve on {info['bucket']} once this batch is counted"
+    info["eligible"] = info["blocked"] is None
+    return points
+
+
+def start_wave(elig: dict, config: dict) -> None:
+    """Begin a wave: the previous one's workers have finished.
+
+    Their slots come back. The quota they burned does not: `usable` keeps every
+    debit, which is why a plan runs out of capacity eventually instead of
+    scheduling waves forever.
+    """
+    for info in elig.values():
+        info["inflight"] = 0
+        blocked = info.get("hard_blocked")
+        if not blocked and info["usable"] is not None and info["usable"] <= 0:
+            blocked = f"below reserve on {info['bucket']} once this plan is counted"
+        info["blocked"] = blocked
+        info["eligible"] = blocked is None
+
+
+def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = False,
+         probes: dict | None = None, max_waves: int = 12) -> dict:
+    """Route a whole fan-out at once.
+
+    Judgments are independent, so they go out in parallel. Allocation is not:
+    each task is placed against headroom the previous ones have already spent,
+    which is what stops a hundred workers from being sent to the same provider
+    on the strength of one quota reading.
+    """
+    if probes is None:
+        probes, fresh = probes_cached(config, max_age=0)
+    else:
+        fresh = False
+    elig = eligibility(config, probes, record=fresh)
+    ttl = float(config.get("reservation_ttl_seconds", 1800))
+    # One judgment per task, in parallel, and only once: waves reschedule the
+    # same judgment against different headroom, they do not re-ask the model.
+    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+        judgments = list(pool.map(judge, specs))
+
+    tasks = [{"index": i, "spec": spec, "judgment": j, "points": 0.0, "wave": None, "decision": None}
+             for i, (spec, j) in enumerate(zip(specs, judgments))]
+    pending = list(tasks)
+    wave = 0
+    while pending and wave < max_waves:
+        wave += 1
+        if wave > 1:
+            start_wave(elig, config)
+        placed_this_wave, still_pending = [], []
+        for task in pending:
+            decision = decide(task["judgment"], config, elig, fallback=False)
+            task["decision"] = decision
+            if decision["blocked"]:
+                task["wave"] = None
+                continue  # a brief nobody can execute is not a capacity problem
+            if not decision["pick"]:
+                still_pending.append(task)
+                continue
+            provider = decision["pick"]["provider"]
+            task["points"] = debit(elig, config, provider, decision["band"])
+            task["wave"] = wave
+            if hold:
+                decision["reservation"] = reserve(provider, task["points"], decision["band"],
+                                                  task["spec"], ttl)
+            placed_this_wave.append(task)
+        pending = still_pending
+        if not placed_this_wave:
+            break  # no capacity anywhere: more waves would place nothing
+
+    spread, waves = {}, {}
+    for task in tasks:
+        pick = task["decision"]["pick"] if task["decision"] else None
+        if task["wave"] is None or not pick:
+            continue
+        row = spread.setdefault(pick["provider"], {"dispatches": 0, "points": 0.0, "models": {}})
+        row["dispatches"] += 1
+        row["points"] = round(row["points"] + task["points"], 2)
+        row["models"][pick["model"]] = row["models"].get(pick["model"], 0) + 1
+        bucket = waves.setdefault(task["wave"], {"tasks": 0, "providers": {}})
+        bucket["tasks"] += 1
+        bucket["providers"][pick["provider"]] = bucket["providers"].get(pick["provider"], 0) + 1
+    return {
+        "tasks": tasks,
+        "waves": waves,
+        "spread": spread,
+        "blocked": [t["index"] for t in tasks if t["decision"] and t["decision"]["blocked"]],
+        "unplaced": [t["index"] for t in tasks
+                     if t["wave"] is None and t["decision"] and not t["decision"]["blocked"]],
+        "quota_after": {name: {"usable": info["usable"], "inflight": info.get("inflight", 0),
+                               "eligible": info["eligible"], "blocked": info["blocked"]}
+                        for name, info in elig.items()},
+    }
+
+
+def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True) -> dict:
+    """One decision against one eligibility snapshot.
+
+    `fallback` is the difference between a single dispatch and a wave of them.
+    Alone, a task must never be stranded, so a full band drops to a cheaper one
+    and then escalates rather than returning nothing. Inside a batch there is a
+    next wave, so a task whose band is full waits for one instead of being
+    answered with a model that is wrong for it in the other direction: sending
+    ordinary implementation work to a band 3 model because the cheap plans are
+    busy is the expensive mistake this tool exists to prevent.
+    """
     band, reasons = band_for(judgment, config)
     thresholds = config.get("thresholds", {})
-
     blocked = None
     if judgment["spec_complete"] < float(thresholds.get("spec_complete_min", 0.5)):
         blocked = (
@@ -744,12 +962,15 @@ def route(spec: str, config: dict, probes: dict | None = None, max_age: float | 
     ladders = config["bands"]
     chosen, notes = pick(ladders[str(band)], elig, band)
     used_band = band
-    while chosen is None and used_band > 1:
+    if chosen is None and not fallback:
+        reasons.append(f"band {band} is full; holding this task for a later wave "
+                       "rather than moving it to a band that suits it worse")
+    while fallback and chosen is None and used_band > 1:
         used_band -= 1
         reasons.append(f"nothing eligible in band {used_band + 1}, dropping to band {used_band}")
         chosen, more = pick(ladders[str(used_band)], elig, used_band)
         notes += more
-    if chosen is None and band < 3:
+    if fallback and chosen is None and band < 3:
         reasons.append("nothing eligible below band 3, escalating instead of failing")
         chosen, more = pick(ladders["3"], elig, 3)
         notes += more
@@ -989,6 +1210,9 @@ def cmd_probe(args, config):
             extra = bucket.get("tokens_used")
             extra = f" ({extra:,} tokens)" if extra else ""
             print(f"    {bucket['id']:<20} used {percent:<7} {bucket['source']}{extra}")
+        if info.get("inflight"):
+            print(f"    in flight            {info['inflight']} dispatches holding "
+                  f"{info['reserved']:.1f} points")
         if info["blocked"]:
             print(f"    -> {info['blocked']}")
     return 0
@@ -1031,7 +1255,7 @@ def cmd_deals(args, config):
 
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
-    decision = route(spec, config, max_age=0 if args.fresh else None)
+    decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve)
     if args.json:
         print(json.dumps(decision, indent=2))
         return 0
@@ -1056,6 +1280,9 @@ def cmd_route(args, config):
         print(f"review     {review['provider']} {review['model']}")
     if decision["confirm_first"]:
         print("confirm    irreversible step, ask a human first")
+    if decision.get("reservation"):
+        print(f"reserved   {decision['reservation']}, release with: "
+              f"rightsize report {cand['provider']} --done")
     for reason in decision["reasons"]:
         print(f"  why      {reason}")
     for note in decision["notes"]:
@@ -1102,6 +1329,11 @@ def cmd_report(args, config):
         save_json(STATE, state)
         print(f"{name}: cleared, eligible again from now")
         return 0
+    if args.done:
+        freed = release(name, args.id)
+        print(f"{name}: released {freed} reservation" if freed
+              else f"{name}: nothing in flight to release")
+        return 0
     if args.free_request:
         count_free_request()
         used, resets_at = free_requests_today()
@@ -1119,6 +1351,63 @@ def cmd_report(args, config):
     mark_exhausted(name, until)
     print(f"{name}: marked exhausted, skipped until {human_reset(until)} from now")
     return 0
+
+
+def cmd_plan(args, config):
+    if args.specs:
+        specs = [line.strip() for line in Path(args.specs).read_text().splitlines() if line.strip()]
+    elif args.dir:
+        files = sorted(Path(args.dir).glob(args.glob))
+        specs = [f.read_text() for f in files]
+    else:
+        specs = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+    if not specs:
+        print("no tasks given", file=sys.stderr)
+        return 2
+    result = plan(specs, config, concurrency=args.concurrency, hold=args.reserve)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    print(f"{len(specs)} tasks, judged {args.concurrency} at a time\n")
+    for task in result["tasks"]:
+        decision = task["decision"]
+        pick = decision["pick"] if not decision["blocked"] else None
+        where = f"{pick['provider']}:{pick['model']}" + (f" ({pick['effort']})" if pick and pick["effort"] else "") if pick else "-"
+        wave = f"w{task['wave']}" if task["wave"] else "-"
+        flag = "BLOCKED" if decision["blocked"] else ("CONFIRM" if decision["confirm_first"] else "")
+        first = " ".join(task["spec"].split())[:46]
+        print(f"{task['index']:>4}  {wave:<3} band {decision['band']}  {where:<46} {flag:<8} {first}")
+    if result["waves"]:
+        print("\nwaves (each one runs after the previous reports done)")
+        for number, bucket in sorted(result["waves"].items()):
+            spread = ", ".join(f"{name} x{count}" for name, count in sorted(bucket["providers"].items()))
+            print(f"  wave {number}: {bucket['tasks']:>3} tasks  ({spread})")
+    print("\nspread")
+    for name, row in sorted(result["spread"].items(), key=lambda kv: -kv[1]["dispatches"]):
+        models = ", ".join(f"{model} x{count}" for model, count in row["models"].items())
+        print(f"  {name:<13} {row['dispatches']:>4} dispatches, {row['points']:.1f} points held  ({models})")
+    for name, info in result["quota_after"].items():
+        if info["blocked"]:
+            print(f"  {name:<13} full: {info['blocked']}")
+    if result["blocked"]:
+        print(f"\nnot dispatchable ({len(result['blocked'])}): tasks "
+              + ", ".join(str(i) for i in result["blocked"])
+              + "\n  tighten those briefs; no provider fixes a spec a worker cannot execute alone")
+    if result["unplaced"]:
+        print(f"\nno capacity for {len(result['unplaced'])} tasks, even across waves: "
+              + ", ".join(str(i) for i in result["unplaced"][:20])
+              + ("..." if len(result["unplaced"]) > 20 else "")
+              + "\n  the plans run out before these are reached. Wait for a bucket to reset,"
+              + "\n  add a provider, or raise max_inflight / lower dispatch_cost if the"
+              + "\n  estimates are more conservative than reality.")
+    if args.launcher:
+        for number in sorted(result["waves"]):
+            print(f"\n# ---- wave {number} ----")
+            for task in result["tasks"]:
+                if task["wave"] == number:
+                    print(f"# task {task['index']}")
+                    print(launch_command(task["decision"], config, args.launcher, None))
+    return 1 if (result["blocked"] or result["unplaced"]) else 0
 
 
 def main(argv=None):
@@ -1141,7 +1430,20 @@ def main(argv=None):
     route_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
     route_cmd.add_argument("--launcher", help="also print the launch command for this launcher (see config.json)")
     route_cmd.add_argument("--fresh", action="store_true", help="re-probe instead of using the cached reading")
+    route_cmd.add_argument("--reserve", action="store_true",
+                           help="hold this dispatch's estimated cost until it is reported done")
     route_cmd.set_defaults(func=cmd_route)
+
+    plan_cmd = sub.add_parser("plan", help="route a whole fan-out at once, spreading it across plans")
+    plan_cmd.add_argument("--specs", help="file with one task per line")
+    plan_cmd.add_argument("--dir", help="directory of spec files")
+    plan_cmd.add_argument("--glob", default="*.md", help="pattern inside --dir (default *.md)")
+    plan_cmd.add_argument("--concurrency", type=int, default=8, help="judgments in flight at once")
+    plan_cmd.add_argument("--reserve", action="store_true",
+                          help="hold each dispatch's estimated cost until it is reported done")
+    plan_cmd.add_argument("--launcher", help="also print a launch command per task")
+    plan_cmd.add_argument("--json", action="store_true")
+    plan_cmd.set_defaults(func=cmd_plan)
 
     models = sub.add_parser("models", help="what the current registry offers")
     models.add_argument("--limit", type=int, default=12)
@@ -1154,6 +1456,9 @@ def main(argv=None):
     report.add_argument("--free-request", action="store_true",
                         help="count one OpenRouter free-tier request instead")
     report.add_argument("--clear", action="store_true", help="clear an exhausted mark early")
+    report.add_argument("--done", action="store_true",
+                        help="a dispatch finished: release the capacity it was holding")
+    report.add_argument("--id", help="which reservation to release (default: the oldest)")
     report.add_argument("--minutes", type=int, default=60,
                         help="cooldown when the provider publishes no reset time")
     report.set_defaults(func=cmd_report)

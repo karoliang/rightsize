@@ -136,6 +136,82 @@ another vendor reviewing it.
 marked `confirm_first`. rightsize never decides that a migration or a deploy may
 run unattended; it only makes sure nobody dispatches one without noticing.
 
+## Fan-out: many dispatches, one quota reading
+
+A quota reading says what has been **billed**, not what is about to be. Route a
+hundred tasks inside one cache window and every one of them sees the same
+untouched headroom, so every one picks the same provider. Rule 3 makes this
+worse rather than better: "spend the bucket that expires first" is
+deterministic, so the pile-up is not even spread by luck.
+
+Measured before the fix: 100 ordinary tasks, 100 dispatches to one provider,
+`usable` unchanged at 9 points throughout.
+
+Three things close that gap.
+
+### Reservations
+
+A dispatch that has been decided but not finished holds an estimated cost:
+
+```
+points held = dispatch_cost[provider] * band
+usable      = 100 - percent - reserve - points held by live reservations
+```
+
+`dispatch_cost` is a coarse estimate in `config.json`, and coarse on purpose:
+the exact burn is unknowable before the worker runs, and being roughly right is
+enough to stop a fan-out from overcommitting a plan. Multiplying by the band is
+the cheap approximation of "a deeper model costs more".
+
+Reservations are taken by `route --reserve` and by `plan --reserve`, never by a
+plain `route`: a decision made to look at the numbers must not eat capacity
+nobody is going to spend. They are released by
+`rightsize report <provider> --done`, and they expire on their own after
+`reservation_ttl_seconds` (1800), because a worker that dies silently must not
+hold a plan hostage.
+
+### An in-flight limit per provider
+
+`max_inflight` caps how many dispatches may be running on one provider at once.
+A provider that is full is blocked the same way one below its reserve is, so
+the next task goes to the next eligible provider instead of queueing behind it.
+This is what actually spreads a fan-out; the quota debit alone would not,
+because a free provider has no quota to debit.
+
+### Waves
+
+`rightsize plan` routes a whole batch at once. Judgments are independent, so
+they go out in parallel; allocation is not, so tasks are placed one at a time
+against headroom the earlier ones have already spent.
+
+When every provider is full, the remaining tasks go into the next **wave**
+rather than being sent somewhere that suits them worse. A wave boundary returns
+the in-flight slots (those workers have finished) but keeps every quota debit,
+so a plan eventually runs out of capacity instead of scheduling waves forever.
+
+100 tasks, a fresh OpenCode week, this machine's real config:
+
+```
+wave 1:  37 tasks  (openrouter 12, opencode 10, opencode_zen 8, codex 4, claude 3)
+wave 2:  37 tasks  (same shape)
+wave 3:  26 tasks  (openrouter 12, opencode 10, codex 4)
+```
+
+### One rule inverts inside a batch
+
+A single `route` never strands a task: a full band drops to a cheaper one and
+then escalates, because the alternative is a run that does not happen.
+
+Inside a batch there is a next wave, so `plan` does the opposite and holds the
+task. Sending ordinary implementation work to a band 3 model because the cheap
+plans are momentarily busy is the expensive mistake this tool exists to
+prevent, and at a hundred tasks it is expensive a hundred times over. Before
+this rule existed, a 100-task fan-out put three band 1 tasks on
+`claude-opus-5`.
+
+Tasks blocked for a low `spec_complete` are not a capacity problem and never
+enter a wave. They are listed separately, because the fix is to the brief.
+
 ## Rule 5: fallback is code
 
 rightsize decides and steps out. It is not a proxy and never sits in the token
