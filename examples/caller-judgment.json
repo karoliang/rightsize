@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "actor": "active-agent",
+  "task_sha256": "3225995af96b740bb380f69085aa2dbf6dca7daa8eb3622aa85a7af02725bbf2",
+  "judgment": {
+    "tier": "mechanical",
+    "size": 0.2,
+    "second_opinion": 0.1,
+    "spec_complete": 0.9,
+    "destructive": 0.0
+  }
+}

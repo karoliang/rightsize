@@ -17,9 +17,12 @@ information should be recognisable as one.
 | `OPENROUTER_API_KEY` | OpenRouter credit and its catalogue | OpenRouter is `no-credential`, its free tier unreachable |
 | (none) | Codex and Claude Code quota | nothing: both are read from files their own CLIs write |
 
-## TypeSafe (Jev), the one that matters most
+## Optional task judgment: caller or TypeSafe (Jev)
 
-Jev answers the five questions that decide the band. It is a System One model:
+The active coding agent can supply `route --judgment FILE`, avoiding a separate
+judge key and model call. See the task-bound JSON example in README. Existing
+quota authentication still applies. Without this option, Jev answers the five
+questions that decide the band. It is a System One model:
 it returns typed judgments and probabilities rather than text, in one round
 trip, which is why routing can afford to ask before every dispatch.
 

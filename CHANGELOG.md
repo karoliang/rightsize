@@ -5,6 +5,16 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ## Unreleased
 
+### Added (2026-09-21, router planning)
+
+- `route --judgment FILE` accepts strict, task-bound caller judgment without a
+  separate judge key/call. Quota policy and default routing are unchanged;
+  new decision records retain judgment source and full task hash (#13).
+- ADR0001 and five planning contracts select incremental local task routing
+  through native coding runtimes. Implementation slices #13-#19 track account
+  discovery, scoped credentials, skills/context, admission, outcomes and rollout.
+- Offline caller-contract cases and a runnable input example are included in CI.
+
 ### Fixed (2026-09-21)
 
 - Explicit quota denials veto every model band and survive missing refreshes

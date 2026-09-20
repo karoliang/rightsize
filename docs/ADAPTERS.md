@@ -264,3 +264,14 @@ Audit includes `session_id`, `started_at`, `untracked_sessions` and honest
 `unknown dispatch`, `ambiguous session`, `zero output` verdicts. Recorded actual
 worktree paths and dispatch IDs take precedence over suggested names. Temporal
 name/path matching remains evidence with limits, not an immutable session join.
+
+## Caller judgment input
+
+`route --judgment FILE` accepts the v1 envelope documented in README and
+`examples/caller-judgment.json`. Its task hash binds the classification to the
+exact text passed to routing; no task or secret is sent to a separate judge.
+The existing quota/probe path still runs. Malformed input returns2 before probes
+or state writes. JSON routing exit behavior is unchanged: inspect `pick` and
+`blocked`, not only the process status. Supplied scores cannot alter quota data.
+New decision records include `judgment_source` and `task_sha256`; older records
+without them remain readable. Actor is a caller claim, not a trusted identity.

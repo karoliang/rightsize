@@ -17,7 +17,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -1280,6 +1282,50 @@ def judge(spec: str) -> dict:
     return {**heuristic(spec), "source": "heuristic (no TYPESAFE_API_KEY)"}
 
 
+def load_judgment(path: Path, spec: str) -> dict:
+    """Validate caller judgment before reading quota or taking any holds."""
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate judgment field")
+            result[key] = value
+        return result
+
+    with path.open("rb") as handle:
+        raw = handle.read(65537)
+    if len(raw) > 65536:
+        raise ValueError("judgment exceeds 64 KiB")
+    try:
+        document = json.loads(raw, object_pairs_hook=unique_fields)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise ValueError("invalid judgment JSON") from exc
+    if not isinstance(document, dict) or set(document) != {
+            "schema_version", "actor", "task_sha256", "judgment"}:
+        raise ValueError("judgment envelope fields do not match version 1")
+    if type(document["schema_version"]) is not int or document["schema_version"] != 1:
+        raise ValueError("unsupported judgment schema_version")
+    actor = document["actor"]
+    if not isinstance(actor, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}", actor):
+        raise ValueError("judgment actor must be an identifier of 1-80 characters")
+    digest = hashlib.sha256(spec.encode("utf-8")).hexdigest()
+    if document["task_sha256"] != digest:
+        raise ValueError("judgment task_sha256 does not match the routed task")
+    judgment = document["judgment"]
+    fields = {"tier", "size", "second_opinion", "spec_complete", "destructive"}
+    if not isinstance(judgment, dict) or set(judgment) != fields:
+        raise ValueError("judgment requires exactly tier and the four scores")
+    if not isinstance(judgment["tier"], str) or judgment["tier"] not in QUESTIONS["tier"]["criteria"]:
+        raise ValueError("invalid judgment tier")
+    for key in fields - {"tier"}:
+        value = judgment[key]
+        maximum = 2 if key == "size" else 1
+        if type(value) not in (int, float) or not 0 <= value <= maximum or not math.isfinite(value):
+            raise ValueError(f"judgment {key} must be a finite number from 0 to {maximum}")
+    return {**judgment, "tier_confidence": None, "source": f"caller ({actor})",
+            "task_sha256": digest, "schema_version": 1}
+
+
 def heuristic(spec: str) -> dict:
     """Deliberately crude stand-in. It states that it is a stand-in so a bad
     route is never mistaken for a model's judgment."""
@@ -1474,14 +1520,14 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
 
 
 def route(spec: str, config: dict, probes: dict | None = None, max_age: float | None = None,
-          hold: bool = False) -> dict:
+          hold: bool = False, judgment: dict | None = None) -> dict:
     if probes is None:
         probes, fresh = probes_cached(config, max_age)
     else:
         # Injected probes (tests, replay) must not move the burn-rate baseline.
         fresh = False
     elig = eligibility(config, probes, record=fresh)
-    judgment = judge(spec)
+    judgment = judge(spec) if judgment is None else judgment
     decision = decide(judgment, config, elig)
     decision["worktree_name"] = worktree_name(spec)
     if hold:
@@ -2088,7 +2134,13 @@ def cmd_deals(args, config):
 
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
-    decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve)
+    try:
+        judgment = load_judgment(Path(args.judgment), spec) if args.judgment else None
+    except (OSError, ValueError) as exc:
+        print(f"judgment rejected: {exc}", file=sys.stderr)
+        return 2
+    decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve,
+                     judgment=judgment)
     log_decision(decision, spec, dispatched=args.reserve)
     return print_decision(decision, args, config, spec)
 
@@ -2609,7 +2661,9 @@ def log_decision(decision: dict, spec: str, dispatched: bool = False) -> None:
         key = brief_key(spec)
         for existing in reversed(entries[-20:]):
             if (existing["at"] > now() - 120 and brief_key(existing.get("task") or "") == key
-                    and existing.get("model") == decision["pick"]["model"]):
+                    and existing.get("model") == decision["pick"]["model"]
+                    and existing.get("judgment_source") == (decision.get("judgment") or {}).get("source")
+                    and existing.get("task_sha256") == hashlib.sha256(spec.encode("utf-8")).hexdigest()):
                 # The second visit is the one that knows a launch happened.
                 if dispatched and not existing.get("dispatched"):
                     existing["dispatched"] = True
@@ -2625,6 +2679,8 @@ def log_decision(decision: dict, spec: str, dispatched: bool = False) -> None:
             "name": decision.get("worktree_name"),
             "task": " ".join(spec.split())[:120],
             "dispatched": dispatched,
+            "judgment_source": (decision.get("judgment") or {}).get("source"),
+            "task_sha256": hashlib.sha256(spec.encode("utf-8")).hexdigest(),
         })
         state["decisions"] = entries[-200:]
         save_json(STATE, state)
@@ -2892,6 +2948,7 @@ def main(argv=None):
     route_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
     route_cmd.add_argument("--launcher", help="also print the launch command for this launcher (see config.json)")
     route_cmd.add_argument("--fresh", action="store_true", help="re-probe instead of using the cached reading")
+    route_cmd.add_argument("--judgment", help="versioned task-bound judgment JSON from the active coding agent; skips the judge call")
     route_cmd.add_argument("--reserve", action="store_true",
                            help="hold this dispatch's estimated cost until it is reported done")
     route_cmd.set_defaults(func=cmd_route)

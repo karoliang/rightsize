@@ -65,5 +65,6 @@ outcome records. No universal API proxy or full agent rewrite selected.
 | [#18](https://github.com/karoliang/rightsize/issues/18) | Offline replay and side-effect-free shadow comparison | Fixtures can start now; promotion uses #15-#17 |
 | [#19](https://github.com/karoliang/rightsize/issues/19) | Versioned state migration, pilot and rollback | #14, #16-#18 |
 
+Execution is tracked in [#20](https://github.com/karoliang/rightsize/issues/20).
 Current slice implements #13 only. #14 is next. GitHub remains the source of
 truth for open/closed state; planning closure does not imply these features ship.

@@ -446,3 +446,49 @@ verified model or a nonzero token count is not proof that the work was accepted.
 
 Architecture planning and the repair history live in
 [#1](https://github.com/karoliang/rightsize/issues/1) and [docs/BACKLOG.md](docs/BACKLOG.md).
+
+### Use the active coding agent's judgment
+
+An agent that has already read the task and relevant skills can pass its judgment
+instead of making a separate Jev call. This needs no new judge key:
+
+```bash
+rightsize route --spec examples/caller-task.md \
+  --judgment examples/caller-judgment.json --json
+```
+
+The committed example is illustrative, not a request to edit this repository.
+For your own task, write the following document using the active agent's actual
+classification. Bind it to `hashlib.sha256(Path("task.md").read_text().encode("utf-8")).hexdigest()`:
+
+```json
+{
+  "schema_version": 1,
+  "actor": "active-agent",
+  "task_sha256": "<SHA-256 of the exact routed task text>",
+  "judgment": {
+    "tier": "implementation",
+    "size": 0.6,
+    "second_opinion": 0.2,
+    "spec_complete": 0.9,
+    "destructive": 0.0
+  }
+}
+```
+
+`size` is 0-2; the other scores are 0-1. Tiers are `mechanical`,
+`implementation`, `design`, `diagnosis`, `high_stakes`. Actor is a 1-80 character
+identifier using letters, digits, `.`, `_`, `:`, `/`, `-`, starting alphanumeric.
+The JSON is capped at 64 KiB; unknown/duplicate fields, nonfinite numbers, an
+unsupported version or a changed task are rejected before routing. For `--spec`,
+hash the text as Python `read_text()` reads it, including its trailing newline;
+for `--task`, hash the exact argument. Actor is attribution, not authentication.
+
+This skips only the judgment request. Native quota probes and the shell wrapper's
+existing vault setup still apply; scoped credential discovery is tracked in #14.
+Without `--judgment`, existing routing behavior is unchanged. The option currently
+applies to `route`, not batch planning or retries. JSON consumers must inspect
+`pick`, `blocked` and `quota`, as before; a valid JSON decision is not permission
+to launch. This option does not load skills or execute a worker by itself.
+
+See [ADR0001](docs/decisions/0001-local-task-router.md) for the staged architecture.

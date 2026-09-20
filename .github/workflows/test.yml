@@ -23,6 +23,8 @@ jobs:
         run: python test_rightsize.py
       - name: quota and launch regressions
         run: python test_reliability.py
+      - name: caller judgment contract
+        run: python test_judgment.py
       - name: hook matching
         run: python hooks/test_hook.py
       - name: config is valid json

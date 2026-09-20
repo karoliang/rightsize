@@ -19,7 +19,7 @@ These are the constraints, not preferences:
    inside a launchd job. A dependency that fails to import turns a routing
    helper into a broken run. No `requests`, no `pydantic`, no framework.
 2. **Quota is arithmetic, the task is a judgment.** Numbers stay in code.
-   Classification goes to the model. The model is never asked which provider to
+   Classification comes from a validated caller judgment or the existing optional model judge. The model is never asked which provider to
    use: providers change every few months, the questions do not.
 3. **An estimate must never look like a measurement.** Every bucket carries a
    `source`, and unknown headroom (`percent: None`) is offered only for work
@@ -39,6 +39,7 @@ These are the constraints, not preferences:
 ```bash
 python3 test_rightsize.py    # the policy, offline, no network, no tokens
 python3 test_reliability.py  # quota, launcher, receipt and audit regressions
+python3 test_judgment.py     # caller contract, no separate model call
 python3 hooks/test_hook.py   # hook matching
 ./eval_questions.py          # the judgments, needs TYPESAFE_API_KEY, costs ~a cent
 python3 -m compileall -q .   # syntax over every file
