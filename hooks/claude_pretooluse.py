@@ -11,10 +11,16 @@ It is advisory by construction. It prints one block of context and exits 0,
 always, whatever happens: a routing helper that can block a dispatch is a
 routing helper that can strand a run.
 
-Install (a second entry alongside whatever else owns PreToolUse):
+It runs on two events. On PreToolUse it routes and prints the decision. On
+PostToolUse it books the capacity, and only then, because a dispatch that was
+drafted and never run must not hold a plan: three such phantoms once blocked
+Codex while it had eighty-five points free.
 
-    {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
-      {"type": "command", "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py"}]}]}}
+    {"hooks": {
+      "PreToolUse":  [{"matcher": "Bash", "hooks": [{"type": "command",
+         "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py"}]}],
+      "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command",
+         "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py"}]}]}}
 """
 
 import json
@@ -132,13 +138,24 @@ def usable_brief(value: str) -> bool:
     return not (text.startswith("<") and text.endswith(">"))
 
 
+def reserve_for(spec: str) -> None:
+    """Book the capacity, after the launch has actually happened.
+
+    Reserving before the command runs books work that may never start: a
+    drafted line, a refused permission, a command that failed. Three of those
+    once filled Codex's in-flight limit while it had eighty-five points free.
+    """
+    try:
+        subprocess.run([str(RIGHTSIZE), "route", "--task", spec, "--json", "--reserve"],
+                       capture_output=True, text=True, timeout=TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def advise(spec: str) -> str | None:
     try:
         result = subprocess.run(
-            # --reserve books this dispatch's estimated cost, so a fan-out of
-            # twenty workers does not hand all twenty the same untouched
-            # headroom. It expires on its own if the launch never happens.
-            [str(RIGHTSIZE), "route", "--task", spec, "--json", "--reserve"],
+            [str(RIGHTSIZE), "route", "--task", spec, "--json"],
             capture_output=True, text=True, timeout=TIMEOUT,
         )
         decision = json.loads(result.stdout)
@@ -164,8 +181,8 @@ def advise(spec: str) -> str | None:
     if decision.get("blocked"):
         lines.append(f"  WARNING {decision['blocked']}")
     lines.append("  Use this agent and model unless you have a stated reason not to.")
-    if decision.get("reservation"):
-        lines.append(f"  when this worker finishes: rightsize report {pick['provider']} --done")
+    lines.append(f"  when this worker finishes: rightsize report {pick['provider']} --done"
+                 " (or report --from-orca for all of them)")
     return "\n".join(lines)
 
 
@@ -181,7 +198,20 @@ def main() -> int:
         print("{}")
         return 0
     spec = spec_text(segment)
-    context = advise(spec) if spec else None
+    if not spec:
+        print("{}")
+        return 0
+
+    if event.get("hook_event_name") == "PostToolUse":
+        # The launch has run. Book it, unless it plainly failed.
+        response = event.get("tool_response") or {}
+        failed = response.get("success") is False or response.get("is_error") is True
+        if not failed:
+            reserve_for(spec)
+        print("{}")
+        return 0
+
+    context = advise(spec)
     if not context:
         print("{}")
         return 0
