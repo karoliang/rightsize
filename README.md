@@ -301,7 +301,7 @@ blocks Claude the moment it is set.
 
 The decision is only worth having if it happens on every dispatch, not on the
 ones you remember. `hooks/claude_pretooluse.py` is a working hook for Claude
-Code and Codex, which share a wire format:
+Code Bash events:
 
 ```json
 {"hooks": {
@@ -412,3 +412,37 @@ are now atomic and serialised by a lock.
 ## Licence
 
 MIT.
+
+### Launch receipts and quota failures
+
+`report --started` records the provider that actually launched. It never judges
+or routes the task again:
+
+```bash
+rightsize report opencode --started --model glm-5.3 \
+  --task 'Review input validation and preserve boundary behavior' \
+  --dispatch ctx_actual --worktree /path/to/actual-worktree
+```
+
+Use the orchestrator dispatch ID, or a stable tool-call ID when none is returned.
+Repeated receipts with the same retained ID do not take another hold. The Claude
+Bash hook recognizes the full shipped multiline OpenCode launcher and sends this
+receipt after a successful launch with explicit model information. Other clients
+can send the same receipt; they do not inherit Claude hooks. A failed launch or
+unknown model is not booked. Hooks remain advisory, so direct launches can still
+bypass a recommendation. Cross-client admission enforcement is planned in
+[#10](https://github.com/karoliang/rightsize/issues/10).
+
+An explicit quota denial blocks every band and survives missing telemetry until
+a fresh healthy reading for that window arrives. `report --quota-error` uses the
+latest reset among known denied windows, or the bounded `--minutes` cooldown
+when reset attribution is unknown, and invalidates the probe cache. `--clear`
+clears the reported cooldown, not a live quota denial.
+
+Audit now distinguishes unknown dispatch evidence, ambiguous session matches,
+and sessions with zero recorded output. Unmatched OpenCode sessions are shown
+separately instead of being hidden behind a claim that nothing launched. A
+verified model or a nonzero token count is not proof that the work was accepted.
+
+Architecture planning and the repair history live in
+[#1](https://github.com/karoliang/rightsize/issues/1) and [docs/BACKLOG.md](docs/BACKLOG.md).

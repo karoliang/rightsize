@@ -1034,7 +1034,7 @@ def orca_settled_tasks(run: str | None = None) -> set[str]:
 def release_settled(run: str | None = None) -> dict:
     """Give back the capacity held for workers that have finished.
 
-    Matched on the brief alone. The worktree name is a name rightsize
+    New receipts match the dispatch. Legacy holds match the brief. A worktree is a name rightsize
     suggested and any dispatch may reuse, so an older worker settling in a
     reused checkout would release the hold of the new worker running there now.
     A hold whose brief never matches expires on its own instead.
@@ -1043,12 +1043,15 @@ def release_settled(run: str | None = None) -> dict:
     if error:
         return {"error": error, "released": [], "kept": []}
     finished_briefs = orca_settled_tasks(run)
+    finished_dispatches = {w.get("dispatch") for w in settled}
     state = load_json(STATE, {}) or {}
     released, kept = [], []
     for held in list(sweep_reservations(state)):
-        if brief_key(held.get("task") or "") in finished_briefs:
+        matched = ("dispatch" if held.get("dispatch") in finished_dispatches else None) if held.get("dispatch") else (
+            "brief" if brief_key(held.get("task") or "") in finished_briefs else None)
+        if matched:
             release(held["provider"], held["id"])
-            released.append({**held, "matched": "brief"})
+            released.append({**held, "matched": matched})
         else:
             kept.append(held)
     return {"released": released, "kept": kept, "settled": len(settled),
@@ -1070,6 +1073,13 @@ def dispatch_cost(config: dict, provider: str, band: int) -> float:
 def exhausted_until(name: str) -> float:
     state = load_json(STATE, {}) or {}
     return (state.get("exhausted") or {}).get(name, 0)
+
+
+def denied_buckets(probe: dict) -> list[dict]:
+    """A positive quota denial is stronger evidence than missing telemetry."""
+    return [b for b in probe.get("buckets", [])
+            if b.get("raw_status") in ("rate-limited", "exhausted", "quota-exceeded")
+            or (b.get("percent") is not None and b["percent"] >= 100)]
 
 
 def admission_block(info: dict, config: dict, provider: str, band: int | None,
@@ -1102,6 +1112,21 @@ def mark_exhausted(name: str, until: float) -> None:
 
 def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
     previous = record_snapshot(probes) if record else (load_json(STATE, {}) or {}).get("snapshots", {})
+    # A failed refresh must not turn a known denial back into band-3 capacity.
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        denials = state.get("quota_denials") or {}
+        if record:
+            for name, probe in probes.items():
+                known = denials.setdefault(name, {})
+                for bucket in probe.get("buckets", []):
+                    if denied_buckets({"buckets": [bucket]}):
+                        known[bucket["id"]] = bucket
+                    elif (bucket.get("source") == "live" and bucket.get("percent") is not None
+                          and bucket.get("raw_status", "ok") == "ok"):
+                        known.pop(bucket["id"], None)
+            state["quota_denials"] = denials
+            save_json(STATE, state)
     reserves = config.get("reserves", {})
     out = {}
     for name, probe in probes.items():
@@ -1115,7 +1140,10 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
         limits = config.get("max_inflight") or {}
         limit = int(limits.get(name, limits.get("_default", 8)))
         blocked = None
-        if probe["status"].startswith("error") or probe["status"] == "no-credential":
+        denied = denied_buckets(probe) or list(denials.get(name, {}).values())
+        if denied:
+            blocked = "quota denied on " + ", ".join(b["id"] for b in denied)
+        elif probe["status"].startswith("error") or probe["status"] == "no-credential":
             blocked = probe["status"]
         elif exhausted_until(name) > now():
             blocked = f"quota error, retry after {human_reset(exhausted_until(name))}"
@@ -2169,11 +2197,21 @@ def cmd_report(args, config):
     if name not in config.get("reserves", {}) and name not in config.get("free_providers", []):
         print(f"unknown provider {name!r}", file=sys.stderr)
         return 2
+    if args.started:
+        if not args.model or not args.task or not args.dispatch:
+            print("--started needs --model, --task and --dispatch (a stable launch id)", file=sys.stderr)
+            return 2
+        receipt = record_launch(config, name, args.model, args.task, args.dispatch,
+                                args.worktree, args.effort)
+        print(f"{name}: recorded launch {args.dispatch}, reservation {receipt}")
+        return 0
     if args.clear:
-        state = load_json(STATE, {}) or {}
-        (state.get("exhausted") or {}).pop(name, None)
-        save_json(STATE, state)
-        print(f"{name}: cleared, eligible again from now")
+        with state_lock():
+            state = load_json(STATE, {}) or {}
+            (state.get("exhausted") or {}).pop(name, None)
+            state.pop("probe_cache", None)
+            save_json(STATE, state)
+        print(f"{name}: cooldown cleared; fresh quota checks still apply")
         return 0
     if args.done:
         freed = release(name, args.id)
@@ -2188,15 +2226,63 @@ def cmd_report(args, config):
         return 0
     # A quota error: believe the provider's own reset time when the last
     # reading carries one, and fall back to a short cooldown when it does not.
-    until = now() + args.minutes * 60
-    probes = ((load_json(STATE, {}) or {}).get("probe_cache") or {}).get("probes") or {}
-    for bucket in (probes.get(name) or {}).get("buckets", []):
-        if bucket.get("resets_at") and bucket["resets_at"] > now():
-            until = bucket["resets_at"]
-            break
-    mark_exhausted(name, until)
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        until = now() + args.minutes * 60
+        probes = (state.get("probe_cache") or {}).get("probes") or {}
+        known = state.setdefault("quota_denials", {}).setdefault(name, {})
+        for bucket in denied_buckets(probes.get(name) or {}):
+            known[bucket["id"]] = bucket
+        resets = [b.get("resets_at") for b in known.values()]
+        if resets and all(t and t > now() for t in resets):
+            until = max(resets)
+        until = max(until, state.get("exhausted", {}).get(name, 0))
+        state.setdefault("exhausted", {})[name] = until
+        # Reusing the pre-error snapshot would undo the report at expiry.
+        state.pop("probe_cache", None)
+        save_json(STATE, state)
     print(f"{name}: marked exhausted, skipped until {human_reset(until)} from now")
     return 0
+
+
+def record_launch(config: dict, provider: str, model: str, task: str,
+                  dispatch: str, worktree: str | None = None, effort: str | None = None) -> str:
+    """Account for a launch that happened, never make another routing decision."""
+    bands = [int(band) for band, ladder in config["bands"].items()
+             for text in ladder if parse_candidate(text)["provider"] == provider
+             and parse_candidate(text)["model"] == model]
+    # An unlisted model has no measured tier; hold the conservative band.
+    band = max(bands, default=3)
+    with state_lock():
+        state = load_json(STATE, {}) or {}
+        entries = state.get("decisions") or []
+        existing = next((d for d in entries if d.get("dispatch") == dispatch), None)
+        if existing:
+            return existing["reservation"]
+        holds = sweep_reservations(state)
+        existing_hold = next((h for h in holds if h.get("dispatch") == dispatch), None)
+        if existing_hold:
+            return existing_hold["id"]
+        # Confirm an explicit pre-launch hold rather than charging it twice.
+        held = next((h for h in holds if not h.get("dispatch")
+                     and h["provider"] == provider and brief_key(h["task"]) == brief_key(task)
+                     and h.get("worktree") == (Path(worktree).name if worktree else None)), None)
+        if held is None:
+            held = {"id": uuid.uuid4().hex[:12], "provider": provider,
+                    "task": task[:80], "at": now()}
+            state["reservations"].append(held)
+        held.update(points=dispatch_cost(config, provider, band), band=band,
+                    worktree=Path(worktree).name if worktree else None,
+                    expires=now() + float(config.get("reservation_ttl_seconds", 1800)),
+                    dispatch=dispatch, model=model)
+        entries.append({"at": now(), "provider": provider, "model": model, "effort": effort,
+                        "band": band, "name": Path(worktree).name if worktree else None,
+                        "directory": worktree if worktree and Path(worktree).is_absolute() else None,
+                        "task": " ".join(task.split())[:120], "dispatched": True,
+                        "dispatch": dispatch, "reservation": held["id"], "observed_launch": True})
+        state["decisions"] = entries[-200:]
+        save_json(STATE, state)
+    return held["id"]
 
 
 def cmd_plan(args, config):
@@ -2556,7 +2642,8 @@ def opencode_sessions_since(epoch: float) -> list[dict]:
                max(s.tokens_input)                  AS tokens_in,
                max(s.tokens_output)                 AS tokens_out,
                max(s.tokens_cache_read)             AS cached,
-               max(s.cost)                          AS cost
+               max(s.cost)                          AS cost,
+               s.id, s.time_created / 1000.0
         FROM session s JOIN message m ON m.session_id = s.id
         -- Assistant rows only: a user turn carries no model, and a bare column
         -- beside max() takes its value from whichever row that max matched, so
@@ -2567,13 +2654,14 @@ def opencode_sessions_since(epoch: float) -> list[dict]:
         GROUP BY s.id, model
     """
     try:
-        with sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=5) as db:
+        with contextlib.closing(sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=5)) as db:
             rows = db.execute(query, (int(epoch * 1000),)).fetchall()
     except sqlite3.Error:
         return []
     return [{"directory": r[0] or "", "model": r[1], "provider": r[2], "messages": r[3],
              "last_at": r[4], "tokens_in": r[5] or 0, "tokens_out": r[6] or 0,
-             "cached": r[7] or 0, "cost": r[8] or 0.0} for r in rows if r[1]]
+             "cached": r[7] or 0, "cost": r[8] or 0.0,
+             "session_id": r[9], "started_at": r[10]} for r in rows if r[1]]
 
 
 def audit(config: dict, days: float = 7.0) -> dict:
@@ -2587,22 +2675,26 @@ def audit(config: dict, days: float = 7.0) -> dict:
     # all: audit knew which model ran, never whether it got anywhere.
     settled, _ = orca_settled()
     outcomes = {w["worktree"]: w["state"] for w in settled if w.get("worktree")}
+    by_dispatch = {w["dispatch"]: w for w in settled if w.get("dispatch")}
     # The brief is the key both sides share; the worktree name is only the one
     # rightsize suggested.
     by_brief = orca_task_index()
-    rows = []
+    rows, matched_sessions = [], set()
     for decision in decisions:
         if decision["provider"] not in OPENCODE_LAUNCHED:
             # The model cannot be confirmed for these, because only opencode
             # keeps a local record of what it ran. The outcome still can, and
             # for band 3 work that is the half worth knowing.
-            matched = by_brief.get(brief_key(decision.get("task") or ""))
-            outcome = (matched or {}).get("state") or outcomes.get(decision.get("name") or "")
+            matched = (by_dispatch.get(decision.get("dispatch")) if decision.get("dispatch")
+                       else by_brief.get(brief_key(decision.get("task") or "")))
+            outcome = (matched or {}).get("state")
+            if not decision.get("dispatch"):
+                outcome = outcome or outcomes.get(decision.get("name") or "")
             if not outcome and (matched or {}).get("status") in ("completed", "failed"):
                 outcome = "succeeded" if matched["status"] == "completed" else "failed"
             if outcome in ("failed", "stopped", "abandoned", "timed_out", "cancelled"):
-                rows.append({**decision, "verdict": "obeyed but " + outcome, "outcome": outcome,
-                             "ran_model": decision["model"], "messages": 0})
+                rows.append({**decision, "verdict": "worker " + outcome, "outcome": outcome,
+                             "why": "worker outcome known; model execution not verified"})
             elif outcome == "succeeded":
                 rows.append({**decision, "verdict": "finished", "outcome": outcome,
                              "why": f"{decision['provider']} keeps no local record of the model,"
@@ -2615,28 +2707,43 @@ def audit(config: dict, days: float = 7.0) -> dict:
         # The worktree rightsize suggested, or the one the coordinator actually
         # used, found by the brief they share.
         name = decision.get("name") or ""
-        actual = (by_brief.get(brief_key(decision.get("task") or "")) or {}).get("worktree")
+        bound = by_dispatch.get(decision.get("dispatch")) or {}
+        actual = bound.get("worktree") or (by_brief.get(brief_key(decision.get("task") or "")) or {}).get("worktree")
         wanted = {n for n in (name, actual) if n}
         found = [x for x in sessions
-                 if Path(x["directory"]).name in wanted and x["last_at"] >= decision["at"] - 300]
+                 if (x["directory"] == decision.get("directory") if decision.get("directory")
+                     else Path(x["directory"]).name in wanted)
+                 and decision["at"] - 300 <= x["started_at"] <= decision["at"] + 600]
         if not found:
             if not decision.get("dispatched"):
-                rows.append({**decision, "verdict": "not dispatched",
-                             "why": "routed to read the numbers, never launched"})
+                rows.append({**decision, "verdict": "unknown dispatch",
+                             "why": "no launch receipt or matching session; launch status is unknown"})
             else:
                 rows.append({**decision, "verdict": "no session",
-                             "why": "a dispatch was reserved for this and nothing ran under"
-                                    " either worktree name"})
+                             "why": "a launch/hold was recorded but no session could be matched"})
             continue
-        ran = max(found, key=lambda x: x["messages"])
-        outcome = outcomes.get(name)
-        verdict = "ran as picked" if ran["model"] == decision["model"] else "mismatch"
+        if len(found) != 1:
+            rows.append({**decision, "verdict": "ambiguous session",
+                         "why": "multiple sessions/models match; cannot attribute this attempt"})
+            continue
+        ran = found[0]
+        matched_sessions.add((ran["session_id"], ran["model"]))
+        outcome = bound.get("state") or outcomes.get(actual or name)
+        verdict = "mismatch"
+        expected_provider = (config.get("model_prefixes", {}).get(decision["provider"]) or "").rstrip("/")
+        if ran["model"] == decision["model"] and ran["provider"] == expected_provider:
+            verdict = "model verified" if decision.get("observed_launch") else "ran as picked"
+        why = None
+        if ran["tokens_out"] == 0:
+            verdict = "zero output"
+            why = "session exists but has no recorded output tokens; completion is unproven"
         if verdict == "ran as picked" and outcome in ("failed", "stopped", "abandoned",
                                                       "timed_out", "cancelled"):
             verdict = "obeyed but " + outcome
         rows.append({**decision, "verdict": verdict, "ran_model": ran["model"],
                      "messages": ran["messages"], "directory": ran["directory"],
-                     "outcome": outcome})
+                     "session_id": ran["session_id"], "outcome": outcome,
+                     "why": why or f"session model {ran['model']} verified"})
     counts = {}
     for row in rows:
         counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
@@ -2652,7 +2759,10 @@ def audit(config: dict, days: float = 7.0) -> dict:
                   and now() - x["last_at"] < 900]
         if not active:
             stale.append(held)
+    untracked = [{**s, "verdict": "zero output" if s["tokens_out"] == 0 else "untracked session"}
+                 for s in sessions if (s["session_id"], s["model"]) not in matched_sessions]
     return {"decisions": rows, "counts": counts, "sessions_seen": len(sessions),
+            "untracked_sessions": untracked,
             "held": [{"provider": h["provider"], "points": h["points"], "age": now() - h["at"],
                       "worktree": h.get("worktree"), "task": h["task"]} for h in stale]}
 
@@ -2665,7 +2775,8 @@ def cmd_audit(args, config):
     if not result["decisions"]:
         print(f"no decisions recorded in the last {args.days:g} days."
               " Routing records one per dispatch; this fills as you use it.")
-        return 0
+        if not result["untracked_sessions"]:
+            return 0
     order = {"mismatch": 0, "no session": 1, "ran as picked": 2, "finished": 3,
              "not checkable": 4, "not dispatched": 5}
     for row in sorted(result["decisions"],
@@ -2690,6 +2801,9 @@ def cmd_audit(args, config):
             print(f"               {row['why']}")
     print()
     print("  ".join(f"{count} {verdict}" for verdict, count in sorted(result["counts"].items())))
+    for session in result["untracked_sessions"]:
+        print(f"{session['verdict']:<18} {session['directory']} {session['model']}"
+              f" session={session['session_id']} output={session['tokens_out']}")
     for held in result["held"]:
         print(f"held           {held['provider']} {held['points']} points for"
               f" {human_age(held['age'])}, nothing running in {held['worktree'] or 'any worktree'}:"
@@ -2829,6 +2943,12 @@ def main(argv=None):
     report.add_argument("--from-orca", action="store_true",
                         help="ask Orca which workers have settled and release their capacity")
     report.add_argument("--run", help="limit --from-orca to one Run id")
+    report.add_argument("--started", action="store_true", help="record the actual successful launch without routing again")
+    report.add_argument("--model", help="model actually launched")
+    report.add_argument("--effort", help="effort actually launched")
+    report.add_argument("--task", help="launched task brief")
+    report.add_argument("--dispatch", help="orchestrator dispatch id or stable tool-call id")
+    report.add_argument("--worktree", help="actual worktree path or name")
     report.add_argument("--quota-error", action="store_true", default=True,
                         help="the worker failed on quota (default)")
     report.add_argument("--free-request", action="store_true",

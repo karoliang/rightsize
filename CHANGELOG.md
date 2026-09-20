@@ -5,6 +5,19 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ## Unreleased
 
+### Fixed (2026-09-21)
+
+- Explicit quota denials veto every model band and survive missing refreshes
+  until a healthy live reading. Quota-error cooldowns follow denied windows,
+  not response order, and discard pre-error cached readings (#2, #5).
+- The Claude hook recognizes worker-start after multiline launcher setup and
+  preserves quoted briefs. Successful launches record their actual provider,
+  model and dispatch receipt without a second routing decision (#3, #4).
+- Audit reports unknown/ambiguous evidence and zero-output/untracked sessions
+  rather than claiming missing receipts prove nothing launched (#6).
+- Added offline reliability regressions to CI and the architecture-planning
+  backlog (#1, #7-#12). No gateway, credential migration or skill loader shipped.
+
 ### Added
 
 - `rightsize report <provider>` closes the loop rule 5 always described: a

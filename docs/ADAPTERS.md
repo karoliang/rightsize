@@ -241,3 +241,26 @@ band and sort last, since they cost nothing and are usually slower.
 Add a case to `test_rightsize.py` with a synthetic probe for the new provider.
 The tests run offline and spend nothing; a provider without one is a provider
 nobody can refactor safely.
+
+## Successful launch receipts
+
+After a successful launch, adapters call `report <provider> --started --model
+<actual-model> --task <brief> --dispatch <dispatch-id> --worktree <actual-path>`.
+`--effort` is optional. This is accounting for an observed launch, not a second
+routing request. The receipt books the actual provider even if it has become
+full since planning, because the worker already exists. A retained dispatch ID
+is idempotent. Confirmed holds release by dispatch ID; legacy holds still use
+the brief. Tool-call IDs without an Orca dispatch ID require explicit release
+or expire under the existing TTL.
+
+The shipped Claude Bash hook prioritizes worker-start over preceding setup
+commands and reads the explicit OpenCode terminal model in the same command.
+For separately executed terminal setup, a bare attached-terminal launch without
+model evidence is reported as unbooked rather than charged to a guessed provider.
+Such adapters should send the explicit receipt above. Launch receipts and quota
+checks do not implement a mandatory cross-client admission gate.
+
+Audit includes `session_id`, `started_at`, `untracked_sessions` and honest
+`unknown dispatch`, `ambiguous session`, `zero output` verdicts. Recorded actual
+worktree paths and dispatch IDs take precedence over suggested names. Temporal
+name/path matching remains evidence with limits, not an immutable session join.

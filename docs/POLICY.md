@@ -366,7 +366,7 @@ path, so it cannot see a worker die. The caller that does see it reports back:
 rightsize report opencode --quota-error
 ```
 
-That marks the provider exhausted until its binding bucket's known reset (or a
+That marks the provider exhausted until the latest known denied bucket reset (or a
 `--minutes` cooldown when the provider publishes no reset time), so the next
 route picks the next eligible candidate instead. `--clear` lifts it early.
 
@@ -406,3 +406,17 @@ Two fixture labels turned out to be wrong rather than the model, and were
 deleted rather than argued with. That is the expected outcome often enough to be
 worth saying out loud: a disagreement between a question and a fixture is not
 automatically the question's fault.
+
+## Explicit quota denial (2026-09-21)
+
+A bucket reporting `rate-limited`, `exhausted`, `quota-exceeded`, or measured
+usage of at least 100% vetoes every band. It must never become merely unknown
+headroom because its numeric percentage is absent. Persist the denial across
+failed/missing refreshes; remove it only when a fresh live reading shows that
+window healthy. Other healthy buckets and older snapshots cannot override it.
+
+A quota-error report considers only denied buckets when selecting a reset,
+waiting for the latest if several bind. If a denied window lacks a future reset,
+use the bounded caller cooldown and re-probe, not the first healthy reset in the
+response. Reports invalidate cached telemetry. This repairs eligibility;
+mandatory launch admission across clients remains an architecture decision.

@@ -25,6 +25,7 @@ Codex while it had eighty-five points free.
 
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -46,10 +47,7 @@ LAUNCH = re.compile(
 # Commands whose arguments are text about other commands, never a launch.
 QUOTING = {"echo", "printf", "cat", "grep", "rg", "sed", "awk", "jq", "diff", "head", "tail",
            "less", "python", "python3", "node", "git", "tee", "rightsize"}
-SEPARATORS = re.compile(r"[\n;&|]+")
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?")
-# The task text, in the spellings the launchers use.
-SPEC = re.compile(r"--(?:spec|prompt|task|message)[= ]+(\"[^\"]*\"|'[^']*'|\S+)")
 CAT = re.compile(r"\$\(\s*cat\s+([^)]+?)\s*\)")
 # A worker can be started from a task id instead of a brief, which is how a
 # dependency graph dispatches. The brief still exists; it is in the task.
@@ -79,7 +77,8 @@ def strip_heredocs(command: str) -> str:
 
 def launch_segment(command: str) -> str | None:
     """The part of the command line that actually starts a worker, if any."""
-    for segment in SEPARATORS.split(strip_heredocs(command)):
+    candidates = []
+    for segment in command_segments(command):
         segment = segment.strip()
         if not segment:
             continue
@@ -87,8 +86,32 @@ def launch_segment(command: str) -> str | None:
         if first in QUOTING:
             continue
         if LAUNCH.match(segment):
-            return segment
-    return None
+            candidates.append(segment)
+    # Setup commands in the shipped multiline launcher have no task brief.
+    return next((s for s in candidates if re.match(
+        r"^(?:[\w./-]*/)?orca\s+orchestration\s+worker-start\b", s)),
+        candidates[0] if candidates else None)
+
+
+def command_segments(command: str) -> list[str]:
+    """Split shell operators without treating quoted task text as commands."""
+    lexer = shlex.shlex(strip_heredocs(command), posix=True, punctuation_chars=";&|\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    segments, tokens = [], []
+    try:
+        for token in lexer:
+            if token and all(c in ";&|\n" for c in token):
+                if tokens:
+                    segments.append(shlex.join(tokens))
+                    tokens = []
+            else:
+                tokens.append(token)
+    except ValueError:
+        return []
+    if tokens:
+        segments.append(shlex.join(tokens))
+    return segments
 
 
 def spec_from_task(command: str) -> str | None:
@@ -109,10 +132,9 @@ def spec_from_task(command: str) -> str | None:
 
 
 def spec_text(command: str) -> str | None:
-    match = SPEC.search(command)
-    if not match:
+    value = flag_value(shlex.split(command), "--spec", "--prompt", "--task", "--message")
+    if not value:
         return spec_from_task(command)
-    value = match.group(1).strip("\"'")
     # `--task task_abc` names the brief rather than carrying it.
     if re.fullmatch(r"task_[A-Za-z0-9]+", value):
         return spec_from_task(command)
@@ -123,6 +145,16 @@ def spec_text(command: str) -> str | None:
         except OSError:
             return None
     return value if usable_brief(value) else None
+
+
+def flag_value(tokens: list[str], *names: str) -> str | None:
+    for i, token in enumerate(tokens):
+        for name in names:
+            if token == name and i + 1 < len(tokens):
+                return tokens[i + 1]
+            if token.startswith(name + "="):
+                return token[len(name) + 1:]
+    return None
 
 
 def usable_brief(value: str) -> bool:
@@ -138,7 +170,66 @@ def usable_brief(value: str) -> bool:
     return not (text.startswith("<") and text.endswith(">"))
 
 
-def reserve_for(spec: str) -> None:
+def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
+    """Read launch arguments and the receipt, not a fresh routing prediction."""
+    response = event.get("tool_response") or {}
+    if not isinstance(response, dict):
+        return None
+    if (response.get("success") is False or response.get("is_error") is True
+            or response.get("exit_code", response.get("exitCode", 0)) != 0):
+        return None
+    payload = response
+    if response.get("stdout"):
+        try:
+            payload = json.loads(response["stdout"])
+        except (ValueError, TypeError):
+            pass
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        return None
+    args = shlex.split(segment)
+
+    agent, model = flag_value(args, "--agent"), flag_value(args, "--model", "-m")
+    if Path(args[0]).name in ("codex", "claude", "opencode"):
+        agent = Path(args[0]).name
+    # The OpenCode launcher binds the model in terminal create, not worker-start.
+    if not model:
+        for setup in command_segments(command):
+            tokens = shlex.split(setup)
+            # Assignment prefix is present in the shipped HANDLE=$(orca ...) form.
+            if not tokens or not re.fullmatch(r"(?:\w+=\$\()?orca", tokens[0]):
+                continue
+            if tokens[1:3] != ["terminal", "create"]:
+                continue
+            nested = flag_value(tokens, "--command")
+            if nested:
+                inner = shlex.split(nested)
+                if inner and Path(inner[0]).name == "opencode":
+                    agent, model = "opencode", flag_value(inner, "--model", "-m")
+    if not agent or not model:
+        return None  # No default model guess can establish what actually ran.
+    provider = agent
+    if agent == "opencode":
+        prefix, separator, model = model.partition("/")
+        provider = {"opencode-go": "opencode", "opencode": "opencode_zen",
+                    "openrouter": "openrouter"}.get(prefix)
+        if not separator or not provider:
+            return None
+    result = (payload.get("result") or {}) if isinstance(payload, dict) else {}
+    worker = result.get("worker") or result
+    dispatch = worker.get("dispatchId") or worker.get("dispatch_id") or event.get("tool_use_id")
+    if not dispatch:
+        return None
+    resource = worker.get("resource") or {}
+    worktree = resource.get("worktreeId") or flag_value(args, "--name") or flag_value(args, "--worktree")
+    if worktree:
+        worktree = worktree.split("::")[-1].removeprefix("name:")
+        if worktree in ("current", "new-child"):
+            worktree = None
+    return dict(provider=provider, model=model, dispatch=dispatch, worktree=worktree,
+                effort=flag_value(args, "--effort"))
+
+
+def reserve_for(spec: str, receipt: dict) -> None:
     """Book the capacity, after the launch has actually happened.
 
     Reserving before the command runs books work that may never start: a
@@ -146,7 +237,12 @@ def reserve_for(spec: str) -> None:
     once filled Codex's in-flight limit while it had eighty-five points free.
     """
     try:
-        subprocess.run([str(RIGHTSIZE), "route", "--task", spec, "--json", "--reserve"],
+        argv = [str(RIGHTSIZE), "report", receipt["provider"], "--started",
+                "--model", receipt["model"], "--task", spec, "--dispatch", receipt["dispatch"]]
+        for name in ("worktree", "effort"):
+            if receipt.get(name):
+                argv += ["--" + name, receipt[name]]
+        subprocess.run(argv,
                        capture_output=True, text=True, timeout=TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         pass
@@ -203,11 +299,12 @@ def main() -> int:
         return 0
 
     if event.get("hook_event_name") == "PostToolUse":
-        # The launch has run. Book it, unless it plainly failed.
-        response = event.get("tool_response") or {}
-        failed = response.get("success") is False or response.get("is_error") is True
-        if not failed:
-            reserve_for(spec)
+        receipt = launch_receipt(command, segment, event)
+        if receipt:
+            reserve_for(spec, receipt)
+        else:
+            print("rightsize: launch not booked; failed or missing provider/model/receipt evidence",
+                  file=sys.stderr)
         print("{}")
         return 0
 

@@ -38,6 +38,8 @@ These are the constraints, not preferences:
 
 ```bash
 python3 test_rightsize.py    # the policy, offline, no network, no tokens
+python3 test_reliability.py  # quota, launcher, receipt and audit regressions
+python3 hooks/test_hook.py   # hook matching
 ./eval_questions.py          # the judgments, needs TYPESAFE_API_KEY, costs ~a cent
 python3 -m compileall -q .   # syntax over every file
 ```
