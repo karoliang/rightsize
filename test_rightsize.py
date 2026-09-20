@@ -494,6 +494,27 @@ def main():
     assert ar.bucket_window("primary-10080m") == 10080 * 60
     assert ar.bucket_window("key-credit") is None, "a credit balance has no window to divide"
 
+    # Releasing on the orchestrator's word, not a person's memory. The brief is
+    # the key that survives the coordinator naming the worktree something else.
+    ar.save_json(ar.STATE, {})
+    kept_id = ar.reserve("opencode", 0.5, 1, "still running: add pagination", 1800, "pag-1")
+    ar.reserve("codex", 1.2, 2, "Finished: rename getUser across the repo", 1800, "renamed-elsewhere")
+    ar.reserve("claude", 6.0, 3, "also finished, matched by worktree", 1800, "wt-done")
+    settled = lambda run=None: ([{"dispatch": "ctx_1", "state": "succeeded", "worktree": "wt-done"}], None)
+    tasks = lambda run=None: {ar.brief_key("Finished: rename getUser across the repo")}
+    original = ar.orca_settled, ar.orca_settled_tasks
+    ar.orca_settled, ar.orca_settled_tasks = settled, tasks
+    try:
+        result = ar.release_settled()
+    finally:
+        ar.orca_settled, ar.orca_settled_tasks = original
+    freed = {r["provider"]: r["matched"] for r in result["released"]}
+    assert freed == {"codex": "brief", "claude": "worktree"}, result["released"]
+    assert [k["id"] for k in result["kept"]] == [kept_id], result["kept"]
+    assert ar.reservation_load("opencode")[1] == 1, "the running worker keeps its capacity"
+    assert ar.reservation_load("codex")[1] == 0 and ar.reservation_load("claude")[1] == 0
+    ar.save_json(ar.STATE, {})
+
     print("all checks passed")
 
 

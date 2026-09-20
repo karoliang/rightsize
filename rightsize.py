@@ -705,6 +705,94 @@ def release(name: str, reservation_id: str | None = None) -> int:
     return 1
 
 
+SETTLED = {"succeeded", "failed", "stopped", "abandoned", "timed_out", "cancelled"}
+
+
+def orca_settled(run: str | None = None) -> tuple[list[dict], str | None]:
+    """Workers the orchestrator considers finished, with their worktree.
+
+    The orchestrator already knows when a worker is done; it says so in a
+    worker_done message and in its own worker list. Asking it is better than
+    asking a person to remember, because today's evidence is that nobody
+    remembers: seven reservations were holding capacity with every one of their
+    workers already settled.
+    """
+    try:
+        result = subprocess.run(["orca", "orchestration", "worker-list", "--json"],
+                                capture_output=True, text=True, timeout=30)
+        payload = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return [], f"could not ask orca: {exc}"
+    if not payload.get("ok"):
+        return [], f"orca refused: {json.dumps(payload.get('error'))[:120]}"
+    out = []
+    for worker in (payload.get("result") or {}).get("workers") or []:
+        if run and worker.get("runId") != run:
+            continue
+        if worker.get("workerState") not in SETTLED:
+            continue
+        worktree = ((worker.get("resource") or {}).get("worktreeId") or "").split("::")[-1]
+        out.append({"dispatch": worker.get("dispatchId"), "state": worker.get("workerState"),
+                    "worktree": Path(worktree).name if worktree else None})
+    return out, None
+
+
+def brief_key(text: str) -> str:
+    """A stable key for one task's text, for matching across tools."""
+    return " ".join((text or "").split())[:80].lower()
+
+
+def orca_settled_tasks(run: str | None = None) -> set[str]:
+    """Briefs the orchestrator says are finished.
+
+    The worktree name is a weaker key than it looks: rightsize suggests one, and
+    the coordinator is free to use another. The brief itself is the thing both
+    sides genuinely share.
+    """
+    argv = ["orca", "orchestration", "task-list", "--json"]
+    if run:
+        argv += ["--run", run]
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        payload = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return set()
+    if not payload.get("ok"):
+        return set()
+    done = set()
+    for task in (payload.get("result") or {}).get("tasks") or []:
+        if (task.get("status") or "").lower() in ("completed", "failed", "cancelled", "abandoned"):
+            done.add(brief_key(task.get("spec") or ""))
+    return done
+
+
+def release_settled(run: str | None = None) -> dict:
+    """Give back the capacity held for workers that have finished.
+
+    Two keys, because either alone misses cases: the brief, which both sides
+    share whatever the worktree ended up being called, and the worktree name,
+    which catches a worker whose task record has already been cleared.
+    """
+    settled, error = orca_settled(run)
+    if error:
+        return {"error": error, "released": [], "kept": []}
+    finished_worktrees = {w["worktree"] for w in settled if w["worktree"]}
+    finished_briefs = orca_settled_tasks(run)
+    state = load_json(STATE, {}) or {}
+    released, kept = [], []
+    for held in list(sweep_reservations(state)):
+        worktree = held.get("worktree")
+        by_brief = brief_key(held.get("task") or "") in finished_briefs
+        by_worktree = bool(worktree) and worktree in finished_worktrees
+        if by_brief or by_worktree:
+            release(held["provider"], held["id"])
+            released.append({**held, "matched": "brief" if by_brief else "worktree"})
+        else:
+            kept.append(held)
+    return {"released": released, "kept": kept, "settled": len(settled),
+            "briefs": len(finished_briefs), "error": None}
+
+
 def dispatch_cost(config: dict, provider: str, band: int) -> float:
     """What one dispatch is expected to cost, in percentage points.
 
@@ -1634,7 +1722,28 @@ def cmd_report(args, config):
     caller that does see it reports here, and the next route skips that
     provider until its bucket is known to have reset.
     """
+    if args.from_orca:
+        result = release_settled(args.run)
+        if result["error"]:
+            print(result["error"], file=sys.stderr)
+            return 1
+        for held in result["released"]:
+            print(f"{held['provider']}: released {held['points']} points held for"
+                  f" {held.get('worktree') or brief_key(held['task'])},"
+                  f" settled (matched by {held['matched']})")
+        for held in result["kept"]:
+            why = ("no settled task or worktree matches it; it expires on its own"
+                   if not held.get("worktree") else "its worker is still running")
+            print(f"{held['provider']}: keeping {held['points']} points for"
+                  f" {held.get('worktree') or held['task'][:40]}, {why}")
+        if not result["released"] and not result["kept"]:
+            print(f"nothing in flight; {result['settled']} settled workers seen")
+        return 0
     name = args.provider
+    if not name:
+        print("give a provider, or --from-orca to release everything that has settled",
+              file=sys.stderr)
+        return 2
     if name not in config.get("reserves", {}) and name not in config.get("free_providers", []):
         print(f"unknown provider {name!r}", file=sys.stderr)
         return 2
@@ -2175,7 +2284,10 @@ def main(argv=None):
     models.set_defaults(func=cmd_models)
 
     report = sub.add_parser("report", help="report a dispatch outcome back to the router")
-    report.add_argument("provider", help="the provider the worker ran on")
+    report.add_argument("provider", nargs="?", help="the provider the worker ran on")
+    report.add_argument("--from-orca", action="store_true",
+                        help="ask Orca which workers have settled and release their capacity")
+    report.add_argument("--run", help="limit --from-orca to one Run id")
     report.add_argument("--quota-error", action="store_true", default=True,
                         help="the worker failed on quota (default)")
     report.add_argument("--free-request", action="store_true",
