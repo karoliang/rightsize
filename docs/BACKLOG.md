@@ -47,3 +47,23 @@ Offline proof: `python3 test_rightsize.py`, `python3 hooks/test_hook.py`, and
 - Planning ends with an accepted architecture and prioritized implementation
   slices. A rewrite, proxy, new credential store or live migration is not
   automatically authorized by a planning issue.
+
+## Selected architecture and implementation slices (2026-09-21)
+
+The planning deliverables are complete in [ADR0001](decisions/0001-local-task-router.md)
+and [docs/planning](planning/). Direction: local task/model routing through native
+coding runtimes, caller-supplied task judgment, account-aware admission and exact
+outcome records. No universal API proxy or full agent rewrite selected.
+
+| Ticket | Next deliverable | Dependency |
+| --- | --- | --- |
+| [#13](https://github.com/karoliang/rightsize/issues/13) | Caller judgment for single-task route, without another judge call | Independent first slice |
+| [#14](https://github.com/karoliang/rightsize/issues/14) | Native account discovery, real probe deadlines and scoped credential references | Credential contract |
+| [#15](https://github.com/karoliang/rightsize/issues/15) | Bounded skill/knowledge context manifests | #13 |
+| [#16](https://github.com/karoliang/rightsize/issues/16) | Atomic account-aware admission and launch leases | #13, #14 |
+| [#17](https://github.com/karoliang/rightsize/issues/17) | Native session adapters, cancellation and outcome reconciliation | #14, #16 |
+| [#18](https://github.com/karoliang/rightsize/issues/18) | Offline replay and side-effect-free shadow comparison | Fixtures can start now; promotion uses #15-#17 |
+| [#19](https://github.com/karoliang/rightsize/issues/19) | Versioned state migration, pilot and rollback | #14, #16-#18 |
+
+Current slice implements #13 only. #14 is next. GitHub remains the source of
+truth for open/closed state; planning closure does not imply these features ship.
