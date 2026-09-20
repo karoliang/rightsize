@@ -70,6 +70,18 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Fixed
 
+- OpenRouter's free-tier counter was kept locally and guessed from config, while
+  OpenRouter publishes it: `free_model_daily_requests` on `/api/v1/key` gives
+  used, limit and remaining. A local tally only ever saw the dispatches it was
+  told about. Credit now reads the key's own spend limit when it has one, and
+  falls back to the account balance from `/api/v1/credits`. `probe` prints the
+  real units (requests left, USD left) instead of only a percentage.
+- OpenRouter is no longer on a worker ladder. Its free models answer a direct
+  API call but return `413 Request too large` when dispatched through the
+  `opencode` CLI, because an agent sends a system prompt and tool definitions.
+  It is still probed, and the config says what would have to change to put it
+  back.
+
 - Band 1 and the review ladder named `openrouter:deepseek/deepseek-chat-v3.1:free`,
   which does not exist in OpenRouter's 447-model catalogue. Routing picked it
   constantly, since its daily bucket resets soonest, so every OpenRouter

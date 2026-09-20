@@ -21,7 +21,6 @@
       "opencode:deepseek-v4.1-flash",
       "opencode:qwen3.8-flash",
       "opencode:glm-5.3-flash",
-      "openrouter:deepseek/deepseek-v4-flash-0731:free",
       "codex:gpt-5.6-luna:low",
       "opencode_zen:nemotron-3-ultra-free",
       "opencode_zen:mimo-v2.5-free"
@@ -43,7 +42,6 @@
   "review_ladder": [
     "codex:gpt-5.6-luna:low",
     "opencode:kimi-k2.6",
-    "openrouter:deepseek/deepseek-v4-flash-0731:free",
     "opencode_zen:nemotron-3-ultra-free",
     "claude:claude-haiku-4-5"
   ],
@@ -118,5 +116,6 @@
       "2": "medium",
       "3": "high"
     }
-  }
+  },
+  "_comment_openrouter": "OpenRouter is probed but deliberately not on a worker ladder. Verified 2026-09-20: its free models answer a direct API call, but dispatching one through the opencode CLI fails with 413 Request too large, because an agent sends a system prompt and tool definitions that the free endpoint will not accept. Put it back on a ladder once either a paid model is laddered (the key here carries its own 0.01 USD spend limit, so raise that first at openrouter.ai/settings/keys) or a launcher exists that dispatches with a small payload."
 }

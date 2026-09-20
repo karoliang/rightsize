@@ -107,9 +107,10 @@ def main():
     # Spend the bucket that expires first: with both eligible, the provider
     # whose bucket resets sooner is preferred even though it is later in the
     # configured order.
-    soon = {"openrouter": time.time() + 2 * HOUR, "opencode": time.time() + 40 * HOUR}
-    decision = route_with(judged("implementation"), probes(openrouter=5, resets=soon))
-    assert decision["pick"]["provider"] == "openrouter", decision["pick"]
+    soon = {"codex": time.time() + 2 * HOUR, "opencode": time.time() + 40 * HOUR}
+    decision = route_with(judged("implementation"), probes(codex=5, resets=soon))
+    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    assert any("resets in" in note for note in decision["notes"]), decision["notes"]
 
     # An irreversible task is flagged for a human, never silently dispatched.
     decision = route_with(judged("high_stakes", destructive=0.9), probes())
@@ -225,7 +226,7 @@ def main():
     ar.judge = lambda spec: judged("implementation")
     try:
         result = ar.plan([f"task {i}" for i in range(60)], CONFIG, concurrency=4,
-                         probes=probes(openrouter=0))
+                         probes=probes(codex=5))
     finally:
         ar.judge = original
     assert len(result["spread"]) > 1, result["spread"]

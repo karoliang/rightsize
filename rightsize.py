@@ -40,6 +40,7 @@ OPENCODE_GO_MODELS = "https://opencode.ai/zen/go/v1/models"
 OPENCODE_ZEN_MODELS = "https://opencode.ai/zen/v1/models"
 MODELS_DEV = "https://models.opencode.ai/api.json"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 CODEX_SESSIONS = HOME / ".codex/sessions"
 CODEX_MODELS = HOME / ".codex/models_cache.json"
@@ -330,29 +331,62 @@ def probe_openrouter(config: dict) -> dict:
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return {"name": "openrouter", "status": f"error: {exc}", "buckets": []}
     buckets = []
+    # Spend. A key can carry its own limit, which is the binding one when set;
+    # otherwise the account's credit balance is the ceiling.
     limit = data.get("limit")
     if limit:
         used = data.get("usage") or 0
-        buckets.append(
-            {
-                "id": "credit",
-                "percent": round(100.0 * used / limit, 1),
+        buckets.append({
+            "id": "key-credit",
+            "percent": round(100.0 * used / limit, 1),
+            "resets_at": iso_to_epoch(data.get("limit_reset")) if data.get("limit_reset") else None,
+            "source": "live",
+            "limit_usd": limit,
+            "remaining_usd": data.get("limit_remaining"),
+        })
+    else:
+        try:
+            credits = (get(OPENROUTER_CREDITS, key) or {}).get("data") or {}
+        except (urllib.error.URLError, OSError, ValueError):
+            credits = {}
+        total = credits.get("total_credits")
+        if total:
+            spent = credits.get("total_usage") or 0
+            buckets.append({
+                "id": "account-credit",
+                "percent": round(100.0 * spent / total, 1),
                 "resets_at": None,
                 "source": "live",
-            }
-        )
-    cap = (config.get("openrouter") or {}).get("free_requests_per_day") or 1000
-    used_today, resets_at = free_requests_today()
-    buckets.append(
-        {
+                "limit_usd": total,
+                "remaining_usd": round(total - spent, 4),
+            })
+
+    # Free-model requests. OpenRouter publishes this counter, so read it rather
+    # than keeping a local tally: a local count only ever sees the dispatches it
+    # was told about, and misses everything else using the same key.
+    free = data.get("free_model_daily_requests") or {}
+    _, resets_at = free_requests_today()
+    if free.get("limit"):
+        buckets.append({
+            "id": "free-requests-day",
+            "percent": round(100.0 * (free.get("used") or 0) / free["limit"], 1),
+            "resets_at": resets_at,
+            "source": "live",
+            "requests_used": free.get("used"),
+            "requests_cap": free["limit"],
+            "requests_left": free.get("remaining"),
+        })
+    else:
+        cap = (config.get("openrouter") or {}).get("free_requests_per_day") or 1000
+        used_today, _ = free_requests_today()
+        buckets.append({
             "id": "free-requests-day",
             "percent": round(100.0 * used_today / cap, 1),
             "resets_at": resets_at,
             "source": "local-count",
             "requests_used": used_today,
             "requests_cap": cap,
-        }
-    )
+        })
     return {"name": "openrouter", "status": "ok", "buckets": buckets}
 
 
@@ -1296,8 +1330,14 @@ def cmd_probe(args, config):
         print(f"{name:<11} {mark:<8} usable {usable:<9} binding {info['bucket'] or '-':<18} resets {human_reset(info['resets_at'])}")
         for bucket in info["buckets"]:
             percent = "-" if bucket["percent"] is None else f"{bucket['percent']}%"
-            extra = bucket.get("tokens_used")
-            extra = f" ({extra:,} tokens)" if extra else ""
+            if bucket.get("tokens_used"):
+                extra = f" ({bucket['tokens_used']:,} tokens)"
+            elif bucket.get("requests_left") is not None:
+                extra = f" ({bucket['requests_left']} of {bucket['requests_cap']} requests left today)"
+            elif bucket.get("remaining_usd") is not None:
+                extra = f" ({bucket['remaining_usd']} of {bucket['limit_usd']} USD left)"
+            else:
+                extra = ""
             print(f"    {bucket['id']:<20} used {percent:<7} {bucket['source']}{extra}")
         if info.get("inflight"):
             print(f"    in flight            {info['inflight']} dispatches holding "

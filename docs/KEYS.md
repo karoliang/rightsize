@@ -59,6 +59,25 @@ opencode auth list           # opencode-go and opencode should both appear
 rightsize probe              # opencode must not say no-credential
 ```
 
+What the subscription publishes is percentages, nothing more:
+
+```bash
+curl -s -H "Authorization: Bearer $OPENCODE_API_KEY" https://opencode.ai/zen/go/v1/usage
+```
+
+```json
+{"usage": {
+  "rolling": {"status": "ok", "percent": 13, "resetsAt": "2026-09-20T05:54:11.460Z"},
+  "weekly":  {"status": "ok", "percent": 76, "resetsAt": "2026-09-21T00:00:00.000Z"},
+  "monthly": {"status": "ok", "percent": 38, "resetsAt": "2026-10-17T03:24:16.000Z"}}}
+```
+
+There are no token counts, no request counts and no dollar figures, so
+"remaining" for OpenCode can only ever mean percentage points on the binding
+bucket. That is why the whole policy is expressed in percentage points, and why
+`dispatch_cost` has to be an estimate in the same unit: the provider gives
+nothing finer to divide.
+
 `auth.json` holds one entry per provider (`opencode-go` for the subscription,
 `opencode` for Zen). rightsize reads them only when `OPENCODE_API_KEY` /
 `OPENCODE_ZEN_API_KEY` are unset, so an explicit environment variable always
@@ -77,14 +96,43 @@ endpoint.
 2. Export it as `OPENROUTER_API_KEY`.
 
 The free tier is **50 requests a day**, or **1000 a day** once the account has
-bought at least 10 USD of credit at any point. Set the number you actually have
-in `config.json` under `openrouter.free_requests_per_day`; OpenRouter does not
-publish a counter for it, so rightsize counts locally and only sees the requests
-it is told about:
+bought at least 10 USD of credit at any point.
+
+OpenRouter does publish that counter, contrary to what this file said until
+2026-09-20, and rightsize now reads it rather than keeping a local tally:
 
 ```bash
-rightsize report openrouter --free-request   # after dispatching one
+curl -s -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/key
 ```
+
+```jsonc
+{"data": {
+  "limit": 0.01,              // this KEY's spend cap in USD, null when unset
+  "limit_remaining": 0.01,    // what is left of it
+  "usage_daily": 0,           // spend, not requests
+  "is_free_tier": false,      // false once the account has bought credit
+  "free_model_daily_requests": {"used": 0, "limit": 1000, "remaining": 1000}
+}}
+```
+
+`free_model_daily_requests` is the number that matters for `:free` models, and
+it is authoritative: a local count only ever sees the dispatches it was told
+about and misses everything else using the same key. `/api/v1/credits` gives the
+account balance (`total_credits` minus `total_usage`) when a key carries no
+limit of its own.
+
+Two traps worth checking on your own key:
+
+- **A key can have its own spend cap.** This machine's read `limit: 0.01`, so
+  paid OpenRouter models were capped at one cent regardless of a healthy account
+  balance. Raise it at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys).
+- **Free models will not take an agent-sized request.** Verified 2026-09-20: a
+  direct API call to `deepseek/deepseek-v4-flash-0731:free` answers fine, but
+  dispatching the same model through the `opencode` CLI returns
+  `413 Request too large`, because an agent sends a system prompt plus tool
+  definitions. That is why OpenRouter is probed but is not on a worker ladder
+  by default. `rightsize report openrouter --free-request` remains as a manual
+  fallback for a caller that spends free requests some other way.
 
 ## Codex and Claude Code
 
