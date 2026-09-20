@@ -512,6 +512,10 @@ def main():
     assert freed == {"codex": "brief", "claude": "worktree"}, result["released"]
     assert [k["id"] for k in result["kept"]] == [kept_id], result["kept"]
     assert ar.reservation_load("opencode")[1] == 1, "the running worker keeps its capacity"
+    # Reservations made in the same millisecond must still be distinguishable,
+    # or releasing one frees every one of them.
+    ids = {ar.reserve("opencode", 0.1, 1, f"batch task {i}", 60, f"wt-{i}") for i in range(20)}
+    assert len(ids) == 20, "reservation ids collided"
     assert ar.reservation_load("codex")[1] == 0 and ar.reservation_load("claude")[1] == 0
     ar.save_json(ar.STATE, {})
 

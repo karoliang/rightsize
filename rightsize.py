@@ -25,6 +25,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -675,7 +676,10 @@ def reserve(name: str, points: float, band: int, task: str, ttl: float,
     state = load_json(STATE, {}) or {}
     sweep_reservations(state)
     entry = {
-        "id": f"{int(now() * 1000):x}",
+        # Unique per reservation, not per millisecond: a batch reserves many in
+        # the same tick, and releasing by a shared id would free every one of
+        # them while their workers were still running.
+        "id": uuid.uuid4().hex[:12],
         "provider": name,
         "points": points,
         "band": band,
