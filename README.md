@@ -20,7 +20,7 @@ No dependencies. Python 3 standard library only.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/rightsize ~/Github/rightsize
+git clone https://github.com/karoliang/rightsize ~/Github/rightsize
 ln -s ~/Github/rightsize/rightsize ~/.local/bin/rightsize
 rightsize refresh
 rightsize probe
