@@ -196,8 +196,17 @@ passed over rather than merely ranked low. `expensive_band` (3) moves the
 threshold; 4 disables the inversion.
 
 Free providers have no reset time and sort last, which is exactly right for
-OpenCode Zen's `-free` models: they cost no quota but a single-word reply can
-take over two minutes, so they are overflow capacity, not the default.
+OpenCode Zen's `-free` models, which cost no quota. They are currently off
+every ladder, though: measured on 2026-09-20 (docs/FREE-MODELS.md), eight calls
+across two models and two coding tasks returned **no usable answers at all**,
+every one failing with `Rate limit exceeded. Please try again later.` before any
+output.
+
+Note what that corrects, because the mistake is easy to repeat. This document
+used to say those models were *slow*, on the strength of a call that took over
+two minutes. Timing a call that never produces an answer measures the wait for a
+refusal, not the model. Their speed and their coding ability are unmeasured, not
+bad; the retest is one command and is in `config.json` beside the ladder.
 
 **Nothing eligible?** Fall down one band at a time, then, if still nothing below
 band 3, escalate to band 3 rather than return nothing. A run is never stranded

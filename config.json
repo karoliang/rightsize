@@ -21,16 +21,13 @@
       "opencode:deepseek-v4.1-flash",
       "opencode:qwen3.8-flash",
       "opencode:glm-5.3-flash",
-      "codex:gpt-5.6-luna:low",
-      "opencode_zen:nemotron-3-ultra-free",
-      "opencode_zen:mimo-v2.5-free"
+      "codex:gpt-5.6-luna:low"
     ],
     "2": [
       "opencode:minimax-m3",
       "opencode:deepseek-v4-pro",
       "opencode:kimi-k2.7-code",
-      "codex:gpt-5.6-terra:medium",
-      "opencode_zen:muse-spark-1.3-contributor-free"
+      "codex:gpt-5.6-terra:medium"
     ],
     "3": [
       "codex:gpt-6-astra:high",
@@ -42,7 +39,6 @@
   "review_ladder": [
     "codex:gpt-5.6-luna:low",
     "opencode:kimi-k2.6",
-    "opencode_zen:nemotron-3-ultra-free",
     "claude:claude-haiku-4-5"
   ],
   "agents": {
@@ -61,7 +57,7 @@
   "free_providers": [
     "opencode_zen"
   ],
-  "_comment_free": "opencode_zen entries here are the -free models, served to the OpenCode client without touching the Go subscription buckets. Slower than the paid cheap band, so the ladder keeps them last: overflow capacity, not the default.",
+  "_comment_free": "opencode_zen's -free models are still probed but are off every ladder. Measured 2026-09-20 (docs/FREE-MODELS.md): eight calls across two models and two coding tasks returned 0 usable answers, every one failing with 'Rate limit exceeded. Please try again later.' before any output. Their coding ability and their speed are therefore unmeasured, not slow: the old claim that they were slow came from timing a call that never produced an answer. Retest with `opencode run -m opencode/nemotron-3-ultra-free \"reply with exactly: OK\"` and put them back on band 1 if it answers.",
   "cache_seconds": 60,
   "_comment_cache": "Seconds a quota reading stays usable for routing. A dispatch takes minutes, so a reading a minute old is the same reading. `rightsize probe` and `route --fresh` always re-read.",
   "model_prefixes": {
