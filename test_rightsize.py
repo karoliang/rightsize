@@ -542,6 +542,32 @@ def main():
     assert any("cannot cover" in note or "below reserve" in note for note in thinned["notes"]), \
         thinned["notes"]
 
+    # Nested windows: every token spent against the weekly is also spent
+    # against the monthly, so a weekly that looks cheap to empty can be the
+    # thing that exhausts the month. Percent alone cannot see that; pace can.
+    month = time.time() + 27 * 86400
+    early_month = {"id": "monthly", "percent": 38.0, "resets_at": month}
+    pace = ar.bucket_pace(early_month)
+    assert pace and pace["projected"] > 300, pace
+    # A weekly nearly spent but nearly over is on pace, not over it.
+    late_week = {"id": "weekly", "percent": 77.0, "resets_at": time.time() + 19 * HOUR}
+    weekly_pace = ar.bucket_pace(late_week)
+    assert weekly_pace and weekly_pace["projected"] < 100, weekly_pace
+    # Just after a reset, one dispatch must not project to anything.
+    assert ar.bucket_pace({"id": "monthly", "percent": 1.0,
+                           "resets_at": time.time() + 29.9 * 86400}) is None
+
+    # A provider burning through a window it cannot sustain stops taking cheap
+    # work, so what is left is kept for work with nowhere cheaper to go.
+    paced = probes()
+    paced["opencode"]["buckets"] = [
+        {"id": "weekly", "percent": 40.0, "resets_at": time.time() + 19 * HOUR, "source": "live"},
+        {"id": "monthly", "percent": 38.0, "resets_at": month, "source": "live"},
+    ]
+    decision = route_with(judged("implementation"), paced)
+    assert decision["pick"]["provider"] != "opencode", decision["pick"]
+    assert any("over pace" in note for note in decision["notes"]), decision["notes"]
+
     print("all checks passed")
 
 

@@ -78,6 +78,13 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
   and a band 3 dispatch usually has a roomier plan available. A candidate that
   cannot cover the dispatch's estimated cost is passed over entirely.
 
+- Pacing now runs on every window rather than only the binding bucket. Nested
+  windows mean a weekly that looks cheap to empty can be what exhausts the
+  month: opencode's weekly read 77 per cent used but on pace, while its monthly
+  read 38 per cent used and 3.7x over pace, projecting to 371 per cent by its
+  reset. A window projecting past 100 per cent takes its provider out of the
+  cheap bands.
+
 ### Changed
 
 - Routing is about three times faster. Probes run in parallel instead of

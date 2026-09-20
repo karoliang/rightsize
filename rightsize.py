@@ -605,12 +605,37 @@ def record_snapshot(probes: dict) -> dict:
     return previous
 
 
+def bucket_pace(bucket: dict) -> dict | None:
+    """Where this bucket lands at its reset if the window keeps its current rate.
+
+    A percentage on its own says nothing about whether it is too much: 77 per
+    cent of a week with a day to run is fine, and 38 per cent of a month with
+    27 days to run is not. Dividing what has been spent by how much of the
+    window has passed says which, and needs no history to do it.
+
+    Nested windows are the reason this matters. Every token spent against the
+    weekly is also spent against the monthly, so a weekly bucket that looks
+    cheap to empty can be the thing that exhausts the month.
+    """
+    window = bucket_window(bucket.get("id") or "")
+    percent, resets_at = bucket.get("percent"), bucket.get("resets_at")
+    if not window or not resets_at or percent is None:
+        return None
+    elapsed = 1 - (resets_at - now()) / window
+    # Just after a reset the ratio is meaningless: a single dispatch divided by
+    # a sliver of window projects to anything.
+    if elapsed < 0.05 or percent < 2:
+        return None
+    return {"id": bucket["id"], "elapsed": elapsed, "pace": (percent / 100) / elapsed,
+            "projected": percent / elapsed}
+
+
 def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
     """Binding bucket = the one with least usable headroom.
 
     Returns usable headroom in percentage points after the reserve, the epoch
-    at which the binding bucket resets, and whether the current burn rate
-    projects past 100 percent before that reset.
+    at which the binding bucket resets, and whether this provider is on course
+    to exhaust any of its windows before that window resets.
     """
     worst = None
     unknown = False
@@ -632,6 +657,11 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
         }
     bucket = worst["bucket"]
     overrun = False
+    # Every window, not only the binding one. The binding bucket is about what
+    # stops you first; pacing is about what you are on course to run out of.
+    paces = [x for x in (bucket_pace(b) for b in probe["buckets"]) if x]
+    ahead = [x for x in paces if x["projected"] > 100]
+    over_pace = max(ahead, key=lambda x: x["projected"]) if ahead else None
     key = f"{name}:{bucket['id']}"
     before = previous.get(key)
     resets_at = bucket.get("resets_at")
@@ -647,7 +677,9 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
         "unknown": unknown,
         "resets_at": resets_at,
         "bucket": bucket["id"],
-        "overrun": overrun,
+        "overrun": overrun or bool(over_pace),
+        "over_pace": over_pace,
+        "paces": paces,
     }
 
 
@@ -1110,7 +1142,12 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
             notes.append(f"{text} skipped: headroom unknown, escalation only")
             continue
         if info["overrun"] and band < 3:
-            notes.append(f"{text} skipped: current burn rate overruns its bucket before reset")
+            pace = info.get("over_pace")
+            why = (f"its {pace['id']} window is {pace['pace']:.1f}x over pace and projects to"
+                   f" {pace['projected']:.0f}% by reset" if pace
+                   else "current burn rate overruns its bucket before reset")
+            notes.append(f"{text} skipped: {why}, so its remaining room is kept for work"
+                         " that has nowhere cheaper to go")
             continue
         resets = info["resets_at"] or float("inf")
         cost = dispatch_cost(config or {}, cand["provider"], band)
@@ -1620,6 +1657,9 @@ def cmd_probe(args, config):
         print(f"{name:<11} {mark:<8} usable {usable:<9} binding {info['bucket'] or '-':<18} resets {human_reset(info['resets_at'])}")
         for bucket in info["buckets"]:
             percent = "-" if bucket["percent"] is None else f"{bucket['percent']}%"
+            pace = bucket_pace(bucket)
+            if pace and pace["projected"] > 100:
+                bucket = {**bucket, "_pace": pace}
             age = bucket.get("age_seconds")
             stale = f"  observed {human_age(age)} ago" if age and age > 900 else ""
             if bucket.get("tokens_used"):
@@ -1631,6 +1671,11 @@ def cmd_probe(args, config):
             else:
                 extra = ""
             print(f"    {bucket['id']:<20} used {percent:<7} {bucket['source']}{extra}{stale}")
+            if bucket.get("_pace"):
+                pace = bucket["_pace"]
+                print(f"    {'':<20} {pace['pace']:.1f}x over pace, projects to"
+                      f" {pace['projected']:.0f}% by reset with {(1 - pace['elapsed']) * 100:.0f}%"
+                      " of the window left")
         if info.get("inflight"):
             print(f"    in flight            {info['inflight']} dispatches holding "
                   f"{info['reserved']:.1f} points")

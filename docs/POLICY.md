@@ -82,6 +82,36 @@ the one with the most spent. A provider is blocked when any of these holds:
 The reserve is the point of the whole line. It keeps a slice of every plan
 unspent, so that an escalation later in the day still has somewhere to go.
 
+**Pace, across every window.** A percentage on its own says nothing about
+whether it is too much. 77 per cent of a week with a day left is fine; 38 per
+cent of a month with 27 days left is not. Dividing what has been spent by how
+much of the window has passed says which, with no history needed:
+
+```
+elapsed   = 1 - (resets_at - now) / window
+projected = percent / elapsed      # where the window lands at this rate
+```
+
+This runs on **every** bucket, not only the binding one, because the windows are
+nested: every token spent against the weekly is also spent against the monthly,
+so a weekly that looks cheap to empty can be the thing that exhausts the month.
+Real numbers that prompted it:
+
+| bucket | used | elapsed | pace | projected by reset |
+| --- | --- | --- | --- | --- |
+| rolling | 17% | 83% | 0.2x | 20% |
+| weekly | 77% | 89% | 0.9x | 87% |
+| monthly | 38% | 10% | 3.7x | **371%** |
+
+The binding bucket was the weekly, so the policy saw eight points expiring in
+nineteen hours and hurried to spend them, while the month they also came out of
+was on course to be gone in a week. A bucket projecting past 100 per cent now
+takes the provider out of the cheap bands, the same treatment as a measured
+burn-rate overrun, so what is left is kept for work with nowhere cheaper to go.
+
+Right after a reset the ratio means nothing, so pacing is only computed once 5
+per cent of the window has passed and at least 2 per cent has been spent.
+
 **Burn rate.** Each fresh probe stores a snapshot. Given two readings and a
 reset time:
 
