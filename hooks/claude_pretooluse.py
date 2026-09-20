@@ -45,6 +45,9 @@ HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?")
 # The task text, in the spellings the launchers use.
 SPEC = re.compile(r"--(?:spec|prompt|task|message)[= ]+(\"[^\"]*\"|'[^']*'|\S+)")
 CAT = re.compile(r"\$\(\s*cat\s+([^)]+?)\s*\)")
+# A worker can be started from a task id instead of a brief, which is how a
+# dependency graph dispatches. The brief still exists; it is in the task.
+TASK_ID = re.compile(r"--task[= ]+(task_[A-Za-z0-9]+)")
 
 
 def strip_heredocs(command: str) -> str:
@@ -82,11 +85,31 @@ def launch_segment(command: str) -> str | None:
     return None
 
 
+def spec_from_task(command: str) -> str | None:
+    """The brief behind a --task id, asked of the orchestrator."""
+    found = TASK_ID.search(command)
+    if not found:
+        return None
+    try:
+        result = subprocess.run(["orca", "orchestration", "task-list", "--json"],
+                                capture_output=True, text=True, timeout=15)
+        payload = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    for task in ((payload.get("result") or {}).get("tasks") or []):
+        if task.get("id") == found.group(1):
+            return task.get("spec")
+    return None
+
+
 def spec_text(command: str) -> str | None:
     match = SPEC.search(command)
     if not match:
-        return None
+        return spec_from_task(command)
     value = match.group(1).strip("\"'")
+    # `--task task_abc` names the brief rather than carrying it.
+    if re.fullmatch(r"task_[A-Za-z0-9]+", value):
+        return spec_from_task(command)
     inner = CAT.search(value)
     if inner:
         try:

@@ -56,6 +56,13 @@ def main():
     assert not hook.usable_brief("<self-contained task>")
     assert hook.usable_brief("add cursor pagination to GET /api/invoices, page size 50")
 
+    # A worker started from a task id still has a brief; it lives in the task.
+    assert hook.TASK_ID.search(
+        "orca orchestration worker-start --task task_7de8439fec51 --worktree new-child --json")
+    assert not hook.TASK_ID.search("orca orchestration worker-start --spec \"do the thing\"")
+    # The id is the name of a brief, never the brief itself.
+    assert not hook.usable_brief("task_7de8439fec51")
+
     # A launch with no readable brief stays silent rather than judging nothing.
     assert hook.spec_text('orca orchestration worker-start --spec "{spec}" --agent opencode') is None
 
