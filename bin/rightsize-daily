@@ -2,7 +2,7 @@
 # Daily catalogue pull. Refreshes the model registry, then reports what is free
 # now, what got cheaper, and what appeared or disappeared since yesterday.
 #
-# Run by com.karo.rightsize-refresh (launchd) and safe to run by hand.
+# Run by com.rightsize.refresh (launchd) and safe to run by hand.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

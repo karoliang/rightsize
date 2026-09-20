@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.karo.rightsize-refresh</string>
+  <string>com.rightsize.refresh</string>
 
   <key>ProgramArguments</key>
   <array>

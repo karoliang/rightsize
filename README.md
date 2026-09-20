@@ -145,9 +145,9 @@ own CLIs already write.
 that becomes free is the cheapest way to move work off a metered bucket.
 
 ```bash
-sed "s|REPO_PATH|$HOME/Github/rightsize|g" com.karo.rightsize-refresh.plist \
-  > ~/Library/LaunchAgents/com.karo.rightsize-refresh.plist
-launchctl load ~/Library/LaunchAgents/com.karo.rightsize-refresh.plist
+sed "s|REPO_PATH|$HOME/Github/rightsize|g" com.rightsize.refresh.plist \
+  > ~/Library/LaunchAgents/com.rightsize.refresh.plist
+launchctl load ~/Library/LaunchAgents/com.rightsize.refresh.plist
 ```
 
 ## Tests
