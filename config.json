@@ -74,10 +74,10 @@
   "launchers": {
     "_doc": "How a decision becomes a command. Each launcher maps a provider to a template, with `default` covering the rest. Fields: {provider} {agent} {model} {model_ref} {effort} {band} {spec} {spec_path}. Adding a launcher is config, not code: see docs/ADAPTERS.md.",
     "orca": {
-      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours after its run ended. Use the orca-current launcher only when sharing the checkout is the point.",
-      "default": "orca orchestration worker-start --spec {spec} --worktree new-child --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
-      "codex": "orca orchestration worker-start --spec {spec} --worktree new-child --agent codex --json --model {model} --effort {effort}",
-      "claude": "orca orchestration worker-start --spec {spec} --worktree new-child --agent claude --json --model {model} --effort {effort}"
+      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours after its run ended. Use the orca-current launcher only when sharing the checkout is the point. `--worktree new-child` requires `--name`, and worker-start fails with consumer_fenced unless a Run is bound, so both are in the template.",
+      "default": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
+      "codex": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent codex --json --model {model} --effort {effort}",
+      "claude": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent claude --json --model {model} --effort {effort}"
     },
     "shell": {
       "default": "opencode run -m {model_ref} {spec}",

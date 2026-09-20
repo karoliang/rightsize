@@ -870,6 +870,33 @@ def band_for(judgment: dict, config: dict) -> tuple[int, list[str]]:
 
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 
+# Words that say nothing about which task this is.
+FILLER = {"the", "a", "an", "to", "in", "on", "of", "for", "and", "or", "with", "that", "this",
+          "it", "its", "is", "are", "be", "so", "at", "as", "by", "from", "into", "our", "we",
+          "should", "must", "make", "sure", "please", "when", "then", "than", "not"}
+
+
+def worktree_name(spec: str, taken: set[str] | None = None) -> str:
+    """A short worktree name derived from the task.
+
+    `--worktree new-child` requires `--name`, and a name a human can recognise
+    on a branch list beats a random one. An issue number, when the brief has
+    one, is the single most useful token in it.
+    """
+    text = spec.lower()
+    issue = re.search(r"#(\d{1,6})\b|\bissue\s+(\d{1,6})\b", text)
+    number = (issue.group(1) or issue.group(2)) if issue else None
+    words = [w for w in re.findall(r"[a-z0-9]+", text) if w not in FILLER and len(w) > 2]
+    name = "-".join(words[:4])[:40].strip("-") or "task"
+    if number and number not in name.split("-"):
+        name = f"{name}-{number}"
+    if taken is not None:
+        base, suffix = name, 2
+        while name in taken:
+            name, suffix = f"{base}-{suffix}", suffix + 1
+        taken.add(name)
+    return name
+
 
 def effort_for(config: dict, cand: dict, band: int, judgment: dict, attempt: int = 0) -> tuple[str | None, str | None]:
     """How hard the worker should think, for providers that take the knob.
@@ -1038,7 +1065,9 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         judgments = list(pool.map(judge, specs))
 
-    tasks = [{"index": i, "spec": spec, "judgment": j, "points": 0.0, "wave": None, "decision": None}
+    taken: set[str] = set()
+    tasks = [{"index": i, "spec": spec, "judgment": j, "points": 0.0, "wave": None,
+              "decision": None, "name": worktree_name(spec, taken)}
              for i, (spec, j) in enumerate(zip(specs, judgments))]
     pending = list(tasks)
     wave = 0
@@ -1227,6 +1256,7 @@ def launch_fields(decision: dict, config: dict, spec_path: str | None,
     return {
         "provider": cand["provider"],
         "agent": decision["agent"] or cand["provider"],
+        "name": decision.get("worktree_name") or worktree_name(spec_text or spec_path or "task"),
         "model": cand["model"],
         "model_ref": f"{prefix}{cand['model']}",
         "effort": cand["effort"] or "medium",
@@ -1473,16 +1503,16 @@ def cmd_deals(args, config):
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve)
-    return print_decision(decision, args, config)
+    return print_decision(decision, args, config, spec)
 
 
 def cmd_rerun(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = rerun(spec, args.because, args.previous, config)
-    return print_decision(decision, args, config)
+    return print_decision(decision, args, config, spec)
 
 
-def print_decision(args_decision, args, config):
+def print_decision(args_decision, args, config, spec: str | None = None):
     decision = args_decision
     if args.json:
         print(json.dumps(decision, indent=2))
@@ -1520,7 +1550,7 @@ def print_decision(args_decision, args, config):
     launcher = "orca" if getattr(args, "orca", False) else args.launcher
     if launcher:
         print()
-        print(launch_command(decision, config, launcher, getattr(args, "spec", None)))
+        print(launch_command(decision, config, launcher, getattr(args, "spec", None), spec))
     return 0 if cand and not decision["blocked"] else 1
 
 
@@ -1636,6 +1666,7 @@ def cmd_plan(args, config):
             print(f"\n# ---- wave {number} ----")
             for task in result["tasks"]:
                 if task["wave"] == number:
+                    task["decision"]["worktree_name"] = task["name"]
                     path = str(paths[task["index"]]) if paths else None
                     print(f"# task {task['index']}")
                     print(launch_command(task["decision"], config, args.launcher,

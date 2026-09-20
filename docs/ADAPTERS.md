@@ -34,6 +34,7 @@ Lookup is by provider, with `default` as the fallback. Available fields:
 | `{band}` | `1` | |
 | `{spec}` | `"$(cat task.md)"` | already quoted, or `"<task>"` |
 | `{spec_path}` | `task.md` | bare path |
+| `{name}` | `fix-disabled-control-treatment-381` | worktree name from the task; required by `--worktree new-child`, unique within a batch |
 
 Then:
 

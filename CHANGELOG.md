@@ -77,6 +77,17 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Fixed
 
+- The Orca templates printed `--worktree new-child` without `--name`, which
+  Orca rejects with `invalid_argument: New worktrees require --name`, so the
+  command was unrunnable as printed the moment `new-child` became the default.
+  A name is now derived from the task (an issue number kept, filler dropped,
+  unique within a batch), which also puts something recognisable on the branch
+  list.
+- `worker-start` fails with `consumer_fenced` when no Run is bound, and the
+  printed line assumed one existed. The templates now carry the `run-create`
+  prerequisite as a comment above the command, conditional on
+  `orca orchestration run-current` showing none.
+
 - Every shipped Orca launcher used `--worktree current`, which puts the worker
   in the main checkout, sharing the coordinator's tree and branch: it can write
   to `main` mid-merge, and cleanup can never find it because there is no

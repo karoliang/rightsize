@@ -357,6 +357,31 @@ def main():
                 continue
             assert "--worktree current" not in template, (name, provider, template)
 
+    # `--worktree new-child` requires `--name`, so a template that uses one
+    # without the other is unrunnable as printed.
+    for name, templates in CONFIG["launchers"].items():
+        if not isinstance(templates, dict):
+            continue
+        for provider, template in templates.items():
+            if provider.startswith("_") or "new-child" not in template:
+                continue
+            assert "--name" in template, (name, provider, template)
+
+    # The name is derived from the task, keeps an issue number, and is unique
+    # within a batch.
+    assert ar.worktree_name("make the disabled control treatment match the system (#381)") \
+        == "disabled-control-treatment-match-381", ar.worktree_name(
+            "make the disabled control treatment match the system (#381)")
+    taken = set()
+    first = ar.worktree_name("add pagination to the invoices endpoint", taken)
+    second = ar.worktree_name("add pagination to the invoices endpoint", taken)
+    assert first != second, (first, second)
+
+    rendered = ar.launch_command(route_with(judged("implementation"), probes()), CONFIG,
+                                 "orca", None, "fix the disabled control treatment (#381)")
+    assert "--name fix-disabled-control-treatment-381" in rendered, rendered
+    assert "--worktree new-child" in rendered, rendered
+
     print("all checks passed")
 
 
