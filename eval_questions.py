@@ -70,6 +70,40 @@ FIXTURES = [
         {"size": "high", "tier": "implementation"},
     ),
     (
+        "stopwatch",
+        "Time two CLI commands on the same two prompts, twice each, and write the wall-clock "
+        "seconds and the median into a table in docs/TIMINGS.md. Do not change any code.",
+        # Running a stopwatch is mechanical: the request already determines the
+        # result. This is the cheap half of the boundary below.
+        {"tier": "mechanical", "size": "low", "destructive": "low"},
+    ),
+    (
+        "establish-whether",
+        """**Target.** /Users/karo/Github/rightsize, the `opencode_zen` free models on the band 1 ladder in config.json (`nemotron-3-ultra-free`, `mimo-v2.5-free`) and the claim in README.md and docs/POLICY.md that they are "overflow capacity, not the default" because they are slow.
+
+**Change.** Establish, with evidence, whether these models can do real coding work and where they belong in the ladder. The claim in the docs rests on one observation months old: a single-word reply took over two minutes. Nothing since has tested them on actual work, and they cost no quota, which makes the question worth settling.
+
+**How to test.** They are reachable only through the OpenCode CLI: `opencode run -m opencode/<model>-free "<prompt>"`. Use a scratch directory under /tmp, never this repository. Give each model the same two real tasks, small but not trivial, for example: write a Python function with a stated contract and a test that exercises it, and find the bug in a short function you paste in. Time every call. Run each at least twice, because one slow call proves nothing about the median.
+
+**Constraints.**
+- Spend no metered quota: only `opencode/<model>-free` models, nothing on `opencode-go/`, codex or claude.
+- Do not edit rightsize.py, config.json or the hooks. This is a measurement, not a change.
+- If a model fails or times out, that is a result: record the exact error and how long it took to arrive.
+
+**Ownership.** You may create docs/FREE-MODELS.md and nothing else in this repository.
+
+**Observable acceptance.** docs/FREE-MODELS.md containing: a table of model, task, attempt, wall-clock seconds and whether the output was usable, with the raw outputs quoted or linked; a median latency per model; and a recommendation with its reasoning on whether the ladder position should change, including the option that they should be removed. Paste the table in your final message. A recommendation to change nothing is a fine answer if that is what the numbers say.""",
+        # The expensive half of the boundary, and the reason both fixtures are
+        # here. This is the brief that was actually dispatched on 2026-09-20,
+        # verbatim, because an abbreviated version of it reads as ordinary
+        # implementation and the difference is the whole point. Nobody knew the
+        # answer, so the work was forming and eliminating hypotheses: banded 3,
+        # and the deep model earned it by finding every call rate-limited and
+        # that timing a refusal is not timing a model. A cheaper reading of the
+        # same data, mine, concluded they were fast.
+        {"tier": "diagnosis"},
+    ),
+    (
         "no-repro",
         "users occasionally see an empty invoices list on first load, nobody has reproduced "
         "it locally, find out why",
