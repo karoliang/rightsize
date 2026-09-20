@@ -584,6 +584,17 @@ def main():
     assert short < float(CONFIG["reservation_ttl_seconds"]), "unconfirmed must be the shorter clock"
     ar.save_json(ar.STATE, {})
 
+    # Percentage points are not a unit anyone reasons in, and every plan meters
+    # something different. Dispatches remaining is the common one.
+    room = ar.capacity_in_dispatches(CONFIG, "opencode", 8.0)
+    assert "band 1" in room and "band 3" in room, room
+    cheap = int(8.0 / ar.dispatch_cost(CONFIG, "opencode", 1))
+    assert room.startswith(f"{cheap} band 1"), (room, cheap)
+    assert ar.capacity_in_dispatches(CONFIG, "opencode", None) == ""
+    assert ar.capacity_in_dispatches(CONFIG, "opencode", -3.0) == ""
+    # A provider whose dispatches cost nothing has no such limit to report.
+    assert ar.capacity_in_dispatches(CONFIG, "opencode_zen", 50.0) == ""
+
     print("all checks passed")
 
 

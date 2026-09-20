@@ -1656,6 +1656,25 @@ def refresh() -> dict:
 # cli
 
 
+def capacity_in_dispatches(config: dict, name: str, usable: float | None) -> str:
+    """Percentage points are not a unit anyone thinks in. Dispatches are.
+
+    Every plan meters something different (percent of a week, dollars of
+    credit, requests a day, tokens against a declared budget), so the numbers
+    cannot be compared as they stand. What they all convert into, once a
+    dispatch has a measured cost, is how many more dispatches of a given kind
+    the plan has left, which is the question being asked anyway.
+    """
+    if usable is None or usable <= 0:
+        return ""
+    parts = []
+    for band in (1, 3):
+        cost = dispatch_cost(config, name, band)
+        if cost > 0:
+            parts.append(f"{int(usable / cost)} band {band}")
+    return ", ".join(parts)
+
+
 def cmd_probe(args, config):
     probes = probe_all(config, count_tokens=True)
     # Warm the cache the router reads, so looking at the numbers and then
@@ -1671,6 +1690,9 @@ def cmd_probe(args, config):
         mark = "ok " if info["eligible"] else "BLOCKED"
         usable = "unknown" if info["usable"] is None else f"{info['usable']:.0f} pts"
         print(f"{name:<11} {mark:<8} usable {usable:<9} binding {info['bucket'] or '-':<18} resets {human_reset(info['resets_at'])}")
+        room = capacity_in_dispatches(config, name, info["usable"])
+        if room:
+            print(f"    {'':<20} about {room} dispatches left before the reserve")
         for bucket in info["buckets"]:
             percent = "-" if bucket["percent"] is None else f"{bucket['percent']}%"
             pace = bucket_pace(bucket)
