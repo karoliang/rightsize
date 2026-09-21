@@ -92,6 +92,29 @@ class PilotRunTests(unittest.TestCase):
             self.assertEqual(row['accepted_tasks'], 20)
         self.assertFalse(final['report']['promotion'])
 
+    def test_per_arm_limits_do_not_spend_the_partners_allowance(self):
+        root = self.root.with_name('separate-arms')
+        limits = copy.deepcopy(self.limits)
+        for limit in limits.values():
+            limit['input_tokens'] = 150
+        pilot.initialize(root, limits, self.config, budget_scope='per-arm')
+        with patch.object(self.backend, 'launch', wraps=self.backend.launch) as launch:
+            first = pilot.step(root, self.backend)
+            second = pilot.step(root, self.backend)
+            self.assertEqual(first['outcome'], 'accepted')
+            self.assertEqual(second['outcome'], 'accepted')
+            self.assertNotEqual(first['variant'], second['variant'])
+            self.assertEqual([call.args[-1]['input_tokens'] for call in launch.call_args_list], [150, 150])
+            state = pilot.strict_read(root/'run.json')
+            self.assertIsNone(state['halt'])
+            manifest = pilot.strict_read(root/'manifest.json')
+            report = pilot.report(state, manifest)
+            for variant in ('baseline', 'candidate'):
+                self.assertEqual(report['arm_usage'][variant][first['provider']]['input_tokens'], 100)
+            pilot.step(root, self.backend)
+            self.assertEqual(launch.call_args_list[-1].args[-1]['input_tokens'], 50)
+        self.assertEqual(pilot.step(root, self.backend)['status'], 'halted')
+
     def test_crash_after_admission_reuses_request_and_after_launch_never_relaunches(self):
         self.backend.crash_after_admission = True
         with self.assertRaises(RuntimeError):

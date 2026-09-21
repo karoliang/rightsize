@@ -48,8 +48,10 @@ def validate_limits(limits):
             raise ValueError('pilot token ceiling invalid')
 
 
-def initialize(root, limits, config):
+def initialize(root, limits, config, *, budget_scope='shared'):
     validate_limits(limits)
+    if budget_scope not in ('shared', 'per-arm'):
+        raise ValueError('invalid pilot budget scope')
     # Pin actual code, not a label supplied by the caller. Uncommitted changes
     # cannot be mixed into a trial that claims a committed candidate revision.
     repo = Path(__file__).resolve().parent
@@ -59,10 +61,11 @@ def initialize(root, limits, config):
     record_replay_baseline.capture([])
     manifest = pilot_tasks.prepare(root)
     root = Path(root)
-    manifest.update(live_ready=True, usage_ceilings=limits)
+    manifest.update(live_ready=True, usage_ceilings=limits, budget_scope=budget_scope)
     pilot_acceptance.save(root/'manifest.json', manifest)
     bundle = {'schema_version': 1, 'run_id': uuid.uuid4().hex, 'candidate_revision': revision,
               'manifest_sha256': replay.digest(manifest), 'limits': limits, 'config': config,
+              'budget_scope': budget_scope,
               'timeout_seconds': 120, 'retry_rule': 'one retry after reviewed rejection only'}
     pilot_acceptance.save(root/'bundle.json', bundle, initial=True)
     pilot_acceptance.save(root/'run.json', {'schema_version': 1, 'bundle_sha256': replay.digest(bundle),
@@ -73,6 +76,9 @@ def initialize(root, limits, config):
 def validate_bundle(root, bundle, state):
     validate_limits(bundle['limits'])
     manifest = strict_read(root/'manifest.json')
+    if (bundle.get('budget_scope', 'shared') not in ('shared', 'per-arm') or
+            manifest.get('budget_scope', 'shared') != bundle.get('budget_scope', 'shared')):
+        raise ValueError('pilot budget scope differs')
     if (bundle['schema_version'] != 1 or state['schema_version'] != 1 or
             state['bundle_sha256'] != replay.digest(bundle) or
             bundle['manifest_sha256'] != replay.digest(manifest) or
@@ -94,10 +100,11 @@ def validate_bundle(root, bundle, state):
     return manifest
 
 
-def budget(state, provider):
+def budget(state, provider, variant=None):
     result = {'attempts': 0, 'dispatch_units': 0, 'input_tokens': 0, 'output_tokens': 0, 'unknown': False}
     for entry in state['entries']:
-        if entry.get('provider') != provider or not entry.get('budget_booked'):
+        if (entry.get('provider') != provider or not entry.get('budget_booked') or
+                (variant is not None and entry['variant'] != variant)):
             continue
         result['attempts'] += 1
         result['dispatch_units'] += units(entry['points'])
@@ -115,10 +122,10 @@ def budget(state, provider):
     return result
 
 
-def budget_reason(state, provider, points, limits):
+def budget_reason(state, provider, points, limits, variant=None):
     if provider not in limits:
         return 'selected provider has no predeclared pilot ceiling'
-    used, limit = budget(state, provider), limits[provider]
+    used, limit = budget(state, provider, variant), limits[provider]
     if used['unknown']:
         return 'previous pilot usage is unresolved'
     if used['attempts'] >= limit['attempts'] or used['dispatch_units'] + units(points) > units(limit['dispatch_points']):
@@ -155,6 +162,7 @@ def step(root, backend):
         pair, entry = next_entry(manifest, state['entries'])
         if entry is None:
             return {'status': 'finished', 'report': report(state, manifest)}
+        budget_variant = entry['variant'] if bundle.get('budget_scope') == 'per-arm' else None
         def persist():
             pilot_acceptance.save(root/'run.json', state)
         if entry not in state['entries']:
@@ -180,7 +188,7 @@ def step(root, backend):
             provider = decision['pick']['provider']
             points = router.dispatch_cost(bundle['config'], provider, decision['band'])
             entry.update(provider=provider, points=points)
-            reason = budget_reason(state, provider, points, bundle['limits'])
+            reason = budget_reason(state, provider, points, bundle['limits'], budget_variant)
             if reason:
                 state['halt'] = reason
                 persist()
@@ -197,7 +205,7 @@ def step(root, backend):
             entry.update(attempt_id=attempt['attempt_id'], phase='admitted')
             persist()
         if entry['phase'] == 'admitted':
-            used = budget(state, entry['provider'])
+            used = budget(state, entry['provider'], budget_variant)
             # This newly booked entry has no usage yet; other entries must have
             # been resolved by the gate before it was booked.
             remaining = {k: bundle['limits'][entry['provider']][k]-used[k] for k in TOKEN_FIELDS}
@@ -228,9 +236,9 @@ def step(root, backend):
                      receipt=attempt.get('receipt'), review_evidence=attempt.get('review_evidence'),
                      at=attempt.get('at'), first_output_at=attempt.get('first_output_at'),
                      settled_at=attempt.get('settled_at'), reviewed_at=time.time())
-        if budget(state, entry['provider'])['unknown']:
+        if budget(state, entry['provider'], budget_variant)['unknown']:
             state['halt'] = 'native usage missing after attempted execution'
-        spent = budget(state, entry['provider'])
+        spent = budget(state, entry['provider'], budget_variant)
         entry['usage_thresholds_reached'] = [key for key in TOKEN_FIELDS
                                            if spent[key] >= bundle['limits'][entry['provider']][key]]
         if entry['usage_thresholds_reached']:
@@ -246,8 +254,12 @@ def report(state, manifest):
     for row in usage.values():
         row['dispatch_points'] = row.pop('dispatch_units')/1000000
     result = {'planned_pairs': len(manifest['pairs']), 'halt': state['halt'], 'variants': {},
-              'usage': usage}
+              'usage': usage, 'budget_scope': manifest.get('budget_scope', 'shared'), 'arm_usage': {}}
     for variant in ('baseline', 'candidate'):
+        arm_usage = {p: budget(state, p, variant) for p in usage}
+        for row in arm_usage.values():
+            row['dispatch_points'] = row.pop('dispatch_units')/1000000
+        result['arm_usage'][variant] = arm_usage
         rows = [e for e in state['entries'] if e['variant'] == variant]
         accepted = {e['task_id'] for e in rows if e.get('outcome') == 'accepted'}
         attempted = {e['task_id'] for e in rows}
@@ -388,6 +400,7 @@ def main():
     init.add_argument('directory', type=Path)
     init.add_argument('--limits', type=Path, required=True)
     init.add_argument('--native-opencode', action='store_true', help='explicitly use the existing native Go login for this trial')
+    init.add_argument('--per-arm', action='store_true', help='apply identical provider ceilings independently to each arm (twice the aggregate allowance)')
     for name in ('step', 'report'):
         command = commands.add_parser(name)
         command.add_argument('directory', type=Path)
@@ -399,7 +412,8 @@ def main():
             config = {**config, 'accounts': {**config.get('accounts', {}), 'opencode': 'pilot-native-opencode'},
                       'account_bindings': {**config.get('account_bindings', {}),
                                            'pilot-native-opencode': {'runtime': 'opencode', 'home': str(binding.home)}}}
-        result = initialize(args.directory, strict_read(args.limits), config)
+        result = initialize(args.directory, strict_read(args.limits), config,
+                            budget_scope='per-arm' if args.per_arm else 'shared')
         result = {'status': 'initialized', 'run_id': result['run_id'], 'candidate_revision': result['candidate_revision']}
     elif args.action == 'step':
         result = step(args.directory, NativeBackend())

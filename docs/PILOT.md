@@ -222,3 +222,36 @@ promotion. Native first-output/settlement times and review times are retained pe
 attempt, but first-useful-output classification, final latency analysis and manual
 inspection of high-stakes failures remain evaluation work. No live paired trial
 results are asserted by the driver's simulated tests.
+
+## Equal per-arm ceilings
+
+New trials may pass `--per-arm` to `init`. Each provider limit then applies
+independently to baseline and candidate, with identical limits for both. This
+means twice the aggregate attempt/dispatch/token allowance compared with shared
+mode; it does not increase native quota or relax reserve/account checks. Report
+includes aggregate usage and separate `arm_usage`. The scope is pinned in both
+manifest and bundle. Older bundles lacking scope retain their original shared
+semantics; the halted first trial is never converted or replenished.
+
+All pre-admission checks and native cancellation thresholds use the selected
+arm's spending. Unresolved work still blocks the entire run. Reaching either
+arm's ceiling stops the entire experiment: unused allowance is never transferred
+from its partner. This removes cross-arm budget consumption, not all possible
+censoring. Any budget-truncated pair must remain visible and cannot establish
+quality superiority.
+
+The next trial is predeclared before new output: the same20 task contracts and
+acceptance cases, with the newly documented cache-free environment instructions
+applied equally to both arms; alternating order, one retry after rejection,
+120-second native attempt timeout, unchanged native policy/reserves and explicit
+existing native Go login. Per provider, **each arm** has40 admission attempts,
+100 conservative dispatch points,2,000,000 input and100,000 output token stop
+thresholds. Aggregate ceilings are thus80 attempts/200 points/4m input/200k output
+per provider, subject to the stricter real included-quota admission checks.
+No paid fallback, limit increase, selective replacement or default promotion.
+
+The prior trial suggests these ceilings can accommodate the planned initial
+attempts, but this is an estimate, not guaranteed completion. Preserve both runs
+in reported evidence. This evaluates quality and lifecycle coverage under the
+observed choices; a same-choice run does not establish routing savings. Any
+future claim about differing-choice routing needs separately declared evidence.
