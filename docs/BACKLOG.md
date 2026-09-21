@@ -77,10 +77,20 @@ Claude execution and vault delivery still need live validation. Orca's
 inspected contract gap is documented in [ORCA-CONTRACT.md](planning/ORCA-CONTRACT.md)
 and #21. Offline replay/shadow (#18) compares 15 hash-bound synthetic snapshots
 with the fixed baseline; see [the evidence and limits](REPLAY.md). The paired live
-pilot and promotion remain #19. A fixed coding corpus, isolated acceptance and a
-durable paired driver are implemented; live paired results and final analysis
-remain, as described in [PILOT.md](PILOT.md). Versioned migration/guarded rollback are implemented
-and tested, with only a read-only preview on live state; see [MIGRATION.md](MIGRATION.md).
+pilot is complete: [both policies accepted20/20 tasks](PILOT-PER-ARM-RESULTS.md),
+with identical selections and no routing/savings superiority established. The
+overhead/fair-budget follow-up #22 is closed; no further benchmark is planned.
+Versioned migration/guarded rollback are implemented and tested, with only a
+read-only preview on live state; see [MIGRATION.md](MIGRATION.md). Promotion and
+rollout remain gated on the outstanding native integrations under #19.
+
+Remaining external gates as of2026-09-21: the inspected Orca runtime/upstream
+worker-start contract does not provide prepared account/session binding; the
+request is linked to [stablyai/orca#21747](https://github.com/stablyai/orca/issues/21747#issuecomment-5755738799).
+Claude live execution cannot pass the unchanged30% reserve with89% weekly usage.
+The configured scoped vault lookup has no key, so live vault delivery is unproven;
+native-login support does not require creating a new vault secret. No quota
+reserve, account selection or promotion gate is weakened to close these tickets.
 GitHub remains
 the source of truth for open/closed state; planning closure does not imply these
 features ship.
