@@ -151,13 +151,20 @@ def load_config() -> tuple[dict | None, Path | None]:
 
 def load_json(path: Path, default=None):
     try:
-        return json.loads(path.read_text())
+        value = json.loads(path.read_text())
+        if path == STATE and path.name == "state.v2.json" and (
+                not isinstance(value, dict) or value.get("_rightsize_writer_generation") != 2):
+            raise ValueError("invalid migrated state")
+        return value
     except (OSError, ValueError):
+        if path == STATE and path.name == "state.v2.json":
+            from managed_ledger import LedgerError
+            raise LedgerError("migrated state unavailable; preserve evidence and recover migration") from None
         return default
 
 
 @contextlib.contextmanager
-def state_lock():
+def state_lock(*, transition=False):
     """Hold the state file for a read-modify-write.
 
     Every mutator here loads the whole document, changes one field and writes
@@ -167,10 +174,15 @@ def state_lock():
     after which every load returned {} and the next write erased the rest.
     """
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    lock = STATE.with_name(STATE.name + ".lock")
+    lock = STATE.with_name("state.json.lock" if STATE.name == "state.v2.json" else STATE.name + ".lock")
     handle = open(lock, "w")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX)
+        if not transition:
+            import state_migration
+            if state_migration.active_path(STATE) != STATE:
+                from managed_ledger import LedgerError
+                raise LedgerError("state generation changed; restart this invocation")
         yield
     finally:
         try:
@@ -901,7 +913,7 @@ def headroom(probe: dict, reserve: float, previous: dict, name: str) -> dict:
 
 def sweep_reservations(state: dict) -> list:
     """Drop reservations whose worker must be finished or dead by now."""
-    live = [r for r in state.get("reservations", []) if r["expires"] > now()]
+    live = [r for r in state.get("reservations", []) if r.get("_rightsize_migrated") or r["expires"] > now()]
     state["reservations"] = live
     return live
 
@@ -1125,6 +1137,9 @@ def release_settled(run: str | None = None) -> dict:
     state = load_json(STATE, {}) or {}
     released, kept = [], []
     for held in list(sweep_reservations(state)):
+        if held.get("_rightsize_migrated"):
+            kept.append(held)
+            continue
         matched = ("dispatch" if held.get("dispatch") in finished_dispatches else None) if held.get("dispatch") else (
             "brief" if brief_key(held.get("task") or "") in finished_briefs else None)
         if matched:
@@ -3092,7 +3107,11 @@ def cmd_managed(args, config):
     import managed_router
     from managed_ledger import Ledger, LedgerError
     try:
-        if args.action == "status":
+        if args.action in ("migrate", "rollback"):
+            import state_migration
+            operation = state_migration.migrate if args.action == "migrate" else state_migration.rollback
+            result = operation(sys.modules[__name__], apply=args.apply)
+        elif args.action == "status":
             result = Ledger(managed_router.ledger_path(sys.modules[__name__])).read(args.attempt)
         elif args.action == "run":
             import native_runs
@@ -3139,6 +3158,10 @@ def main(argv=None):
 
     managed_cmd = sub.add_parser("managed", help="opt-in account-aware admission; does not launch by itself")
     managed_sub = managed_cmd.add_subparsers(dest="action", required=True)
+    for action in ("migrate", "rollback"):
+        transition = managed_sub.add_parser(action, help="preview state transition; --apply performs it")
+        transition.add_argument("--apply", action="store_true")
+        transition.set_defaults(func=cmd_managed, json=True)
     for action in ("plan", "admit"):
         managed_action = managed_sub.add_parser(action)
         managed_action.add_argument("--spec", required=True)
@@ -3295,7 +3318,21 @@ def main(argv=None):
         config.setdefault("accounts", {})[provider] = reference
     if overlay and not getattr(args, "json", False):
         print(f"# config: {CONFIG} + {overlay}", file=sys.stderr)
-    return args.func(args, config)
+    global STATE
+    previous_state = STATE
+    try:
+        if not (args.command == "managed" and args.action in ("migrate", "rollback")):
+            import state_migration
+            STATE = state_migration.active_path(STATE)
+        return args.func(args, config)
+    except (OSError, ValueError) as exc:
+        from managed_ledger import LedgerError
+        if not isinstance(exc, LedgerError):
+            raise
+        print(json.dumps({"status": "error", "reason": str(exc)}), file=sys.stderr)
+        return 2
+    finally:
+        STATE = previous_state
 
 
 if __name__ == "__main__":

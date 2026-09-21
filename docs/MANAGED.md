@@ -41,8 +41,10 @@ managed attempts, tasks, quota denials and lifecycle events. First initializatio
 is serialized with writers; transactions use `BEGIN IMMEDIATE`. The ledger file
 is created with mode 0600. Corrupt, unversioned-existing or future-version state
 fails closed rather than becoming an empty commitment set. No existing JSON
-records are deleted or automatically migrated. Versioned migration and rollback
-remain #19.
+records are deleted or automatically migrated. Opt-in generation-2 migration
+preserves legacy holds/denials and fences incompatible writers; guarded rollback
+waits for active work. See [migration and rollback](MIGRATION.md). Live rollout
+and paired-pilot gates remain #19.
 
 Quota costs round up to integer millionths of a percentage point; capacity rounds
 down. A native home is an execution context, not necessarily a distinct quota

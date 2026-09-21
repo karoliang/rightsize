@@ -364,6 +364,10 @@ for idempotency, leases, structured waits and current adapter boundaries.
 `managed run` executes admitted Codex, Claude and OpenCode Go tasks in isolated worktrees,
 with native receipts, cancellation and explicit review. See [native adapters](docs/NATIVE-ADAPTERS.md).
 
+`managed migrate` previews the optional state migration; `--apply` backs up state
+and fences older writers. `managed rollback --apply` disables admission and waits
+for active work before restoring. See [migration and rollback](docs/MIGRATION.md).
+
 ## Offline replay
 
 Offline safety checks are available through `rightsize replay --snapshot

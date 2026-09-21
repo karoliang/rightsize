@@ -42,6 +42,7 @@ jobs:
         run: |
           python test_managed_ledger.py
           python test_managed_router.py
+          python test_state_migration.py
       - name: native transport and Codex lifecycle
         run: |
           python test_native_transport.py

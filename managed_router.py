@@ -70,7 +70,7 @@ def legacy_state(api):
 
 def external_load(state, provider, stamp):
     holds = [hold for hold in state.get("reservations", [])
-             if hold["provider"] == provider and hold["expires"] > stamp]
+             if hold["provider"] == provider and (hold.get("_rightsize_migrated") or hold["expires"] > stamp)]
     return sum(hold["points"] for hold in holds), len(holds)
 
 
