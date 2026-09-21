@@ -15,7 +15,7 @@ information should be recognisable as one.
 | `OPENCODE_API_KEY` | live OpenCode Go quota, the main workhorse budget | OpenCode is `no-credential` and never offered |
 | `OPENCODE_ZEN_API_KEY` | the Zen catalogue for `rightsize models` / `deals` | the free-model list goes stale |
 | `OPENROUTER_API_KEY` | OpenRouter credit and its catalogue | OpenRouter is `no-credential`, its free tier unreachable |
-| (none) | Codex and Claude Code quota | nothing: both are read from files their own CLIs write |
+| (none) | Codex and Claude Code quota | existing native CLI login; no OAuth extraction |
 
 ## Optional task judgment: caller or TypeSafe (Jev)
 
@@ -149,17 +149,27 @@ Both reuse native authentication; Rightsize does not extract OAuth tokens.
   data because Orca may hardlink them across account homes. An unavailable probe
   is unknown, an authentication failure requires reauthentication, and an explicit
   quota denial blocks every band.
-- **Claude Code**: usage is reconstructed from token counts in
-  the selected native home's `projects/**/*.jsonl` (cache reads excluded deliberately; counting
-  them overstates usage several times over). There is no published budget to
-  divide by, so Claude stays escalation-only until you set
-  `claude.weekly_token_budget` in `config.json`. Run `rightsize probe` to see
-  the raw token counts and pick a number from them.
+- **Claude Code**: prefers native stream-json `get_usage` subscription percentages.
+  It opens an isolated temporary directory in native safe mode with no tools or
+  session persistence, sends setup/usage controls only and closes/reaps the child.
+  User/project customizations are disabled for discovery; administrator policy
+  still applies. No user prompt or model request is sent. It preserves all returned
+  utilization windows conservatively and keeps usage-credit settings separate.
   Native `claude auth status --json` must confirm first-party subscription login;
   only a hash of its email and organization identity leaves the diagnostic boundary.
   API/cloud authentication is not treated as subscription quota. Logout, unavailable
   identity, or an identity change during the transcript scan cannot produce usable
-  quota. These transcript counts remain local estimates, not server usage readings.
+  quota. The setup response's organization display signature is checked separately
+  from the canonical organization-ID hash, which continues to define the quota pool.
+  Native identity is checked again after the query.
+  The experimental usage schema must include its `model_scoped` endpoint-response
+  marker before healthy telemetry is labelled live; missing freshness or required
+  windows is unknown, while an explicit denial remains denied. See
+  [native control evidence](NATIVE-ADAPTERS.md#claude-integration-evidence-execution-pending).
+  When the control is unsupported/unavailable, the legacy fallback reconstructs
+  local transcript tokens against explicitly configured budgets. Its source stays
+  `computed`, never live; it cannot clear a native denial. Missing budgets leave
+  fallback headroom unknown. Native quota takes precedence over budget estimates.
 
 ## Storing them
 

@@ -141,7 +141,12 @@ def claude_identity(binding):
     fields = [value.get(key) for key in ("email", "orgId")]
     if any(not isinstance(item, str) or not item.strip() for item in fields):
         return {"status": "unknown"}
-    return {"status": "ok", "quota_account_ref": digest(json.dumps(["claude", *fields]))}
+    result = {"status": "ok", "quota_account_ref": digest(json.dumps(["claude", *fields]))}
+    # initialize reports the organization display name, not its canonical ID.
+    # Keep both proofs distinct; the display signature is not a new quota pool.
+    if isinstance(value.get("orgName"), str) and value["orgName"].strip():
+        result["session_account_ref"] = digest(json.dumps(["claude", value["email"], value["orgName"]]))
+    return result
 
 
 def runtime_version(runtime):

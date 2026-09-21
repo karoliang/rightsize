@@ -46,6 +46,7 @@ jobs:
         run: |
           python test_native_transport.py
           python test_native_codex.py
+          python test_native_claude.py
       - name: config is valid json
         run: python -c "import json;json.load(open('config.json'))"
       - name: cli responds without credentials

@@ -290,7 +290,7 @@ opencode
 A percentage point is not the same size in every window: one dispatch is 2.3
 per cent of a five hour rolling allowance and 0.44 per cent of a weekly one, so
 calibration uses the tightest window lasting a day or more and says which.
-Claude publishes no percentage, so it reports tokens and suggests a
+If Claude's native quota control is unavailable, it reports tokens and suggests a fallback
 `weekly_token_budget` that leaves room above the reserve rather than one that
 blocks Claude the moment it is set.
 
@@ -324,7 +324,7 @@ helper that can strand a run.
 | --- | --- | --- |
 | OpenCode | `GET /zen/go/v1/usage`, rolling, weekly and monthly percent with reset times | exact, live |
 | Codex | `rate_limits` in the newest rollout under any Codex home | exact when written, and only an interactive session writes it |
-| Claude Code | tokens reconstructed from `~/.claude/projects/**/*.jsonl` | estimate; needs a budget in `config.json` before it counts as headroom |
+| Claude Code | native stream-json `get_usage`, tied to native login | subscription percentages; labelled transcript/budget fallback when unsupported |
 | OpenRouter | `GET /api/v1/key` for the key's own limit and the live free-request counter | live |
 
 The differences matter and the policy keeps them. An exact number can be spent

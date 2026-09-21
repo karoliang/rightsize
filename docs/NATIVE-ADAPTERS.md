@@ -8,7 +8,7 @@ test is not a quality or cost benchmark.
 | Adapter | Current evidence |
 | --- | --- |
 | Codex app-server, ChatGPT native login | Installed protocol/schema inspected; real isolated read-only smoke completed and passed deterministic review; offline lifecycle and recovery fixtures |
-| Claude Code | Native subscription identity hashes and Keychain-aware cache invalidation tested; real setup-only control handshake inspected without a task; execution adapter pending |
+| Claude Code | Native subscription identity and get_usage quota discovery, bounded control channel and effective-model/effort inspection verified; execution adapter pending |
 | OpenCode | Native CLI/event interface inventoried; execution and vault delivery pending |
 | Orca | Legacy advisory commands exist; managed terminal/account binding pending |
 
@@ -21,8 +21,11 @@ task, returned `account`, `models`, `current_permission_mode`, `pid` and
 `session_state`. Account metadata fields were `email`, `organization`,
 `subscriptionType`, `apiProvider`; model entries expose `resolvedModel` and
 supported effort levels. Requested `manual` permission mode returned `default`.
-Native startup hooks ran during setup. Setup therefore is not a side-effect-free
-quota probe, even though no inference request was sent.
+Native startup hooks ran during ordinary setup. Quota discovery therefore uses
+native `--safe-mode`, an isolated temporary directory, no tools and no session
+persistence. This disables user/project customizations while retaining native
+login and administrator policy. No inference request is sent. Discovery is a
+native subprocess, not the strictly side-effect-free replay/shadow path.
 
 The [official Python SDK control implementation](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/_internal/query.py)
 uses `control_request` with a request ID and `request.subtype=initialize`, then
@@ -30,6 +33,24 @@ matches a `control_response`. Interrupt uses the same control envelope. The
 [official headless documentation](https://code.claude.com/docs/en/headless)
 documents structured init, result, retry and permission-denial events. SIGTERM
 does not produce a completed turn; cancellation must use native terminal evidence.
+
+Further setup-only verification found `get_settings.applied.model` and `.effort`
+match explicit model/effort flags. `get_usage` with `skip_behaviors: true` returns
+subscription windows without a transcript scan. Published Agent SDK 0.3.278's
+`SDKControlGetUsageResponse` marks the `model_scoped` array as endpoint-answer
+evidence and omits it for cached/unknown answers. Healthy data without that marker
+is unavailable; explicit denial survives missing freshness. Required rolling/weekly
+windows, additional utilization windows, model windows and active generic limits
+are retained conservatively. Usage-credit enablement is separate from plan capacity.
+The experimental control/schema can change: malformed or unsupported responses
+never become fresh empty capacity, and the existing computed-budget fallback stays
+labelled as an estimate when the control itself is unavailable.
+
+Initialize reports organization display name, whereas auth status reports both
+name and canonical ID. Rightsize compares a separate hashed setup signature and
+rechecks native identity after the query; the canonical ID hash still owns quota
+pooling. No raw identity or credential is returned by discovery. Installed 2.1.267
+rejected `list_permission_rules`; do not rely on that newer SDK control yet.
 
 Remaining proof before enabling execution: bind the setup account to the admitted
 native status identity; resolve exact model and effort before inference; bind the

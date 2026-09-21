@@ -533,19 +533,25 @@ def claude_tokens(window_seconds: int, projects: Path | None = None) -> int:
 
 
 def probe_claude(config: dict, count_tokens: bool = False) -> dict:
-    """Claude Code headroom, from a declared budget and reconstructed usage.
+    """Native subscription quota, with a labelled declared-budget fallback.
 
     The transcript scan is the slowest thing here (seconds, and it grows with
     the size of ~/.claude/projects). With no budget set the percentage is None
-    whatever the count says, so routing never pays for it: only `rightsize
-    probe` asks for the number, and it asks because a human is choosing a
-    budget from it.
+    whatever the count says. Prefer native get_usage; scan transcripts only
+    when that control is unavailable and a declared budget or count is needed.
     """
     settings = config.get("claude") or {}
     binding = accounts.select("claude", config)
     identity = accounts.claude_identity(binding)
     if identity["status"] != "ok":
         return {"name": "claude", **identity, "buckets": []}
+    import native_claude
+    native = native_claude.probe(binding, identity)
+    if native is not None:
+        if (accounts.select("claude", config).fingerprint != binding.fingerprint
+                or accounts.claude_identity(binding) != identity):
+            return {"name": "claude", "status": "account-changed", "buckets": []}
+        return {"name": "claude", **identity, **native}
     buckets = []
     for bucket_id, seconds, budget_key in (
         ("rolling-5h", 5 * 3600, "rolling_token_budget"),
@@ -2573,8 +2579,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
             out.append(("warn", f"{variable} missing: {why}"))
 
     if not (config.get("claude") or {}).get("weekly_token_budget"):
-        out.append(("warn", "claude.weekly_token_budget is null, so Claude stays escalation-only."
-                            " rightsize probe prints the token counts to choose one from"))
+        out.append(("warn", "Claude legacy budget is unset; known headroom requires native quota."
+                            " Unsupported native control leaves fallback headroom unknown"))
 
     codex = probe_codex(config)
     binding = codex.get("account") or {}
@@ -2730,7 +2736,7 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
             row["measured_cost"] = round(percent / spent["dispatches"], 2)
             row["configured_cost"] = dispatch_cost(config, name, 1)
             row["verdict"] = "measured"
-        elif spent["dispatches"] and name == "claude":
+        elif spent["dispatches"] and name == "claude" and percent is None:
             # Orca keeps only the most recent Claude sessions and counts no
             # cache creation, so its totals are not a budget. rightsize's own
             # scan reads every transcript and is the number to size against.
@@ -2745,7 +2751,7 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
             row["budget_note"] = (f"leaves about {headroom_wanted:.0f} points usable above the"
                                   f" {reserve:.0f} point reserve")
             row["token_source"] = "rightsize transcript scan (Orca's totals omit cache creation)"
-            row["verdict"] = "no percentage published; budget suggestion only"
+            row["verdict"] = "native percentage unavailable; fallback budget suggestion only"
         else:
             row["verdict"] = "no dispatches recorded in the current window"
         rows.append(row)
