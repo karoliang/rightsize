@@ -191,6 +191,8 @@ def main():
     # No budget means no transcript scan: the answer cannot depend on it.
     scanned = []
     original = ar.claude_tokens
+    original_identity = ar.accounts.claude_identity
+    ar.accounts.claude_identity = lambda binding: {"status": "ok", "quota_account_ref": "fixture"}
     ar.claude_tokens = lambda seconds, projects=None: scanned.append(seconds) or 0
     try:
         probe = ar.probe_claude({"claude": {}})
@@ -200,6 +202,7 @@ def main():
         assert scanned, "probe asked for the count and did not get it"
     finally:
         ar.claude_tokens = original
+        ar.accounts.claude_identity = original_identity
 
     # Reservations: a dispatch in flight is capacity that is already spoken
     # for, even though no quota reading has moved yet.

@@ -150,11 +150,16 @@ Both reuse native authentication; Rightsize does not extract OAuth tokens.
   is unknown, an authentication failure requires reauthentication, and an explicit
   quota denial blocks every band.
 - **Claude Code**: usage is reconstructed from token counts in
-  `~/.claude/projects/**/*.jsonl` (cache reads excluded deliberately; counting
+  the selected native home's `projects/**/*.jsonl` (cache reads excluded deliberately; counting
   them overstates usage several times over). There is no published budget to
   divide by, so Claude stays escalation-only until you set
   `claude.weekly_token_budget` in `config.json`. Run `rightsize probe` to see
   the raw token counts and pick a number from them.
+  Native `claude auth status --json` must confirm first-party subscription login;
+  only a hash of its email and organization identity leaves the diagnostic boundary.
+  API/cloud authentication is not treated as subscription quota. Logout, unavailable
+  identity, or an identity change during the transcript scan cannot produce usable
+  quota. These transcript counts remain local estimates, not server usage readings.
 
 ## Storing them
 
@@ -205,6 +210,13 @@ No credential files are copied, edited or decoded by discovery.
 
 Account references are opaque local context identifiers. Native credential-file
 metadata and hashes of inherited API keys invalidate quota caches on change.
+Claude also checks native identity on cache lookup because a Keychain login switch
+need not change a credential file. Unknown or mismatched identity prevents cache
+reuse. Preserve an unset `CLAUDE_CONFIG_DIR` for the default login: explicitly
+setting the same directory can select a different native Keychain namespace.
+Implicit-default and explicitly selected homes therefore have different context
+references, even when their filesystem paths match. Discovery never reads or
+exports the Keychain credentials themselves.
 Vault-backed quota is always refreshed because vault rotation metadata is not yet
 available. Account-scoped denials survive switches; legacy provider-wide denials
 remain conservative until reconciled. Existing external reservations retain their

@@ -7,6 +7,41 @@ import subprocess
 import time
 
 
+def read_json(command, *, env=None, timeout=10.0, max_bytes=65536, returncodes=(0,)):
+    """Read one native diagnostic JSON document with bounded output and time."""
+    proc = None
+    try:
+        proc = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + timeout
+        data = bytearray()
+        os.set_blocking(proc.stdout.fileno(), False)
+        with selectors.DefaultSelector() as selector:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            while time.monotonic() < deadline:
+                if not selector.select(max(0, deadline - time.monotonic())):
+                    return None
+                chunk = os.read(proc.stdout.fileno(), min(65536, max_bytes + 1 - len(data)))
+                if not chunk:
+                    proc.wait(timeout=max(0.001, deadline - time.monotonic()))
+                    if proc.returncode not in returncodes:
+                        return None
+                    value = json.loads(data)
+                    return value if isinstance(value, dict) else None
+                data.extend(chunk)
+                if len(data) > max_bytes:
+                    return None
+    except (OSError, ValueError, subprocess.SubprocessError, RecursionError):
+        return None
+    finally:
+        if proc is not None:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            proc.stdout.close()
+    return None
+
+
 def read_rate_limits(command, *, env=None, timeout=15.0, max_bytes=1024 * 1024):
     """Initialize Codex before querying; always close pipes and reap the child.
 

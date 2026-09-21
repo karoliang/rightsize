@@ -542,13 +542,17 @@ def probe_claude(config: dict, count_tokens: bool = False) -> dict:
     budget from it.
     """
     settings = config.get("claude") or {}
+    binding = accounts.select("claude", config)
+    identity = accounts.claude_identity(binding)
+    if identity["status"] != "ok":
+        return {"name": "claude", **identity, "buckets": []}
     buckets = []
     for bucket_id, seconds, budget_key in (
         ("rolling-5h", 5 * 3600, "rolling_token_budget"),
         ("weekly", 7 * 86400, "weekly_token_budget"),
     ):
         budget = settings.get(budget_key)
-        used = claude_tokens(seconds, accounts.select("claude", config).home / "projects") if (budget or count_tokens) else 0
+        used = claude_tokens(seconds, binding.home / "projects") if (budget or count_tokens) else 0
         percent = round(100.0 * used / budget, 1) if budget else None
         buckets.append(
             {
@@ -559,7 +563,10 @@ def probe_claude(config: dict, count_tokens: bool = False) -> dict:
                 "tokens_used": used,
             }
         )
-    return {"name": "claude", "status": "ok", "buckets": buckets}
+    if (accounts.select("claude", config).fingerprint != binding.fingerprint
+            or accounts.claude_identity(binding) != identity):
+        return {"name": "claude", "status": "account-changed", "buckets": []}
+    return {"name": "claude", **identity, "buckets": buckets}
 
 
 def probe_openrouter(config: dict, key=None) -> dict:
@@ -722,6 +729,12 @@ def probes_cached(config: dict, max_age: float | None = None) -> tuple[dict, boo
     state = load_json(STATE, {}) or {}
     cached = state.get("probe_cache") or {}
     identity = accounts.cache_identity(config)
+    native_claude = identity["claude_native"]
+    cached_claude = cached.get("probes", {}).get("claude", {})
+    if (native_claude.get("status") != "ok" or
+            (cached_claude.get("status") == "ok" and
+             cached_claude.get("quota_account_ref") != native_claude.get("quota_account_ref"))):
+        max_age = 0
     if (max_age > 0 and cached.get("at") and now() - cached["at"] < max_age
             and cached.get("accounts") == identity):
         return cached["probes"], False

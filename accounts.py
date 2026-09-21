@@ -40,7 +40,10 @@ class Binding:
                 ("provider", "runtime", "account_ref", "fingerprint", "status", "source")}
 
     def environment(self):
-        return {**os.environ, **self.overrides}
+        env = {**os.environ, **self.overrides}
+        if self.runtime == "claude" and "CLAUDE_CONFIG_DIR" not in self.overrides:
+            env.pop("CLAUDE_CONFIG_DIR", None)
+        return env
 
 
 def select(provider, config=None, *, home=None, environ=None):
@@ -89,6 +92,10 @@ def select(provider, config=None, *, home=None, environ=None):
             selected_home = roots[0]
     path = Path(selected_home).expanduser().resolve()
     overrides[variable] = str(path)
+    # Claude's native Keychain namespace distinguishes unset config-dir from
+    # an explicit path, even when that path is ~/.claude. Preserve the choice.
+    if runtime == "claude" and not selected and not native:
+        overrides.pop(variable)
     if runtime == "codex":
         overrides["ORCA_CODEX_HOME"] = str(path)
     auth = {"codex": path / "auth.json", "claude": path / ".credentials.json",
@@ -100,7 +107,10 @@ def select(provider, config=None, *, home=None, environ=None):
         stamp = None
     # A ref names an account context. A fingerprint detects credential changes
     # within that context, without treating refreshed credentials as new leases.
-    reference = digest(json.dumps([provider, runtime, str(path)]))[:24]
+    context = [provider, runtime, str(path)]
+    if runtime == "claude":
+        context.append("explicit-home" if variable in overrides else "native-default")
+    reference = digest(json.dumps(context))[:24]
     keys = {key: digest(environ[key]) for key in KEY_VARIABLES.get(provider, ()) if environ.get(key)}
     fingerprint = digest(json.dumps([reference, stamp, keys], sort_keys=True))
     if not selected and keys:
@@ -109,7 +119,29 @@ def select(provider, config=None, *, home=None, environ=None):
 
 
 def cache_identity(config):
-    return {provider: select(provider, config).public() for provider in RUNTIMES}
+    identities = {provider: select(provider, config).public() for provider in RUNTIMES}
+    # Keychain login changes need not touch .credentials.json. Consult only
+    # native redacted status, never decode tokens or export Keychain contents.
+    identities["claude_native"] = claude_identity(select("claude", config))
+    return identities
+
+
+def claude_identity(binding):
+    """Native subscription identity, hashed before leaving this boundary."""
+    from native_rpc import read_json
+    if binding.status != "unverified":
+        return {"status": binding.status}
+    value = read_json(["claude", "auth", "status", "--json"], env=binding.environment(), returncodes=(0, 1))
+    if not value:
+        return {"status": "unknown"}
+    if value.get("loggedIn") is not True:
+        return {"status": "reauth-required"}
+    if value.get("authMethod") != "claude.ai" or value.get("apiProvider") != "firstParty":
+        return {"status": "unsupported-auth"}
+    fields = [value.get(key) for key in ("email", "orgId")]
+    if any(not isinstance(item, str) or not item.strip() for item in fields):
+        return {"status": "unknown"}
+    return {"status": "ok", "quota_account_ref": digest(json.dumps(["claude", *fields]))}
 
 
 def runtime_version(runtime):

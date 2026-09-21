@@ -8,9 +8,34 @@ test is not a quality or cost benchmark.
 | Adapter | Current evidence |
 | --- | --- |
 | Codex app-server, ChatGPT native login | Installed protocol/schema inspected; real isolated read-only smoke completed and passed deterministic review; offline lifecycle and recovery fixtures |
-| Claude Code | Native authentication/status and headless event interfaces inventoried; execution adapter pending |
+| Claude Code | Native subscription identity hashes and Keychain-aware cache invalidation tested; real setup-only control handshake inspected without a task; execution adapter pending |
 | OpenCode | Native CLI/event interface inventoried; execution and vault delivery pending |
 | Orca | Legacy advisory commands exist; managed terminal/account binding pending |
+
+## Claude integration evidence (execution pending)
+
+Installed Claude Code 2.1.267 supports bidirectional `stream-json` with `-p`,
+`--verbose`, explicit `--session-id`, `--permission-mode` and
+`--permission-prompts none`. A real setup-only control request, without any user
+task, returned `account`, `models`, `current_permission_mode`, `pid` and
+`session_state`. Account metadata fields were `email`, `organization`,
+`subscriptionType`, `apiProvider`; model entries expose `resolvedModel` and
+supported effort levels. Requested `manual` permission mode returned `default`.
+Native startup hooks ran during setup. Setup therefore is not a side-effect-free
+quota probe, even though no inference request was sent.
+
+The [official Python SDK control implementation](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/_internal/query.py)
+uses `control_request` with a request ID and `request.subtype=initialize`, then
+matches a `control_response`. Interrupt uses the same control envelope. The
+[official headless documentation](https://code.claude.com/docs/en/headless)
+documents structured init, result, retry and permission-denial events. SIGTERM
+does not produce a completed turn; cancellation must use native terminal evidence.
+
+Remaining proof before enabling execution: bind the setup account to the admitted
+native status identity; resolve exact model and effort before inference; bind the
+acknowledged user message/session to the launch key; verify cancellation and
+read-only recovery. Do not replace missing proof with CLI argument assumptions or
+an exit code. Subscription budget estimates remain distinct from native quota.
 
 ## Run an admitted Codex attempt
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import accounts
 import rightsize as r
+import native_rpc
 
 
 class AccountTests(unittest.TestCase):
@@ -22,11 +23,69 @@ class AccountTests(unittest.TestCase):
         for patcher in (patch.dict(os.environ, {}, clear=True),
                         patch.object(accounts.Path, "home", return_value=self.home),
                         patch.object(r, "STATE", self.home / "state.json"),
+                        patch.object(native_rpc, "read_json", return_value={"loggedIn": True,
+                            "authMethod": "claude.ai", "apiProvider": "firstParty",
+                            "email": "test@example.invalid", "orgId": "fixture"}),
                         patch.object(r, "ROOT", self.home)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.config = {"account_bindings": {"work": {"runtime": "codex", "home": str(self.auth.parent)}},
                        "accounts": {"codex": "work"}}
+
+    def test_claude_keychain_identity_redaction_cache_and_switch(self):
+        status = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+                  "email": "synthetic@example.invalid", "orgId": "synthetic-org"}
+        with patch.object(native_rpc, "read_json", return_value=status) as diagnostic:
+            binding = accounts.select("claude")
+            first = accounts.claude_identity(binding)
+            self.assertEqual(first["status"], "ok")
+            self.assertNotIn("synthetic", json.dumps(first))
+            self.assertNotIn("CLAUDE_CONFIG_DIR", diagnostic.call_args.kwargs["env"])
+            with patch.object(r, "probe_all", return_value={}) as probe:
+                r.probes_cached(self.config)
+                r.probes_cached(self.config)
+                self.assertEqual(probe.call_count, 1)
+                status["orgId"] = "different-org"
+                r.probes_cached(self.config)
+                self.assertEqual(probe.call_count, 2)
+            self.assertNotEqual(first, accounts.claude_identity(binding))
+            with patch.object(accounts, "claude_identity", side_effect=[first, {"status": "unknown"}]), \
+                    patch.object(r, "claude_tokens", return_value=1):
+                result = r.probe_claude({"claude": {"weekly_token_budget": 100}})
+                self.assertEqual(result["status"], "account-changed")
+                self.assertEqual(result["buckets"], [])
+
+    def test_claude_implicit_default_preserves_keychain_namespace(self):
+        implicit = accounts.select("claude")
+        self.assertNotIn("CLAUDE_CONFIG_DIR", implicit.environment())
+        config = {"accounts": {"claude": "explicit"}, "account_bindings": {
+            "explicit": {"runtime": "claude", "home": str(implicit.home)}}}
+        explicit = accounts.select("claude", config)
+        self.assertEqual(explicit.home, implicit.home)
+        self.assertNotEqual(explicit.account_ref, implicit.account_ref)
+        self.assertEqual(explicit.environment()["CLAUDE_CONFIG_DIR"], str(explicit.home))
+
+    def test_claude_cache_unknown_or_mismatched_native_identity_reprobes(self):
+        with patch.object(native_rpc, "read_json", return_value=None), \
+                patch.object(r, "probe_all", return_value={}) as probe:
+            r.probes_cached(self.config)
+            r.probes_cached(self.config)
+            self.assertEqual(probe.call_count, 2)
+        with patch.object(r, "probe_all", return_value={"claude": {
+                "status": "ok", "quota_account_ref": "different-native-account"}}) as probe:
+            r.probes_cached(self.config)
+            r.probes_cached(self.config)
+            self.assertEqual(probe.call_count, 2)
+
+    def test_claude_auth_unknown_api_and_logged_out_never_invent_capacity(self):
+        for value, expected in [(None, "unknown"), ({"loggedIn": False}, "reauth-required"),
+                                ({"loggedIn": True, "authMethod": "api_key"}, "unsupported-auth"),
+                                ({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}, "unknown")]:
+            with self.subTest(value=value), patch.object(native_rpc, "read_json", return_value=value), \
+                    patch.object(r, "claude_tokens", side_effect=AssertionError("no scan")):
+                result = r.probe_claude({})
+                self.assertEqual(result["status"], expected)
+                self.assertEqual(result["buckets"], [])
 
     def test_multiple_homes_require_selection_not_latest(self):
         second = self.home / "Library/Application Support/orca/codex-accounts/second/home/auth.json"

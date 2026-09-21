@@ -10,6 +10,27 @@ import native_rpc
 
 
 class NativeRpcTests(unittest.TestCase):
+    def test_bounded_native_diagnostic_document(self):
+        cases = [("print('{\\\"ok\\\":true}')", {"ok": True}),
+                 ("print('[]')", None), ("print('bad')", None),
+                 ("print('x'*10000)", None),
+                 ("import time;print('{',flush=True);time.sleep(30)", None),
+                 ("import sys;print('{}');sys.exit(1)", None)]
+        original = subprocess.Popen
+        for script, expected in cases:
+            children = []
+            def launch(*args, **kwargs):
+                child = original(*args, **kwargs)
+                children.append(child)
+                return child
+            with self.subTest(script=script), patch.object(native_rpc.subprocess, "Popen", side_effect=launch):
+                self.assertEqual(native_rpc.read_json([sys.executable, "-u", "-c", script],
+                                                     timeout=0.2, max_bytes=100), expected)
+            self.assertIsNotNone(children[0].returncode)
+            self.assertTrue(children[0].stdout.closed)
+        self.assertEqual(native_rpc.read_json([sys.executable, "-c",
+            "import sys; print('{\"loggedIn\":false}'); sys.exit(1)"], returncodes=(0, 1)), {"loggedIn": False})
+
     def call(self, script, **kwargs):
         children = []
         original = subprocess.Popen
