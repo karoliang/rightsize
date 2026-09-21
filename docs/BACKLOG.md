@@ -64,15 +64,20 @@ outcome records. No universal API proxy or full agent rewrite selected.
 | [#17](https://github.com/karoliang/rightsize/issues/17) | Native session adapters, cancellation and outcome reconciliation | #14, #16 |
 | [#18](https://github.com/karoliang/rightsize/issues/18) | Offline replay and side-effect-free shadow comparison | Fixtures can start now; promotion uses #15-#17 |
 | [#19](https://github.com/karoliang/rightsize/issues/19) | Versioned state migration, pilot and rollback | #14, #16-#18 |
+| [#21](https://github.com/karoliang/rightsize/issues/21) | Verify Orca prepared account/native-session dispatch contract | External integration dependency for #14/#17 |
 
 Execution is tracked in [#20](https://github.com/karoliang/rightsize/issues/20).
 Caller judgment (#13) and bounded context manifests (#15) are implemented.
 Account selection, scoped credentials and quota identity are implemented for #14;
-managed vault/Orca launch binding remains. Atomic managed admission and fake
-launcher lifecycle (#16) are implemented. Native Codex execution and selected
-context delivery are available; Claude/OpenCode/Orca and vault delivery remain
-in #14/#17. Offline replay/shadow (#18) compares 15 hash-bound synthetic snapshots
+live vault/Orca proof remains. Atomic managed admission and fake launcher
+lifecycle (#16) are implemented. Native Codex, Claude and OpenCode Go execution
+and selected context delivery are implemented. Codex has a reviewed live smoke;
+Claude/OpenCode execution and vault delivery still need live validation. Orca's
+inspected contract gap is documented in [ORCA-CONTRACT.md](planning/ORCA-CONTRACT.md)
+and #21. Offline replay/shadow (#18) compares 15 hash-bound synthetic snapshots
 with the fixed baseline; see [the evidence and limits](REPLAY.md). The paired live
-pilot, migration and rollback remain #19. GitHub remains
+pilot and promotion remain #19. Versioned migration/guarded rollback are implemented
+and tested, with only a read-only preview on live state; see [MIGRATION.md](MIGRATION.md).
+GitHub remains
 the source of truth for open/closed state; planning closure does not imply these
 features ship.

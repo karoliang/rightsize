@@ -73,6 +73,17 @@ class ManagedRouterTests(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 self.assertFalse(eligible({**probe, key: value}))
 
+    def test_unsupported_native_provider_cannot_take_a_lease(self):
+        probe = {**self.probes["codex"], "name": "openrouter", "account": accounts.select("openrouter").public()}
+        config = r.load_config()[0]
+        config["bands"] = {str(band): ["openrouter:fixture-model"] for band in (1, 2, 3)}
+        self.probes = {"openrouter": probe}
+        with patch.object(r, "load_config", return_value=(config, None)):
+            code, result, _ = self.invoke()
+        self.assertEqual((code, result["status"]), (3, "wait"))
+        self.assertIn("managed native adapter unavailable", " ".join(result["decision"]["notes"]))
+        self.assertEqual(self.ledger.read(), [])
+
     def test_context_identity_bound_before_probes_and_lease_writes(self):
         import context_manifest as context
         catalog = self.root / "catalog.json"

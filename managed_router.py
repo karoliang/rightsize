@@ -103,6 +103,8 @@ def eligibility(api, config, probes, state, attempts, *, stamp=None):
             blocked = "quota denied"
         elif probe.get("status") != "ok" or not account:
             blocked = "fresh account-bound quota unavailable"
+        elif provider not in ("codex", "claude", "opencode"):
+            blocked = "managed native adapter unavailable for this provider"
         elif account.get("source") == "scoped-vault" and (provider != "opencode" or not probe.get("native_binding")):
             blocked = "vault launch binding requires managed credential adapter"
         elif provider == "codex" and not probe.get("quota_account_ref"):
