@@ -56,6 +56,7 @@ def initialize(root, limits, config):
     if native_runs.git(['status', '--porcelain'], repo):
         raise ValueError('commit candidate changes before freezing the pilot')
     revision = native_runs.git(['rev-parse', 'HEAD'], repo)
+    record_replay_baseline.capture([])
     manifest = pilot_tasks.prepare(root)
     root = Path(root)
     manifest.update(live_ready=True, usage_ceilings=limits)

@@ -167,6 +167,13 @@ class PilotRunTests(unittest.TestCase):
         self.assertEqual(set(captured['baseline']['records']), {case['id']})
         self.assertEqual(case, before)
 
+    def test_missing_baseline_fails_before_trial_creation(self):
+        destination = self.root.parent/'missing-baseline'
+        with patch.object(record_replay_baseline, 'capture', side_effect=RuntimeError('baseline unavailable')):
+            with self.assertRaises(RuntimeError):
+                pilot.initialize(destination, self.limits, self.config)
+        self.assertFalse(destination.exists())
+
 
 if __name__ == '__main__':
     unittest.main()
