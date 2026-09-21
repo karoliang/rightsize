@@ -24,7 +24,8 @@ import rightsize as router
 import state_migration
 
 POLICY_FIELDS = ('bands', 'agents', 'review_ladder', 'thresholds', 'reserves',
-                 'max_inflight', 'dispatch_cost', 'effort', 'expensive_band')
+                 'max_inflight', 'dispatch_cost', 'effort', 'expensive_band',
+                 'task_profiles', 'model_profiles')
 TOKEN_FIELDS = ('input_tokens', 'output_tokens')
 
 

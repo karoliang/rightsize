@@ -5,7 +5,8 @@
     "codex": 10,
     "claude": 30,
     "openrouter": 10,
-    "opencode_zen": 0
+    "opencode_zen": 0,
+    "minimax": 15
   },
   "claude": {
     "weekly_token_budget": 400000000,
@@ -21,23 +22,24 @@
       "opencode:deepseek-v4.1-flash",
       "opencode:qwen3.8-flash",
       "opencode:glm-5.3-flash",
-      "codex:gpt-5.6-luna:low"
+      "codex:gpt-5.6-luna"
     ],
     "2": [
+      "minimax:MiniMax-M3",
       "opencode:minimax-m3",
       "opencode:deepseek-v4-pro",
       "opencode:kimi-k2.7-code",
-      "codex:gpt-5.6-terra:medium"
+      "codex:gpt-5.6-terra"
     ],
     "3": [
-      "codex:gpt-6-astra:high",
+      "codex:gpt-6-astra",
       "claude:claude-opus-5",
       "opencode:glm-5.3",
       "opencode:kimi-k3"
     ]
   },
   "review_ladder": [
-    "codex:gpt-5.6-luna:low",
+    "codex:gpt-5.6-luna",
     "opencode:kimi-k2.6",
     "claude:claude-haiku-4-5"
   ],
@@ -46,7 +48,8 @@
     "codex": "codex",
     "claude": "claude",
     "openrouter": "opencode",
-    "opencode_zen": "opencode"
+    "opencode_zen": "opencode",
+    "minimax": "opencode"
   },
   "thresholds": {
     "size_escalates_band": 1.5,
@@ -65,7 +68,8 @@
     "opencode_zen": "opencode/",
     "openrouter": "openrouter/",
     "codex": "",
-    "claude": ""
+    "claude": "",
+    "minimax": "minimax-coding-plan/"
   },
   "launchers": {
     "_doc": "How a decision becomes a command. Each launcher maps a provider to a template, with `default` covering the rest. Fields: {provider} {agent} {model} {model_ref} {effort} {band} {spec} {spec_path}. Adding a launcher is config, not code: see docs/ADAPTERS.md.",
@@ -93,7 +97,8 @@
     "codex": 1.2,
     "claude": 2.0,
     "openrouter": 0.1,
-    "opencode_zen": 0.0
+    "opencode_zen": 0.0,
+    "minimax": 1.0
   },
   "_comment_dispatch_cost": "Percentage points one dispatch is expected to burn, multiplied by the band. A coarse estimate on purpose: the exact number is unknowable before the worker runs, and being roughly right is what stops a fan-out from overcommitting a plan. Raise it if a batch of workers routinely takes a provider past its reserve.",
   "max_inflight": {
@@ -102,7 +107,8 @@
     "codex": 4,
     "claude": 3,
     "openrouter": 12,
-    "opencode_zen": 8
+    "opencode_zen": 8,
+    "minimax": 6
   },
   "_comment_max_inflight": "How many dispatches may be in flight on one provider at once. This is the spread lever for a large fan-out: when a provider is full the next task goes to the next eligible one instead of queueing behind it.",
   "reservation_ttl_seconds": 1800,
@@ -127,5 +133,291 @@
   "_comment_staleness": "How old a file-sourced reading may be before it is treated as unknown rather than current. Only Codex needs this: its numbers are written when Codex runs, so between sessions the reading ages while the real quota moves. An old HIGH reading is the dangerous direction, because it blocks a provider that may have reset hours ago, and unknown already means escalation-only rather than unusable. Verified 2026-09-20: `codex exec` does not write a rollout, so only an interactive Codex session refreshes this.",
   "_comment_comfort": "At or above this band, the pick prefers the plan with the most headroom instead of the bucket expiring soonest. Expiring capacity is worth more spent on cheap work, and the expensive rung usually has a roomier plan available: money.financial hit the opposite on 2026-09-20, putting a design task on an opencode weekly bucket with 8 points left and 19 hours to run while codex sat at 0 per cent with a week. Set it to 4 to disable.",
   "expensive_band": 3,
-  "reservation_ttl_unconfirmed_seconds": 300
+  "reservation_ttl_unconfirmed_seconds": 300,
+  "minimax": {
+    "plan": "Ultra",
+    "_note": "Direct global Token Plan, separate from OpenCode Go. Uses MINIMAX_API_KEY or native minimax-coding-plan auth. Dispatch cost is an uncalibrated estimate; live rolling and weekly percentages remain authoritative."
+  },
+  "accounts": {
+    "minimax": "minimax-local"
+  },
+  "account_bindings": {
+    "minimax-local": {
+      "runtime": "opencode",
+      "home": "~/.local/share"
+    }
+  },
+  "task_profiles": {
+    "mechanical": {
+      "minimum_band": 1,
+      "requires": [
+        "code"
+      ]
+    },
+    "implementation": {
+      "minimum_band": 1,
+      "requires": [
+        "code"
+      ]
+    },
+    "design": {
+      "minimum_band": 3,
+      "requires": [
+        "code",
+        "design"
+      ]
+    },
+    "diagnosis": {
+      "minimum_band": 3,
+      "requires": [
+        "code",
+        "diagnosis"
+      ]
+    },
+    "high_stakes": {
+      "minimum_band": 3,
+      "requires": [
+        "code",
+        "high_stakes"
+      ]
+    }
+  },
+  "model_profiles": {
+    "opencode:deepseek-v4.1-flash": {
+      "family": "deepseek-v4.1-flash",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:qwen3.8-flash": {
+      "family": "qwen3.8-flash",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:glm-5.3-flash": {
+      "family": "glm-5.3-flash",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "codex:gpt-5.6-luna": {
+      "family": "gpt-5.6-luna",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "low",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "minimax:MiniMax-M3": {
+      "family": "minimax-m3",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:minimax-m3": {
+      "family": "minimax-m3",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:deepseek-v4-pro": {
+      "family": "deepseek-v4-pro",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:kimi-k2.7-code": {
+      "family": "kimi-k2.7-code",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "codex:gpt-5.6-terra": {
+      "family": "gpt-5.6-terra",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "medium",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "codex:gpt-6-astra": {
+      "family": "gpt-6-astra",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "medium",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "claude:claude-opus-5": {
+      "family": "claude-opus-5",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "medium",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:glm-5.3": {
+      "family": "glm-5.3",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:kimi-k3": {
+      "family": "kimi-k3",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "opencode:kimi-k2.6": {
+      "family": "kimi-k2.6",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: existing review ladder; not comparative task evaluation"
+    },
+    "claude:claude-haiku-4-5": {
+      "family": "claude-haiku-4-5",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "low",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "provisional: existing review ladder; not comparative task evaluation"
+    }
+  },
+  "_comment_profiles": "Task capability assignments preserve the existing ladder as provisional policy, not measured superiority. Codex effort lists reflect the local native catalog on 2026-09-21; Claude uses a conservative configured subset. Empty effort lists mean no exposed runtime knob. Profile every added model; quota never relaxes capabilities or task/retry floors."
 }

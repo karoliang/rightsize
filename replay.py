@@ -14,7 +14,7 @@ BASELINE = "a168a85055a3f1fa527da593fced87cf37c10892"
 BASELINE_SOURCE = "7d5fa7483fab5924f119fc35a4f253b634d70a3b623d1fef393da62ce6dd8ff8"
 PURE = ("headroom", "bucket_pace", "bucket_window", "denied_buckets", "probe_scope",
         "decide", "band_for", "pick", "parse_candidate", "effort_for", "dispatch_cost",
-        "admission_block", "human_reset")
+        "admission_block", "human_reset", "qualified_candidates")
 
 
 class ReplayError(ValueError):
@@ -94,7 +94,7 @@ def validate(case):
             raise ReplayError("invalid snapshot judgment score")
     config = case["config"]
     allowed = {"bands", "agents", "review_ladder", "thresholds", "reserves", "max_inflight",
-               "dispatch_cost", "effort", "expensive_band"}
+               "dispatch_cost", "effort", "expensive_band", "task_profiles", "model_profiles"}
     if not isinstance(config, dict) or set(config) - allowed or not {"bands", "agents", "review_ladder"} <= set(config):
         raise ReplayError("snapshot config must contain policy fields only")
     if not isinstance(case["probes"], dict) or not isinstance(case["legacy"], dict) or not isinstance(case["attempts"], list):

@@ -33,6 +33,13 @@ jobs:
           python test_credentials.py
           python test_native_rpc.py
           python test_accounts.py
+          python test_minimax.py
+          python test_task_fit.py
+      - name: consumer classification and acceptance evidence
+        run: |
+          python test_task_judgment.py
+          python test_outcome_store.py
+          python test_consumer_outcomes.py
       - name: hook matching
         run: python hooks/test_hook.py
       - name: bounded context selection

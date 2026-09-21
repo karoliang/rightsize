@@ -61,7 +61,7 @@ STALE_READING = 6 * 3600
 OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
 # Providers whose worker is launched by the opencode CLI, so its sessions land
 # in opencode's own database and can be checked after the fact.
-OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter")
+OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter", "minimax")
 # Windows a bucket id implies, in seconds. Codex spells its own in the id.
 BUCKET_WINDOWS = {"rolling": 5 * 3600, "weekly": 7 * 86400, "monthly": 30 * 86400,
                   "credit": None, "key-credit": None, "account-credit": None,
@@ -234,7 +234,7 @@ def post(url: str, token: str, body: dict, timeout: int = 60):
 
 
 CREDENTIAL_NAMES = frozenset({"TYPESAFE_API_KEY", "OPENROUTER_API_KEY",
-                              "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"})
+                              "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "MINIMAX_API_KEY"})
 
 
 def vault_scope() -> tuple[str, str, str] | None:
@@ -261,7 +261,7 @@ def secret(name: str, config: dict | None = None) -> str | None:
     if name not in CREDENTIAL_NAMES:
         return None
     provider = {"OPENCODE_API_KEY": "opencode", "OPENCODE_ZEN_API_KEY": "opencode_zen",
-                "OPENROUTER_API_KEY": "openrouter"}.get(name)
+                "OPENROUTER_API_KEY": "openrouter", "MINIMAX_API_KEY": "minimax"}.get(name)
     binding = accounts.select(provider, config) if provider and config is not None else None
     if binding and binding.status != "unverified":
         return None
@@ -287,10 +287,11 @@ def secret(name: str, config: dict | None = None) -> str | None:
         except (OSError, subprocess.SubprocessError):
             pass
         return None
-    if name in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"):
+    if name in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "MINIMAX_API_KEY"):
         auth_path = binding.home / "opencode/auth.json" if binding else OPENCODE_AUTH
         auth = load_json(auth_path, {}) or {}
-        provider = "opencode-go" if name == "OPENCODE_API_KEY" else "opencode"
+        provider = {"OPENCODE_API_KEY": "opencode-go", "OPENCODE_ZEN_API_KEY": "opencode",
+                    "MINIMAX_API_KEY": "minimax-coding-plan"}[name]
         entry = auth.get(provider) if isinstance(auth, dict) else None
         return entry.get("key") if isinstance(entry, dict) else None
     return None
@@ -365,6 +366,48 @@ def probe_opencode(config=None, key=None) -> dict:
             }
         )
     return {**base, "status": "ok" if buckets else "empty", "buckets": buckets}
+
+
+def probe_minimax(config=None, key=None) -> dict:
+    """Read Token Plan percentages; count fields have ambiguous legacy semantics."""
+    key = secret("MINIMAX_API_KEY", config) if key is None else key
+    base = {"name": "minimax", "buckets": []}
+    if not isinstance(key, str) or not key or any(c in key for c in "\r\n\x00"):
+        return {**base, "status": "no-credential"}
+    base["quota_account_ref"] = accounts.digest("minimax-token-plan:" + key)
+    try:
+        data = get("https://www.minimax.io/v1/token_plan/remains", key)
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        status = {401: "reauth-required", 403: "reauth-required", 429: "denied"}.get(
+            getattr(exc, "code", None), "error: quota probe unavailable")
+        return {**base, "status": status}
+    if (not isinstance(data, dict) or not isinstance(data.get("base_resp"), dict)
+            or data["base_resp"].get("status_code") != 0
+            or not isinstance(data.get("model_remains"), list)):
+        return {**base, "status": "error: invalid MiniMax quota response"}
+    # Only the shared coding pool, never image/video/speech balances.
+    rows = [row for row in data["model_remains"] if isinstance(row, dict)
+            and row.get("model_name") in ("general", "MiniMax-M*", "MiniMax-M3")]
+    if not rows:
+        return {**base, "status": "error: MiniMax coding quota unavailable"}
+    buckets = []
+    for index, row in enumerate(rows):
+        for window, prefix, end in (("rolling", "current_interval", "end_time"),
+                                    ("weekly", "current_weekly", "weekly_end_time")):
+            remaining = row.get(prefix + "_remaining_percent")
+            status = row.get(prefix + "_status")
+            reset = row.get(end)
+            valid = (type(remaining) in (int, float) and 0 <= remaining <= 100
+                     and type(reset) in (int, float) and now() * 1000 < reset < 1e15
+                     and status in (None, 1, 2))
+            if status != 2 and not valid:
+                return {**base, "status": "error: incomplete MiniMax quota windows"}
+            buckets.append({"id": window if len(rows) == 1 else f"{window}-{index}",
+                            "percent": 100 if status == 2 else 100 - remaining,
+                            "resets_at": reset / 1000 if valid else None,
+                            "source": "live", "raw_status": "exhausted" if status == 2 else "ok"})
+    return {**base, "status": "denied" if any(b["percent"] == 100 for b in buckets)
+            else "ok", "buckets": buckets}
 
 
 def newest_codex_rollout() -> Path | None:
@@ -700,6 +743,7 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
         "codex": lambda: probe_codex(config),
         "claude": lambda: probe_claude(config, count_tokens),
         "openrouter": lambda: probe_openrouter(config),
+        "minimax": lambda: probe_minimax(config),
     }
     def bound_probe(name, fn):
         if name == "codex":
@@ -708,7 +752,8 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
         base = {"name": name, "account": binding.public(), "observed_at": now()}
         if binding.status != "unverified":
             return {**base, "status": binding.status, "buckets": []}
-        variable = {"opencode": "OPENCODE_API_KEY", "openrouter": "OPENROUTER_API_KEY"}.get(name)
+        variable = {"opencode": "OPENCODE_API_KEY", "openrouter": "OPENROUTER_API_KEY",
+                    "minimax": "MINIMAX_API_KEY"}.get(name)
         if (variable and binding.source == "native" and (ROOT / ".infisical.json").exists()):
             key = secret(variable, config)
             scope = vault_scope()
@@ -719,7 +764,8 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
             base["native_binding"] = binding.public()
             if not key:
                 return {**base, "status": "no-credential", "buckets": []}
-            result = probe_opencode(config, key) if name == "opencode" else probe_openrouter(config, key)
+            result = {"opencode": probe_opencode, "openrouter": probe_openrouter,
+                      "minimax": probe_minimax}[name](config, key)
             return {**result, **base}
         result = fn()
         if accounts.select(name, config).fingerprint != binding.fingerprint:
@@ -1358,14 +1404,6 @@ QUESTIONS = {
     },
 }
 
-HEURISTIC = [
-    (r"\bmigrat|\bdrop table|\bauth|\bpassword|\bsecret|\bpayment|\bstripe|\bmoney|\bdeploy", "high_stakes"),
-    (r"\bdesign|\barchitect|\bplan\b|\bschema\b|\brefactor across|\bapi shape", "design"),
-    (r"\bdebug|\bflaky|\bintermittent|\bcannot reproduce|\bno repro|\bwhy does", "diagnosis"),
-    (r"\brename\b|\btypo\b|\bformat\b|\bcomment\b|\blint\b", "mechanical"),
-]
-
-
 def judge(spec: str) -> dict:
     key = secret("TYPESAFE_API_KEY")
     if key:
@@ -1435,21 +1473,8 @@ def load_judgment(path: Path, spec: str) -> dict:
 def heuristic(spec: str) -> dict:
     """Deliberately crude stand-in. It states that it is a stand-in so a bad
     route is never mistaken for a model's judgment."""
-    text = spec.lower()
-    tier = "implementation"
-    for pattern, label in HEURISTIC:
-        if re.search(pattern, text):
-            tier = label
-            break
-    size = 2.0 if re.search(r"\bacross\b|\ball \b|\bevery \b|\brepo-wide\b", text) else 0.6
-    return {
-        "tier": tier,
-        "tier_confidence": None,
-        "size": size,
-        "second_opinion": 0.7 if tier in ("high_stakes", "design", "diagnosis") else 0.2,
-        "spec_complete": 0.6,
-        "destructive": 0.7 if tier == "high_stakes" else 0.1,
-    }
+    from task_judgment import heuristic as classify
+    return classify(spec)
 
 
 # --------------------------------------------------------------------------
@@ -1504,6 +1529,44 @@ def worktree_name(spec: str, taken: set[str] | None = None) -> str:
     return name
 
 
+def qualified_candidates(candidates: list[str], config: dict, judgment: dict,
+                         minimum_band: int, review: bool = False) -> tuple[list[str], list[str]]:
+    """Apply declared task requirements before any quota preference.
+
+    Profiles are provisional operator policy, not benchmark-proven ability.
+    Older snapshots without profiles retain ladder-based capability semantics.
+    """
+    profiles = config.get("model_profiles")
+    if profiles is None:
+        return candidates, []
+    task_profile = config.get("task_profiles", {}).get(judgment["tier"])
+    if task_profile is None:
+        return [], [f"no capability requirements configured for task class {judgment['tier']}"]
+    requirements = set(task_profile.get("requires", []))
+    if review:
+        requirements.add("review")
+    accepted, notes = [], []
+    for text in candidates:
+        cand = parse_candidate(text)
+        key = f"{cand['provider']}:{cand['model']}"
+        profile = profiles.get(key)
+        if not profile:
+            notes.append(f"{text} skipped: no model capability profile")
+        elif profile.get("max_band", 0) < minimum_band:
+            notes.append(f"{text} skipped: below task quality floor {minimum_band}")
+        elif not requirements <= set(profile.get("capabilities", [])):
+            missing = sorted(requirements - set(profile.get("capabilities", [])))
+            notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
+        elif cand.get("effort") and cand["effort"] not in profile.get("efforts", []):
+            notes.append(f"{text} skipped: unsupported model effort {cand['effort']}")
+        elif (profile.get("effort_by_task", {}).get(judgment["tier"])
+              and profile["effort_by_task"][judgment["tier"]] not in profile.get("efforts", [])):
+            notes.append(f"{text} skipped: unsupported configured task effort")
+        else:
+            accepted.append(text)
+    return accepted, notes
+
+
 def effort_for(config: dict, cand: dict, band: int, judgment: dict, attempt: int = 0) -> tuple[str | None, str | None]:
     """How hard the worker should think, for providers that take the knob.
 
@@ -1514,11 +1577,18 @@ def effort_for(config: dict, cand: dict, band: int, judgment: dict, attempt: int
     just failed. Providers with no effort setting get None and the launcher
     leaves the flag off.
     """
+    profile = (config.get("model_profiles") or {}).get(
+        f"{cand['provider']}:{cand.get('model', '')}")
+    levels = profile.get("efforts", []) if profile is not None else EFFORTS
     table = (config.get("effort") or {}).get(cand["provider"]) or {}
-    base = cand.get("effort") or table.get(str(band))
-    if not base:
+    base = cand.get("effort") or (
+        profile.get("effort_by_task", {}).get(judgment["tier"]) if profile else None
+    ) or table.get(str(band))
+    if not levels or not base:
         return None, None
-    index = EFFORTS.index(base) if base in EFFORTS else 0
+    if base not in levels:
+        return None, f"effort {base} unsupported for this model; no effort emitted"
+    index = levels.index(base)
     thresholds = config.get("thresholds", {})
     bump, why = attempt, []
     if attempt:
@@ -1527,7 +1597,7 @@ def effort_for(config: dict, cand: dict, band: int, judgment: dict, attempt: int
             or judgment.get("destructive", 0) >= float(thresholds.get("destructive_min", 0.5))):
         bump += 1
         why.append("wide blast radius or an irreversible step")
-    raised = EFFORTS[min(index + bump, len(EFFORTS) - 1)]
+    raised = levels[min(index + bump, len(levels) - 1)]
     if raised == base:
         return base, None
     return raised, f"effort {base} -> {raised}: " + ", ".join(why)
@@ -1773,10 +1843,11 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
             task["points"] = debit(elig, config, provider, decision["band"])
             # A review leg is a second dispatch and costs like one.
             if decision.get("review"):
-                task["points"] += debit(elig, config, decision["review"]["provider"], 1)
+                task["points"] += debit(elig, config, decision["review"]["provider"],
+                                         decision.get("review_band", 1))
             task["wave"] = wave
             decision["worktree_name"] = task["name"]
-            log_decision(decision, task["spec"], dispatched=hold)
+            log_decision(decision, task["spec"], dispatched=hold, config=config)
             if hold:
                 decision["reservation"] = reserve(provider, task["points"], decision["band"],
                                                   task["spec"], ttl, task["name"])
@@ -1803,6 +1874,9 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
         bucket = waves.setdefault(task["wave"], {"tasks": 0, "providers": {}})
         bucket["tasks"] += 1
         bucket["providers"][pick["provider"]] = bucket["providers"].get(pick["provider"], 0) + 1
+    for task in tasks:
+        if task["decision"] and not task["decision"].get("decision_id"):
+            log_decision(task["decision"], task["spec"], config=config)
     return {
         "tasks": tasks,
         "waves": waves,
@@ -1819,20 +1893,14 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
 def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
            floor_band: int = 0, exclude: set[str] | None = None, attempt: int = 0,
            relax_pace: bool = False) -> dict:
-    """One decision against one eligibility snapshot.
-
-    `fallback` is the difference between a single dispatch and a wave of them.
-    Alone, a task must never be stranded, so a full band drops to a cheaper one
-    and then escalates rather than returning nothing. Inside a batch there is a
-    next wave, so a task whose band is full waits for one instead of being
-    answered with a model that is wrong for it in the other direction: sending
-    ordinary implementation work to a band 3 model because the cheap plans are
-    busy is the expensive mistake this tool exists to prevent.
-    """
+    """Choose task-qualified models, then allocate quota without lowering quality."""
     band, reasons = band_for(judgment, config)
-    if floor_band and band < floor_band:
-        band = min(3, floor_band)
-        reasons.append(f"a previous attempt was band {floor_band - 1}, so this starts at band {band}")
+    requested_floor = (config.get("task_profiles", {}).get(judgment["tier"]) or {}).get(
+        "minimum_band", band)
+    minimum_band = min(3, max(band, floor_band, requested_floor))
+    if minimum_band > band:
+        reasons.append(f"task or retry quality floor raises band {band} to {minimum_band}")
+    band = minimum_band
     thresholds = config.get("thresholds", {})
     blocked = None
     if judgment["spec_complete"] < float(thresholds.get("spec_complete_min", 0.5)):
@@ -1841,45 +1909,68 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
             "tighten the brief before dispatching it to any worker"
         )
 
-    ladders = config["bands"]
-    chosen, notes = pick(ladders[str(band)], elig, band, exclude, config, relax_pace=relax_pace)
+    ladders, notes = {}, []
+    for level, ladder in config["bands"].items():
+        ladders[level], excluded = qualified_candidates(ladder, config, judgment, minimum_band)
+        notes += excluded
+    chosen, selection_notes = pick(ladders[str(band)], elig, band, exclude, config,
+                                  relax_pace=relax_pace)
+    notes += selection_notes
     used_band = band
     if chosen is None and not fallback:
-        reasons.append(f"band {band} is full; holding this task for a later wave "
-                       "rather than moving it to a band that suits it worse")
-    while fallback and chosen is None and used_band > 1:
-        used_band -= 1
-        reasons.append(f"nothing eligible in band {used_band + 1}, dropping to band {used_band}")
-        chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude, config)
-        notes += more
+        reasons.append(f"band {band} unavailable; holding for a qualified model in a later wave")
     if fallback and chosen is None and band < 3:
-        # Pacing holds a provider's room back for work that has nowhere cheaper
-        # to go. This task has nowhere cheaper to go, and escalating it would
-        # spend the same strained plan on the priciest rung, which is the
-        # opposite of what holding it back was for.
+        # Only relax the existing forecast-based pacing rule, never task fit,
+        # measured burn, reserves or the task/retry quality floor.
         chosen, more = pick(ladders[str(band)], elig, band, exclude, config, relax_pace=True)
         notes += more
         if chosen is not None:
-            reasons.append(f"every band {band} candidate is over pace, but escalating would spend"
-                           " the same plans on a dearer model, so this stays where it is")
-            used_band = band
-    if fallback and chosen is None and band < 3:
-        reasons.append("nothing eligible below band 3, escalating instead of failing")
-        chosen, more = pick(ladders["3"], elig, 3, exclude, config)
+            reasons.append(f"band {band} stays within its quality floor with forecast pacing relaxed")
+    while fallback and chosen is None and used_band < 3:
+        used_band += 1
+        reasons.append(f"no qualified capacity in band {used_band - 1}; trying band {used_band}")
+        chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude, config)
         notes += more
-        used_band = 3
+    if chosen is None:
+        used_band = minimum_band
+        reasons.append(f"no qualified capacity; quality floor {minimum_band} is preserved")
 
     if chosen:
         chosen = dict(chosen)
         chosen["effort"], effort_reason = effort_for(config, chosen, used_band, judgment, attempt)
         if effort_reason:
             reasons.append(effort_reason)
+        profile = (config.get("model_profiles") or {}).get(
+            f"{chosen['provider']}:{chosen['model']}")
+        if profile:
+            notes.append("model capability evidence: " + profile.get("evidence", "unspecified"))
 
     review = None
-    if judgment["second_opinion"] >= float(thresholds.get("second_opinion_min", 0.6)) and chosen:
-        others = [c for c in config["review_ladder"] if parse_candidate(c)["provider"] != chosen["provider"]]
-        review, review_notes = pick(others, elig, 1, None, config)
-        notes += [f"review: {n}" for n in review_notes]
+    review_band = minimum_band
+    review_required = (judgment["tier"] == "high_stakes" or
+                       judgment["second_opinion"] >= float(thresholds.get("second_opinion_min", 0.6)))
+    if judgment["tier"] == "high_stakes":
+        reasons.append("high-stakes work requires independent review before acceptance")
+    if review_required and chosen:
+        candidates = config["review_ladder"] if review_band == 1 else ladders[str(review_band)]
+        profiles = config.get("model_profiles") or {}
+        selected_profile = profiles.get(f"{chosen['provider']}:{chosen['model']}", {})
+        selected_family = selected_profile.get("family", chosen["model"])
+        others = []
+        for candidate in candidates:
+            parsed = parse_candidate(candidate)
+            profile = profiles.get(f"{parsed['provider']}:{parsed['model']}", {})
+            if (parsed["provider"] != chosen["provider"]
+                    and profile.get("family", parsed["model"]) != selected_family):
+                others.append(candidate)
+        others, review_notes = qualified_candidates(others, config, judgment, minimum_band, review=True)
+        review, selection_notes = pick(others, elig, review_band, None, config)
+        notes += [f"review: {n}" for n in review_notes + selection_notes]
+        if review:
+            review = dict(review)
+            review["effort"], _ = effort_for(config, review, review_band, judgment)
+        else:
+            notes.append("review: no independent qualified capacity; review remains outstanding")
 
     confirm = judgment["destructive"] >= float(thresholds.get("destructive_min", 0.5))
     if confirm:
@@ -1891,11 +1982,14 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
     return {
         "blocked": blocked,
         "band": used_band,
+        "quality_floor": minimum_band,
+        "review_band": review_band,
         "judgment": judgment,
         "pick": chosen,
         "account": elig[chosen["provider"]].get("account") if chosen else None,
         "agent": config["agents"].get(chosen["provider"]) if chosen else None,
         "review": review,
+        "review_required": review_required,
         "confirm_first": confirm,
         "reasons": reasons,
         "notes": notes,
@@ -2087,6 +2181,11 @@ def refresh() -> dict:
         "models": {mid: go_priced.get(mid, {}) for mid in go_available} or go_priced,
     }
 
+    registry["providers"]["minimax"] = {
+        "billing": "MiniMax Token Plan (Ultra), rolling and weekly subscription quota",
+        "models": priced("minimax-coding-plan"),
+    }
+
     zen_key = secret("OPENCODE_ZEN_API_KEY")
     zen_available = []
     if zen_key:
@@ -2265,14 +2364,14 @@ def cmd_route(args, config):
         return 2
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve,
                      judgment=judgment)
-    log_decision(decision, spec, dispatched=args.reserve)
+    log_decision(decision, spec, dispatched=args.reserve, config=config)
     return print_decision(decision, args, config, spec)
 
 
 def cmd_rerun(args, config):
     spec = args.task or Path(args.spec).read_text()
     decision = rerun(spec, args.because, args.previous, config)
-    log_decision(decision, spec)
+    log_decision(decision, spec, config=config)
     return print_decision(decision, args, config, spec)
 
 
@@ -2281,6 +2380,8 @@ def print_decision(args_decision, args, config, spec: str | None = None):
     if args.json:
         print(json.dumps(decision, indent=2))
         return 0
+    if decision.get("decision_id"):
+        print(f"decision   {decision['decision_id']} (use report --started --decision-id to bind launch)")
     judgment = decision["judgment"]
     if decision.get("previous"):
         print(f"rerun      {decision['previous']} did not finish it: {decision['reason_for_rerun']}")
@@ -2302,6 +2403,8 @@ def print_decision(args_decision, args, config, spec: str | None = None):
     if decision["review"]:
         review = decision["review"]
         print(f"review     {review['provider']} {review['model']}")
+    elif decision.get("review_required"):
+        print("review     required before acceptance; independent reviewer outstanding")
     if decision["confirm_first"]:
         print("confirm    irreversible step, ask a human first")
     if decision.get("reservation"):
@@ -2378,7 +2481,8 @@ def cmd_report(args, config):
             print("--started needs --model, --task and --dispatch (a stable launch id)", file=sys.stderr)
             return 2
         receipt = record_launch(config, name, args.model, args.task, args.dispatch,
-                                args.worktree, args.effort)
+                                args.worktree, args.effort, args.decision_id,
+                                args.override_reason, args.native_session)
         print(f"{name}: recorded launch {args.dispatch}, reservation {receipt}")
         return 0
     if args.clear:
@@ -2422,8 +2526,13 @@ def cmd_report(args, config):
 
 
 def record_launch(config: dict, provider: str, model: str, task: str,
-                  dispatch: str, worktree: str | None = None, effort: str | None = None) -> str:
+                  dispatch: str, worktree: str | None = None, effort: str | None = None,
+                  decision_id: str | None = None, override_reason: str | None = None,
+                  native_session: str | None = None) -> str:
     """Account for a launch that happened, never make another routing decision."""
+    import outcome_cli
+    outcome_cli.record_launch(sys.modules[__name__], config, provider, model, task,
+                              dispatch, worktree, effort, decision_id, override_reason, native_session)
     bands = [int(band) for band, ladder in config["bands"].items()
              for text in ladder if parse_candidate(text)["provider"] == provider
              and parse_candidate(text)["model"] == model]
@@ -2583,7 +2692,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
 
     for variable, why in (("TYPESAFE_API_KEY", "the judgment falls back to a keyword heuristic"),
                           ("OPENROUTER_API_KEY", "OpenRouter is unavailable"),
-                          ("OPENCODE_API_KEY", "OpenCode quota cannot be read")):
+                          ("OPENCODE_API_KEY", "OpenCode quota cannot be read"),
+                          ("MINIMAX_API_KEY", "MiniMax subscription quota cannot be read")):
         if os.environ.get(variable):
             out.append(("ok", f"{variable}: environment selected; unverified"))
         elif (ROOT / ".infisical.json").exists():
@@ -2592,7 +2702,7 @@ def doctor(config: dict) -> list[tuple[str, str]]:
             else:
                 out.append(("warn", f"{variable}: vault binding incomplete; explicit project,"
                                     " environment and rightsizePath required"))
-        elif variable == "OPENCODE_API_KEY" and OPENCODE_AUTH.is_file():
+        elif variable in ("OPENCODE_API_KEY", "MINIMAX_API_KEY") and OPENCODE_AUTH.is_file():
             out.append(("ok", f"{variable}: native auth store present; unverified"))
         else:
             out.append(("warn", f"{variable} missing: {why}"))
@@ -2777,7 +2887,8 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
     return rows
 
 
-def log_decision(decision: dict, spec: str, dispatched: bool = False) -> None:
+def log_decision(decision: dict, spec: str, dispatched: bool = False,
+                 config: dict | None = None) -> None:
     """Remember what was recommended, so it can be checked against what ran.
 
     A recommendation nobody can verify is a recommendation nobody has to
@@ -2790,6 +2901,9 @@ def log_decision(decision: dict, spec: str, dispatched: bool = False) -> None:
     launch followed. Auditing the two together buries the dispatches that
     really did go missing among the ones nobody ever started.
     """
+    import outcome_cli
+    outcome_cli.record_decision(sys.modules[__name__], decision, spec,
+                                config if config is not None else load_config()[0])
     if not decision.get("pick"):
         return
     with state_lock():
@@ -2811,11 +2925,13 @@ def log_decision(decision: dict, spec: str, dispatched: bool = False) -> None:
                     save_json(STATE, state)
                 return
         entries.append({
+            "decision_id": decision["decision_id"],
             "at": now(),
             "provider": decision["pick"]["provider"],
             "model": decision["pick"]["model"],
             "effort": decision["pick"].get("effort"),
             "band": decision["band"],
+            "quality_floor": decision.get("quality_floor"),
             "name": decision.get("worktree_name"),
             "task": " ".join(spec.split())[:120],
             "dispatched": dispatched,
@@ -3068,6 +3184,11 @@ def cmd_doctor(args, config):
     return 1 if any(level == "error" for level, _ in findings) else 0
 
 
+def cmd_outcome(args, config):
+    import outcome_cli
+    return outcome_cli.command(args, config, sys.modules[__name__])
+
+
 def cmd_context(args, config):
     import context_manifest
     from urllib.parse import urlparse
@@ -3287,6 +3408,9 @@ def main(argv=None):
     report.add_argument("--task", help="launched task brief")
     report.add_argument("--dispatch", help="orchestrator dispatch id or stable tool-call id")
     report.add_argument("--worktree", help="actual worktree path or name")
+    report.add_argument("--decision-id", help="exact route decision id; no brief or timestamp matching")
+    report.add_argument("--override-reason", help="required when launched choice differs from recommendation")
+    report.add_argument("--native-session", help="native session id when directly observed")
     report.add_argument("--quota-error", action="store_true", default=True,
                         help="the worker failed on quota (default)")
     report.add_argument("--free-request", action="store_true",
@@ -3298,6 +3422,19 @@ def main(argv=None):
     report.add_argument("--minutes", type=int, default=60,
                         help="cooldown when the provider publishes no reset time")
     report.set_defaults(func=cmd_report)
+
+    outcome = sub.add_parser("outcome", help="durable advisory launch, review and acceptance evidence")
+    outcome_sub = outcome.add_subparsers(dest="action", required=True)
+    outcome_audit = outcome_sub.add_parser("audit", help="read-only project metrics with coverage denominators")
+    outcome_audit.add_argument("--project", help="exact caller project directory recorded by route")
+    outcome_audit.set_defaults(func=cmd_outcome, json=True)
+    outcome_record = outcome_sub.add_parser("record", help="record explicit evidence; settlement is not acceptance")
+    outcome_record.add_argument("--dispatch", required=True)
+    outcome_record.add_argument("--event-id", required=True, help="stable unique id for idempotent retries")
+    outcome_record.add_argument("--kind", required=True,
+                                choices=["completed", "failed", "cancelled", "review", "rework", "usage", "accepted"])
+    outcome_record.add_argument("--data", required=True, help="JSON data for this event, at most 64 KiB")
+    outcome_record.set_defaults(func=cmd_outcome, json=True)
 
     deals_cmd = sub.add_parser("deals", help="free models, price drops and catalogue changes")
     deals_cmd.add_argument("--limit", type=int, default=12)
@@ -3326,11 +3463,13 @@ def main(argv=None):
             import state_migration
             STATE = state_migration.active_path(STATE)
         return args.func(args, config)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, sqlite3.DatabaseError) as exc:
         from managed_ledger import LedgerError
-        if not isinstance(exc, LedgerError):
+        from outcome_store import OutcomeError
+        if not isinstance(exc, (LedgerError, OutcomeError, sqlite3.DatabaseError)) and args.command != "outcome":
             raise
-        print(json.dumps({"status": "error", "reason": str(exc)}), file=sys.stderr)
+        reason = str(exc) if isinstance(exc, (LedgerError, OutcomeError)) else "runtime evidence input or state unavailable/invalid"
+        print(json.dumps({"status": "error", "reason": reason}), file=sys.stderr)
         return 2
     finally:
         STATE = previous_state

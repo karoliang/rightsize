@@ -19,49 +19,44 @@ Each provider returns buckets shaped `{id, percent, resets_at, source}`, where
 not the same as zero. An unknown number flows through the whole policy as
 unknown; it is never rounded into "probably fine".
 
-| Provider | Source | `source` field |
-| --- | --- | --- |
-| OpenCode Go | `GET /zen/go/v1/usage`, three buckets with reset times | `live` |
-| Codex | `rate_limits` in the newest rollout transcript | `stale-lower-bound` |
-| Claude Code | tokens reconstructed from transcripts, divided by a declared budget | `computed` or `no-budget-set` |
-| OpenRouter | `GET /api/v1/key` for credit, a local counter for free requests | `live` / `local-count` |
-| OpenCode Zen free models | no meter exists | `free: true` |
+| Provider | Current quota source |
+| --- | --- |
+| OpenCode Go | `GET /zen/go/v1/usage`, rolling/weekly/monthly windows |
+| Codex | Native `codex app-server` rate-limit control under the selected account home; no rollout/transcript fallback |
+| Claude Code | Native stream-json `get_usage` under verified login; explicitly labelled transcript/declared-budget fallback only when native control is unavailable |
+| OpenRouter | Live key limits or account credits; published free-request counter when present, otherwise the local reported-request counter |
+| MiniMax Token Plan | Native Token Plan remains endpoint, explicit rolling/weekly remaining percentages; ambiguous count fields are ignored |
+| OpenCode Zen free | No measurable subscription quota; labelled free |
 
-### A reading has an age, and age is not the same as caching
+Native identity and freshness are separate from numeric headroom. Missing native
+freshness or unreadable windows cannot become zero usage. Codex rollout files can
+be shared across homes, so their location cannot establish quota-account identity.
+Claude's computed fallback is an estimate, not eligibility for managed native
+execution. Codex and Claude use different native protocols.
 
-Caching is about not asking the same question twice in a minute. **Staleness is
-about a source that cannot be asked at all.** OpenCode and OpenRouter answer
-live whenever you ask. Codex does not: its numbers exist only in the transcript
-of the last Codex session, so between sessions the file ages while the real
-quota moves underneath it.
+Probes run in parallel; the ordinary cache lifetime is60 seconds. `probe` and
+`route --fresh` re-read. A cached reading is not a guarantee that quota or account
+identity stayed unchanged; managed admission and execution perform their own
+identity, freshness and denial checks.
 
-That failed in exactly the dangerous direction. A 19-hour-old reading of 93 per
-cent used kept Codex hard-blocked after its quota had moved on, and nothing in
-the output said the number was from yesterday. An old **high** reading is worse
-than no reading, because it looks authoritative and removes a provider.
+### Advisory versus managed execution
 
-So a file-sourced bucket now carries `age_seconds`, and:
+Plain `route` and `plan` record recommendations but create no quota holds.
+`--reserve` creates legacy advisory holds in the active JSON state. Explicit
+launch reports account for actual external dispatches. Those records do not
+prove that an Orca worker used the probed account, and advisory hooks cannot
+prevent every external launch.
 
-- past `staleness_seconds` (6h for Codex) the percentage becomes `None`, which
-  means escalation-only rather than unusable, and `probe` prints
-  `expired-reading  observed 19h 51m ago`;
-- if its `resets_at` has already passed, the window rolled over and the bucket
-  is counted as **empty**, with the reset time rolled forward. Codex usage only
-  accrues by running Codex, and running Codex writes a newer reading, so a
-  window newer than the newest transcript has nothing spent in it.
+The separate `managed.sqlite3` ledger uses atomic admission transactions and
+native launch/reconciliation evidence. It does not turn legacy external launches
+into managed ones. Claude managed execution requires explicit disabled usage
+credits; Codex requires native included-usage permission. Keep upstream Orca
+account-handoff limits visible rather than inferring binding from a model name.
+See [MANAGED.md](MANAGED.md) and [NATIVE-ADAPTERS.md](NATIVE-ADAPTERS.md).
 
-Refreshing it needs an interactive Codex session. Verified 2026-09-20:
-`codex exec` answers but writes no rollout, and neither Codex's own sqlite
-stores nor Orca's local files carry the numbers, which is what
-[Orca issue #21746](https://github.com/stablyai/orca/issues/21746) asks for.
-
-Probes run in parallel and the reading is cached for `cache_seconds` (60 by
-default). A dispatch takes minutes; a quota number from a minute ago is the
-same number. `rightsize probe` and `route --fresh` always re-read.
-
-The Claude transcript scan is the slowest thing in the tool and only `rightsize
-probe` pays for it: with no budget set, the percentage is `None` whatever the
-count says, so routing would be buying a number that cannot change its answer.
+The additional `outcomes.sqlite3` is private advisory evidence: durable decision,
+launch, completion, review, acceptance, usage and rework records. It owns no quota
+and does not change the managed database. See [consumer workflow](CONSUMER-WORKFLOW.md).
 
 ## 2. Eligibility: pure arithmetic, no opinions
 
@@ -154,7 +149,7 @@ Exit code 1, so a script can stop there.
 mechanical, implementation            -> band 1
 design, diagnosis, high_stakes        -> band 3
 size >= size_escalates_band (1.5)     -> +1 band (never past 3 by this route)
-second_opinion >= 0.6                 -> add a review leg, band unchanged
+high_stakes OR second_opinion >= 0.6 -> require independent review, band unchanged
 ```
 
 Band 1 is the default because price is the burn multiplier on a percent-bucket
@@ -168,8 +163,7 @@ Walk the band's ladder from `config.json`, dropping candidates whose provider:
 
 - is not eligible;
 - has **unknown** headroom, while the band is below 3 and the provider is not
-  free. This is the rule that keeps Claude Code escalation-only: an estimate
-  must never masquerade as spendable capacity;
+  free. An unreadable window must never masquerade as spendable capacity;
 - is **overrunning**, while the band is below 3.
 
 Then the order depends on how expensive this dispatch is.
@@ -208,14 +202,37 @@ two minutes. Timing a call that never produces an answer measures the wait for a
 refusal, not the model. Their speed and their coding ability are unmeasured, not
 bad; the retest is one command and is in `config.json` beside the ladder.
 
-**Nothing eligible?** Fall down one band at a time, then, if still nothing below
-band 3, escalate to band 3 rather than return nothing. A run is never stranded
-because the cheap options are gone.
+**Task fit first.** Task profiles declare required capabilities and a minimum
+band. Model profiles declare provisional capabilities, maximum approved band,
+family and supported effort levels. Missing profiles and incompatible models
+are excluded before quota ordering. These assignments preserve the existing
+ladder; they are not comparative quality results.
 
-**Review leg.** When `second_opinion` clears its threshold, a second candidate
-is picked from `review_ladder`, filtered to a different provider than the
-primary. A model reviewing its own work is worth less than a cheap model from
-another vendor reviewing it.
+The shipped capability and family assignments are provisional operator policy,
+not model-certified or comparative benchmark results. Supported effort controls
+come from the installed runtime/catalog evidence described in [TASK-FIT.md](TASK-FIT.md).
+The completed paired pilot selected the same Codex models on both arms; its20/20
+acceptance per arm does not establish cross-model superiority. Do not assign a
+capability merely to make a blocked task run.
+
+**Nothing eligible?** Preserve the task's original band and any stricter task
+or retry floor. A single route may relax forecast pacing within that band
+(existing measured-burn/reserve checks still apply), then try higher bands.
+It returns no pick when qualified capacity is unavailable. Never downgrade a
+high-stakes task because a cheap plan has quota.
+
+**Review leg.** The review uses the same quality floor and task requirements.
+Band1 uses the configured review ladder; higher floors use the corresponding
+band ladder. Exclude the same provider and the same declared model family,
+including a model served by different subscription providers. A missing review
+is explicitly outstanding, not completed. Planner debits use the review band.
+
+High-stakes tasks require independent review even below the optional score
+threshold. Other tasks require it at `second_opinion >= 0.6`. A missing reviewer
+remains outstanding. The advisory outcome store requires linked completion,
+evidence-backed acceptance and a qualifying accepted review after any recorded
+repairs. External worker settlement remains separate. See the exact receipt and
+event commands in [CONSUMER-WORKFLOW.md](CONSUMER-WORKFLOW.md).
 
 **Irreversible steps.** When `destructive` clears its threshold, the decision is
 marked `confirm_first`. rightsize never decides that a migration or a deploy may
@@ -223,19 +240,15 @@ run unattended; it only makes sure nobody dispatches one without noticing.
 
 ## 6. Effort: the second dial
 
-The band chooses which model. For CLIs that expose a reasoning-effort setting,
-`config.effort` maps band to a level per provider, and three things raise it one
-step without touching the model choice:
+The model profile supplies supported effort levels and task-specific defaults.
+An explicit ladder effort overrides the default only when supported. Retry
+count increases effort by that many supported steps; wide blast radius or an
+irreversible step adds one further step, capped at the model's highest supported
+level. Never translate an effort label into an equivalent amount of reasoning
+across providers. Models with no exposed effort control receive no flag.
 
-```
-size >= size_escalates_band   -> +1   (a wide blast radius wants more care)
-destructive >= destructive_min -> +1  (an irreversible step wants more care)
-attempt (a rerun)             -> +1   (the last attempt at this level failed)
-```
-
-A candidate that names its own effort on the ladder (`codex:gpt-6-astra:high`)
-starts from that. A provider absent from `config.effort` gets `None`, and its
-launcher template leaves the flag off rather than inventing a level.
+Older configurations without model profiles retain provider-level defaults.
+The shipped configuration uses profiles. See [task-fit details](TASK-FIT.md).
 
 ## 7. Reroute: the work is better evidence than the brief
 
@@ -302,11 +315,11 @@ every dispatch, and a scan that last ran hours ago has not seen what happened
 since. Providers with no local session record (Codex, OpenRouter, the Zen free
 models) keep their estimate and say so.
 
-Claude is the exception in the other direction: it publishes no percentage to
-divide, so calibration reports tokens instead and suggests a
-`weekly_token_budget` from them. That number comes from rightsize's own
-transcript scan rather than Orca's totals, which keep only the most recent
-sessions and omit cache creation: 18M against an actual 218M.
+When Claude's native percentage is unavailable, calibration can report
+transcript tokens and suggest a declared `weekly_token_budget`. That fallback
+is explicitly an estimate, not native subscription telemetry or managed
+eligibility. The transcript scan includes categories omitted by older Orca
+usage summaries; do not mix counters without checking their definitions.
 
 Reservations are taken by `route --reserve` and by `plan --reserve`, never by a
 plain `route`: a decision made to look at the numbers must not eat capacity
@@ -314,6 +327,15 @@ nobody is going to spend. They are released by
 `rightsize report <provider> --done`, and they expire on their own after
 `reservation_ttl_seconds` (1800), because a worker that dies silently must not
 hold a plan hostage.
+
+Managed admission is the same idea with stronger guarantees: it is an
+atomic `managed.sqlite3` write under `BEGIN IMMEDIATE`, with point and slot
+commitments taken together, idempotency keys and per-attempt receipts. The
+legacy compatibility lock stops concurrent advisory writers from racing a
+managed hold, and `managed run` re-validates the native quota and account
+fingerprint before issuing a launch claim. Advisory `state.json` and
+managed `managed.sqlite3` stay separate on disk; nothing here is claimed to
+exist as a single unified ledger.
 
 ### An in-flight limit per provider
 
@@ -344,8 +366,8 @@ wave 3:  26 tasks  (openrouter 12, opencode 10, codex 4)
 
 ### One rule inverts inside a batch
 
-A single `route` never strands a task: a full band drops to a cheaper one and
-then escalates, because the alternative is a run that does not happen.
+A single `route` may escalate to a higher band, but never drops below the
+task/retry quality floor. If no qualified capacity exists, it returns no pick.
 
 Inside a batch there is a next wave, so `plan` does the opposite and holds the
 task. Sending ordinary implementation work to a band 3 model because the cheap
@@ -369,6 +391,10 @@ rightsize report opencode --quota-error
 That marks the provider exhausted until the latest known denied bucket reset (or a
 `--minutes` cooldown when the provider publishes no reset time), so the next
 route picks the next eligible candidate instead. `--clear` lifts it early.
+
+Managed native outcomes retain their own evidence-backed lifecycle and denial
+checks. Do not treat an advisory success report as managed completion or assume
+these paths are isolated from the shared legacy denial/commitment checks.
 
 ## Changing any of this
 

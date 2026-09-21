@@ -237,8 +237,8 @@ waves (each one runs after the previous reports done)
   keeps every quota debit, so a plan runs out of capacity eventually instead of
   scheduling forever.
 
-One rule deliberately inverts here. A single `route` never strands a task: a
-full band drops a tier and then escalates. Inside a batch there is a next wave,
+A single `route` may try a higher band, but never lowers the task or retry
+quality floor. Inside a batch there is a next wave,
 so `plan` holds the task instead.
 
 ## Check that the pick was used, and that it worked
@@ -265,12 +265,12 @@ OBEYED BUT FAILED  2h ago  band 3  rotate-stripe-webhook-secret
                   rightsize rerun --task '...' --previous claude:claude-opus-5 --because "..."
 ```
 
-Decisions are joined to outcomes by the **brief**, which both sides share,
-rather than by a worktree name that rightsize only suggests. A route made to
-read the numbers is recorded as such, so it is never counted as a dispatch that
-went missing. [docs/OUTCOMES.md](docs/OUTCOMES.md) inventories every signal
-this can see, with a real value read for each, and states plainly what it still
-cannot know: whether a different model would have done better.
+This legacy audit uses exact dispatch receipts where available, with brief and
+session-time matching for older evidence. Unknown and ambiguous joins remain
+unproven. Use `outcome audit` for durable exact decision/dispatch joins and
+explicit acceptance; neither report establishes that a different model would
+have performed better. [docs/OUTCOMES.md](docs/OUTCOMES.md) inventories the older
+sources and their limits.
 
 ## What a dispatch costs, measured
 
@@ -520,3 +520,26 @@ applies to `route`, not batch planning or retries. JSON consumers must inspect
 to launch. This option does not load skills or execute a worker by itself.
 
 See [ADR0001](docs/decisions/0001-local-task-router.md) for the staged architecture.
+
+MiniMax Ultra is supported as a separate band-2 Token Plan provider using
+MiniMax-M3. See [MiniMax and Orca setup](docs/MINIMAX.md) for credentials,
+native CLI installation and current verification limits.
+
+Task/model capability profiles now filter candidates before quota ordering.
+Effort follows the selected model’s supported levels and task defaults.
+See [task-fit policy](docs/TASK-FIT.md) for provisional assignments and limits.
+
+## Consumer acceptance evidence
+
+External Orca workflows can now retain exact decisions beyond the legacy
+200-entry history. Route/plan outputs include a `decision_id`; pass it to
+`report --started --decision-id ID`, preserving the exact task text, actual
+model/effort and any override reason. `outcome record` separates completion,
+independent review, repairs, usage and acceptance; `outcome audit --project PATH`
+reports coverage and time to accepted tasks, including recorded retries.
+
+High-stakes work requires independent review even when its optional review score
+is low. This gates recorded advisory acceptance, not external Orca settlement or
+managed admission. The fallback classifier also separates path metadata from
+risk and domain correctness from irreversible actions. See
+[the consumer workflow](docs/CONSUMER-WORKFLOW.md) for payloads and limitations.

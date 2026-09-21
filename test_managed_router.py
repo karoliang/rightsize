@@ -77,6 +77,8 @@ class ManagedRouterTests(unittest.TestCase):
         probe = {**self.probes["codex"], "name": "openrouter", "account": accounts.select("openrouter").public()}
         config = r.load_config()[0]
         config["bands"] = {str(band): ["openrouter:fixture-model"] for band in (1, 2, 3)}
+        config["model_profiles"]["openrouter:fixture-model"] = {
+            "max_band": 3, "capabilities": ["code"], "efforts": []}
         self.probes = {"openrouter": probe}
         with patch.object(r, "load_config", return_value=(config, None)):
             code, result, _ = self.invoke()

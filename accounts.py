@@ -10,14 +10,15 @@ import subprocess
 
 
 RUNTIMES = {"codex": "codex", "claude": "claude", "opencode": "opencode",
-            "opencode_zen": "opencode", "openrouter": "opencode"}
+            "opencode_zen": "opencode", "openrouter": "opencode", "minimax": "opencode"}
 HOME_VARIABLES = {"codex": "CODEX_HOME", "claude": "CLAUDE_CONFIG_DIR",
                   "opencode": "XDG_DATA_HOME"}
 KEY_VARIABLES = {"codex": ("OPENAI_API_KEY", "CODEX_API_KEY"),
                  "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
                  "opencode": ("OPENCODE_API_KEY",),
                  "opencode_zen": ("OPENCODE_ZEN_API_KEY",),
-                 "openrouter": ("OPENROUTER_API_KEY",)}
+                 "openrouter": ("OPENROUTER_API_KEY",),
+                 "minimax": ("MINIMAX_API_KEY",)}
 
 
 def digest(value):

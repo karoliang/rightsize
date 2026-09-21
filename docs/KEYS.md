@@ -236,3 +236,9 @@ Shell command rendering pins the same native home and refuses a changed binding.
 Orca terminals and vault-to-native credential delivery require a managed adapter;
 a printed legacy command cannot prove their account identity and is withheld for
 bound decisions. This is an intentional migration boundary, not a successful launch.
+
+## MiniMax Ultra
+
+`MINIMAX_API_KEY` must be a Token Plan subscription key. Native fallback reads
+only OpenCode’s `minimax-coding-plan` entry. MCode browser OAuth remains owned
+by MCode and is not reused as an API key. See [setup](MINIMAX.md).
