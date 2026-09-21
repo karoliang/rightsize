@@ -39,7 +39,9 @@ jobs:
           python test_replay.py
           python rightsize.py replay --snapshot fixtures/replay.json
       - name: paired pilot corpus (offline only)
-        run: python test_pilot_tasks.py
+        run: |
+          python test_pilot_tasks.py
+          python test_pilot_acceptance.py
       - name: managed admission and fake launch lifecycle
         run: |
           python test_managed_ledger.py
@@ -59,3 +61,16 @@ jobs:
         run: |
           python rightsize.py --help
           python rightsize.py route --task "rename a local variable" --json || true
+  pilot-sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: fetch pinned acceptance runtime (no model requests)
+        run: docker pull python@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0
+      - name: prove acceptance and container isolation
+        env:
+          RIGHTSIZE_TEST_DOCKER: "1"
+        run: python test_pilot_acceptance.py

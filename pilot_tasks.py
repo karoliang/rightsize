@@ -17,6 +17,7 @@ import replay
 CORPUS = Path(__file__).resolve().parent / "fixtures/pilot/tasks.json"
 CORPUS_SHA256 = "ad301caa309d5ad52ba2b445e37f090860e10be846ff50b4ed1be8a0938276ea"
 TIERS = ("mechanical", "implementation", "diagnosis", "high_stakes")
+BUILTINS = "abs all any bool dict enumerate filter float int isinstance len list map max min range reversed round set sorted str sum tuple zip Exception ValueError TypeError"
 
 
 def digest(raw):
@@ -70,7 +71,9 @@ def prompt(row):
     return ("Edit solution.py to implement the following contract. Keep the solve "
             "function signature. Do not change TASK.md or add files. Use only Python "
             "builtins; no imports, file or network I/O, subprocesses, or external "
-            "dependencies. Do not mutate arguments. Inputs follow the stated domain.\n\n"
+            "dependencies. Keep executable code inside function definitions; no "
+            "decorators or dunder introspection. Do not mutate arguments. Inputs "
+            "follow the stated domain. Available builtins: " + BUILTINS + ".\n\n"
             + row["task"] + "\n")
 
 
