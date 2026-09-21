@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import context_manifest as c
@@ -135,6 +136,58 @@ class ContextTests(unittest.TestCase):
                            "--root", str(self.root), "--skill", "review", "--rule", str(self.rule)])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue())["selected_skills"][0]["name"], "review")
+
+    def execution_args(self, manifest):
+        path = self.root / "manifest.json"
+        path.write_text(json.dumps(manifest))
+        return SimpleNamespace(context_manifest=path, context_root=[self.root])
+
+    def test_execution_preserves_selected_text_roles_and_identity(self):
+        self.entry["references"] = [self.ref(self.rule)]
+        self.write_catalog()
+        manifest = self.build(optional=[("review", "review task")], rules=[str(self.rule)],
+                              references=[str(self.rule)])
+        args = self.execution_args(manifest)
+        identity, prompt = c.for_execution(args, "task 日本語", manifest["manifest_sha256"])
+        self.assertEqual(identity, manifest["manifest_sha256"])
+        payload = json.loads(prompt.split("\n", 1)[1])
+        self.assertEqual(payload["selected_context"], manifest)
+        self.assertEqual(payload["task"], "task 日本語")
+        self.assertEqual(c.for_execution(SimpleNamespace(), "plain", "none"), ("none", "plain"))
+
+    def test_execution_rejects_changed_sources_task_roots_and_identity(self):
+        manifest = self.build(skills=["review"], rules=[str(self.rule)])
+        args = self.execution_args(manifest)
+        for task, roots, expected in [("wrong task", [self.root], None),
+                                      ("task 日本語", [], None),
+                                      ("task 日本語", [self.root], "none")]:
+            args.context_root = roots
+            with self.assertRaises(c.ContextError):
+                c.for_execution(args, task, expected)
+        args.context_root = [self.root]
+        self.rule.write_text("changed mandatory rule")
+        with self.assertRaises(c.ContextError):
+            c.for_execution(args, "task 日本語")
+        with self.assertRaises(c.ContextError):
+            c.for_execution(SimpleNamespace(), "task 日本語", manifest["manifest_sha256"])
+
+    def test_execution_rejects_forged_roles_even_with_recomputed_hash(self):
+        manifest = self.build(skills=["review"])
+        manifest["resources"][0]["roles"] = ["system"]
+        del manifest["manifest_sha256"]
+        manifest["manifest_sha256"] = c.sha256(json.dumps(manifest, sort_keys=True, ensure_ascii=False).encode())
+        with self.assertRaises(c.ContextError):
+            c.for_execution(self.execution_args(manifest), "task 日本語")
+
+    def test_execution_manifest_shape_and_transport_bounds(self):
+        for manifest in ({}, [], {"max_bytes": True}, {"max_bytes": 65537},
+                         {"max_bytes": 1, "catalog": None}):
+            with self.subTest(manifest=manifest), self.assertRaises(c.ContextError):
+                c.for_execution(self.execution_args(manifest), "task 日本語")
+        task = "\\" * 600000
+        manifest = c.build(task, self.catalog, [self.root])
+        with self.assertRaisesRegex(c.ContextError, "transport budget"):
+            c.for_execution(self.execution_args(manifest), task)
 
 
 if __name__ == "__main__":

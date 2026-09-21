@@ -39,10 +39,11 @@ class ManagedRouterTests(unittest.TestCase):
                                     {"id": "primary-300m", "percent": 10, "source": "live",
                                      "resets_at": r.now() + 300}]}}
 
-    def invoke(self, action="admit", request="request-one", task="task-one"):
+    def invoke(self, action="admit", request="request-one", task="task-one", extra=()):
         argv = ["managed", action, "--spec", str(self.spec), "--judgment", str(self.judgment), "--task-id", task]
         if action == "admit":
             argv += ["--request-id", request]
+        argv += list(extra)
         stdout, stderr = io.StringIO(), io.StringIO()
         with patch.object(r, "probe_all", return_value=self.probes) as probe, \
                 patch.object(r, "judge", side_effect=AssertionError("no judge call")), \
@@ -58,6 +59,26 @@ class ManagedRouterTests(unittest.TestCase):
         self.assertFalse(result["lease_created"])
         self.assertEqual(count, 1)
         self.assertEqual(sorted(path.name for path in self.root.iterdir()), before)
+
+    def test_context_identity_bound_before_probes_and_lease_writes(self):
+        import context_manifest as context
+        catalog = self.root / "catalog.json"
+        catalog.write_text('{"schema_version":1,"skills":[]}')
+        rule = self.root / "AGENTS.md"
+        rule.write_text("Preserve caller permissions.")
+        manifest = context.build(self.spec.read_text(), catalog, [self.root], rules=[str(rule)])
+        path = self.root / "context.json"
+        path.write_text(json.dumps(manifest))
+        extra = ["--context-manifest", str(path), "--context-root", str(self.root)]
+        code, result, count = self.invoke(extra=extra)
+        self.assertEqual((code, count), (0, 1))
+        self.assertEqual(result["attempt"]["context_hash"], manifest["manifest_sha256"])
+        code, _, count = self.invoke()
+        self.assertEqual((code, count), (2, 0))
+        rule.write_text("Changed instructions")
+        code, _, count = self.invoke(request="new", extra=extra)
+        self.assertEqual((code, count), (2, 0))
+        self.assertEqual(len(self.ledger.read()), 1)
 
     def test_admit_idempotency_avoids_second_probe(self):
         code, result, count = self.invoke()

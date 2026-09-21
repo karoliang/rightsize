@@ -137,9 +137,11 @@ def execute(args, config, api):
         raise LedgerError("task exceeds 1 MiB")
     spec = raw.decode("utf-8")
     judgment = api.load_judgment(Path(args.judgment), spec)
+    from context_manifest import for_execution
+    context_hash, _ = for_execution(args, spec)
     floor = max(api.band_for(judgment, config)[0], args.floor)
     task = {"task_id": args.task_id, "spec_hash": hashlib.sha256(raw).hexdigest(),
-            "context_hash": "none", "judgment_source": judgment["source"], "floor": floor}
+            "context_hash": context_hash, "judgment_source": judgment["source"], "floor": floor}
     ledger = Ledger(ledger_path(api))
     state = legacy_state(api)
     attempts = ledger.read()

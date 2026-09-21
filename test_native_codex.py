@@ -230,17 +230,44 @@ class CodexTests(unittest.TestCase):
         self.assertEqual(result["status"], "reconciling")
 
     def test_owned_worktree_and_output_artifact_end_to_end(self):
+        import context_manifest as context
+        catalog = self.root / "catalog.json"
+        catalog.write_text('{"schema_version":1,"skills":[]}')
+        rule = self.root / "AGENTS.md"
+        rule.write_text("Preserve 日本語 and native permissions.\n")
+        manifest = context.build(self.spec.read_text(), catalog, [self.root], rules=[str(rule)])
+        manifest_path = self.root / "context.json"
+        manifest_path.write_text(json.dumps(manifest))
+        self.ledger.event(self.attempt["attempt_id"], "cancel-unused", "cancelling")
+        self.attempt = self.ledger.admit(request_key="context-request",
+            task={"task_id": "context-task", "spec_hash": r.hashlib.sha256(self.spec.read_bytes()).hexdigest(),
+                  "context_hash": manifest["manifest_sha256"], "judgment_source": "test", "floor": 1},
+            pick={"provider": "codex", "model": "test-model", "effort": "low", "band": 1},
+            observation={"status": "ok", "account": self.account, "observed_at": time.time(),
+                         "quota_account_ref": accounts.digest("codex:fixture-account"),
+                         "buckets": [{"id": "weekly", "percent": 0, "source": "live"}]},
+            points=1, slot_limit=1, binding_now=lambda: self.account)["attempt"]
         repo = self.root / "repo"
         repo.mkdir()
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                         "commit", "--allow-empty", "-qm", "initial"], check=True)
         def factory(ledger, config, prompt, cwd, **options):
+            payload = json.loads(prompt.split("\n", 1)[1])
+            self.assertEqual(payload["selected_context"], manifest)
+            self.assertEqual(payload["task"], self.spec.read_text())
             def transport(argv, **kwargs):
                 return FastTransport([sys.executable, "-u", "-c", FAKE], **kwargs)
             return Codex(ledger, config, prompt, cwd, transport=transport, **options)
         args = SimpleNamespace(attempt=self.attempt["attempt_id"], spec=str(self.spec), repo=str(repo),
-                               sandbox="read-only", timeout=5)
+                               sandbox="read-only", timeout=5, context_manifest=manifest_path,
+                               context_root=[self.root])
+        rule.write_text("changed source")
+        with patch.object(native_runs, "worktree", side_effect=AssertionError("no workspace mutation")), \
+                self.assertRaises(context.ContextError):
+            native_runs.execute(args, {}, r)
+        self.assertEqual(self.ledger.read(args.attempt)["state"], "admitted")
+        rule.write_text("Preserve 日本語 and native permissions.\n")
         with patch.object(native_runs.native_codex, "Codex", side_effect=factory):
             result = native_runs.execute(args, {}, r)
         self.assertEqual(result["status"], "completed")

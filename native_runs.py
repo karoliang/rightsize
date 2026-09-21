@@ -44,13 +44,12 @@ def execute(args, config, api):
         return {"status": "existing", "attempt": attempt}
     if attempt["pick"]["provider"] != "codex":
         raise LedgerError("native adapter not yet enabled for this provider")
-    if attempt["context_hash"] != "none":
-        raise LedgerError("selected context must be verified by its adapter before launch")
     with Path(args.spec).open("rb") as handle:
         raw = handle.read(1024 * 1024 + 1)
     if len(raw) > 1024 * 1024 or hashlib.sha256(raw).hexdigest() != attempt["spec_hash"]:
         raise LedgerError("execution spec does not match admitted task")
-    prompt = raw.decode("utf-8")
+    from context_manifest import for_execution
+    _, prompt = for_execution(args, raw.decode("utf-8"), attempt["context_hash"])
     root = api.STATE.parent / "executions" / attempt["attempt_id"]
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (root / "owner.lock").open("a") as lock:

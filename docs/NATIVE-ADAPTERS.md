@@ -84,7 +84,8 @@ claim an arbitrary caller-provided review file proves correctness. The live smok
 used an exact expected-output check; coding-task pilots require actual test and
 review criteria.
 
-Selected context-manifest delivery, additional runtimes and Orca recovery are
-still outstanding in #17. The current native path requires `context_hash=none`;
-the caller can already use bounded manifests when forming its judgment, and the
-native runtime continues loading its own repository instructions.
+Selected context is delivered when admission and run both receive the same
+`--context-manifest` and explicit `--context-root` approvals. Sources are rechecked
+before launch, and the manifest hash is bound to the admitted intent. See
+[context delivery](CONTEXT.md#managed-execution). Additional runtimes and Orca
+recovery remain outstanding in #17.

@@ -80,5 +80,32 @@ host instruction precedence as an explicit contract; source text cannot promote
 itself into a higher-priority instruction.
 
 The active agent can read this manifest and submit `route --judgment` from its
-understanding of the task. Managed adapters will consume the same selected context
-when preparing native execution; this command itself does not launch a worker.
+understanding of the task. The context command itself does not launch a worker.
+
+## Managed execution
+
+Pass the same manifest and approved roots at admission and execution:
+
+```sh
+rightsize managed admit --spec task.md --judgment judgment.json \
+  --task-id task-123 --request-id admission-123 \
+  --context-manifest context.json --context-root /approved --context-root /project
+rightsize managed run --attempt ATTEMPT_ID --spec task.md --repo /project \
+  --context-manifest context.json --context-root /approved --context-root /project
+```
+
+Plan accepts the same context flags. Each invocation rebuilds the manifest from
+current selected sources before quota probes or launch side effects. The embedded
+root list never authorizes reads; the caller must pass the same approved roots.
+Task, catalog, source text, selection, roles, provenance and accounting must match.
+Changed sources require a new manifest and admission intent. Omitting or replacing
+the context on an admitted attempt fails before launch.
+
+Managed delivery caps selected text at 64 KiB, the manifest file at 2 MiB and the
+combined UTF-8 prompt at 1,500,000 bytes, also checking JSON wire escaping against
+the native input bound. It sends the task and exact verified
+manifest as a JSON payload in the native user message, preserving roles without
+promoting context into system instructions or granting permissions. Native runtime
+repository instructions still apply. This carries selected files, not session
+history. The ledger retains the manifest hash; the native runtime owns its prompt
+history. Without context flags, the original plain task message is unchanged.

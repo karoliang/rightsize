@@ -3115,6 +3115,8 @@ def main(argv=None):
     for action in ("plan", "admit"):
         managed_action = managed_sub.add_parser(action)
         managed_action.add_argument("--spec", required=True)
+        managed_action.add_argument("--context-manifest", help="selected context JSON bound to this task")
+        managed_action.add_argument("--context-root", action="append", help="explicitly approve a context source root")
         managed_action.add_argument("--judgment", required=True)
         managed_action.add_argument("--task-id", required=True)
         managed_action.add_argument("--floor", type=int, choices=(1, 2, 3), default=1)
@@ -3127,6 +3129,8 @@ def main(argv=None):
     managed_run = managed_sub.add_parser("run", help="run an admitted task in a new isolated worktree")
     managed_run.add_argument("--attempt", required=True)
     managed_run.add_argument("--spec", required=True)
+    managed_run.add_argument("--context-manifest", help="same context manifest used at admission")
+    managed_run.add_argument("--context-root", action="append", help="reapprove context source roots before launch")
     managed_run.add_argument("--repo", required=True, help="source Git repository; runs from committed HEAD")
     managed_run.add_argument("--sandbox", choices=("read-only", "workspace-write"), default="read-only")
     managed_run.add_argument("--timeout", type=int, default=300)
