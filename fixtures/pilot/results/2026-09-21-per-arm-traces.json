@@ -1,0 +1,335 @@
+{
+  "trial_candidate": "99a894e2003ec4ec94a0ee8e7a5a635cf47c8590",
+  "native_sessions": 40,
+  "command_executions": 87,
+  "native_model_responses": 147,
+  "command_exit_failures": 1,
+  "sessions_with_apple_tool_cache_warnings": 0,
+  "git_checks": 0,
+  "per_response_sums_match_ledger": true,
+  "per_attempt": [
+    {
+      "task": "mechanical-public-fields",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15246,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-public-fields",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15246,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-binding-capacity",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15256,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-binding-capacity",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15234,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-null-reset",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17769,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-null-reset",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17766,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-denial-precedence",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17780,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-denial-precedence",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17787,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-ceiling-points",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15234,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-ceiling-points",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 12760,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-unknown-is-not-zero",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17775,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-unknown-is-not-zero",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17748,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-credential-binding",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15291,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-credential-binding",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17768,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-stable-dedup",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15224,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-stable-dedup",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15223,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-usage-snapshot",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17736,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-usage-snapshot",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17763,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-cancel-proof",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17757,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-cancel-proof",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15302,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-bucket-rename",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15265,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-bucket-rename",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 7,
+      "first_input": 15242,
+      "tool_failures": 1
+    },
+    {
+      "task": "implementation-commitment-load",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 5,
+      "first_input": 15242,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-commitment-load",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 5,
+      "first_input": 15252,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-idempotent-start",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17800,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-idempotent-start",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17787,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-terminal-labels",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15240,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-terminal-labels",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15265,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-optional-context",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 5,
+      "first_input": 15266,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-optional-context",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15274,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-account-scope",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17753,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-account-scope",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17761,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-receipt-order",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15227,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-receipt-order",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 12755,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-paired-coverage",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15252,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-paired-coverage",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15247,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-migrated-hold",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17752,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-migrated-hold",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17765,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-permission-intersection",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17764,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-permission-intersection",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15299,
+      "tool_failures": 0
+    }
+  ],
+  "command_failure_attribution": {
+    "mechanical_bucket_rename_self_check_assertion_corrected_in_same_turn": 1
+  }
+}

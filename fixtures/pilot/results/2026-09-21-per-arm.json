@@ -1,0 +1,1030 @@
+{
+  "planned_pairs": 20,
+  "halt": null,
+  "variants": {
+    "baseline": {
+      "accepted_tasks": 20,
+      "attempted_tasks": 20,
+      "accepted_per_attempted_task": 1.0,
+      "unstarted_tasks": 0,
+      "unresolved_attempts": 0,
+      "refusals": 0
+    },
+    "candidate": {
+      "accepted_tasks": 20,
+      "attempted_tasks": 20,
+      "accepted_per_attempted_task": 1.0,
+      "unstarted_tasks": 0,
+      "unresolved_attempts": 0,
+      "refusals": 0
+    }
+  },
+  "usage": {
+    "codex": {
+      "attempts": 40,
+      "input_tokens": 2427459,
+      "output_tokens": 27245,
+      "unknown": false,
+      "dispatch_points": 96.0
+    },
+    "claude": {
+      "attempts": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "unknown": false,
+      "dispatch_points": 0.0
+    },
+    "opencode": {
+      "attempts": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "unknown": false,
+      "dispatch_points": 0.0
+    }
+  },
+  "budget_scope": "per-arm",
+  "arm_usage": {
+    "baseline": {
+      "codex": {
+        "attempts": 20,
+        "input_tokens": 1203279,
+        "output_tokens": 13335,
+        "unknown": false,
+        "dispatch_points": 48.0
+      },
+      "claude": {
+        "attempts": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "unknown": false,
+        "dispatch_points": 0.0
+      },
+      "opencode": {
+        "attempts": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "unknown": false,
+        "dispatch_points": 0.0
+      }
+    },
+    "candidate": {
+      "codex": {
+        "attempts": 20,
+        "input_tokens": 1224180,
+        "output_tokens": 13910,
+        "unknown": false,
+        "dispatch_points": 48.0
+      },
+      "claude": {
+        "attempts": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "unknown": false,
+        "dispatch_points": 0.0
+      },
+      "opencode": {
+        "attempts": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "unknown": false,
+        "dispatch_points": 0.0
+      }
+    }
+  },
+  "promotion": false,
+  "candidate_revision": "99a894e2003ec4ec94a0ee8e7a5a635cf47c8590",
+  "baseline_revision": "a168a85055a3f1fa527da593fced87cf37c10892",
+  "audited_entries": [
+    {
+      "task_id": "mechanical-public-fields",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "1533fd1c43f27da206a400245eb483a01d2be0fb655ab89e4fc61e3c48cd4804",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "mechanical-public-fields",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "7e1c26830eb9f690333f358b1221fa90256dfe373950d0776e9f26824dc50949",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-binding-capacity",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 5,
+        "total": 5
+      },
+      "source_sha256": "439d616474e5e8e893d6d9fa06ff79c1c0430fd7ab6896d987d2b24bc4f52869",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-binding-capacity",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 5,
+        "total": 5
+      },
+      "source_sha256": "c5d83b446d8e5da280da7d0e217eff18b05ec03e6984afcc86a74fc6a83a855d",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "diagnosis-null-reset",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "5222972d1da1afcb1ad1e9e012eb13b361d7472156a1d68f280dc757a67d5c44",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "diagnosis-null-reset",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "5222972d1da1afcb1ad1e9e012eb13b361d7472156a1d68f280dc757a67d5c44",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-denial-precedence",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 6,
+        "total": 6
+      },
+      "source_sha256": "23ffa80b1430c8bec2d63a21bcb37a26ff99810372139cb49d28c9de281c3320",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-denial-precedence",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 6,
+        "total": 6
+      },
+      "source_sha256": "23ffa80b1430c8bec2d63a21bcb37a26ff99810372139cb49d28c9de281c3320",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "implementation-ceiling-points",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 6,
+        "total": 6
+      },
+      "source_sha256": "54b55f33caa18aadff2896113725e6449af966d297610a874775372dbada298f",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-ceiling-points",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 6,
+        "total": 6
+      },
+      "source_sha256": "54b55f33caa18aadff2896113725e6449af966d297610a874775372dbada298f",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "diagnosis-unknown-is-not-zero",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "26806ec4d6882641414d370905737530b466c98be741972cc53284dcf1bf650d",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "diagnosis-unknown-is-not-zero",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "26806ec4d6882641414d370905737530b466c98be741972cc53284dcf1bf650d",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-credential-binding",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "6ded2dfb193808365930468a543396b17b8d85ab2e7aa471030e826269e79848",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-credential-binding",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "4946826d99ccdaef954d98f9aa893d9e4167c44e4dd0900a7b453a5cbdc3a82a",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "mechanical-stable-dedup",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "30e7a70349f88f86a73a90be9b7a4ee794911e49b61df98ed7c1333f5399db3f",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "mechanical-stable-dedup",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "30e7a70349f88f86a73a90be9b7a4ee794911e49b61df98ed7c1333f5399db3f",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "diagnosis-usage-snapshot",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "7e62560dbb817b36d04819b360e112070743b647732fa87097cd9b9387d579db",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "diagnosis-usage-snapshot",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "7e62560dbb817b36d04819b360e112070743b647732fa87097cd9b9387d579db",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-cancel-proof",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 5,
+        "total": 5
+      },
+      "source_sha256": "154e318741aab74dec485df0845d45433518a83d1c2d91c5171a1e6f45f60c5d",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-cancel-proof",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 5,
+        "total": 5
+      },
+      "source_sha256": "663a6ab18ebd07284905251712a97c370eff353256a7880341ac940090e67c29",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "mechanical-bucket-rename",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "1479af86a0db7362ba59330beaf7a01cba77ab17b64c48db5ed6fd32a86a19ae",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "mechanical-bucket-rename",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "d5425e6fb842de614d347eece6b381c28ad74fbb18dfd20068c41e2b4a3f8a08",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-commitment-load",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "f850ca0c9ea514cec6a892540c4d625aaa522849ac7dcb5a2c4d28e7e8437788",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-commitment-load",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 3,
+        "total": 3
+      },
+      "source_sha256": "83cc78d18945e175c924c584f82c9559933815c41ce70870683f06b2289bd7f1",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "high-stakes-idempotent-start",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "2a6090faacf4d06dafe3dc9ad3e8bace588a3505036516d709fa56facaa5b961",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-idempotent-start",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "8c27e732181dbab20d39229e5a337e86aa5be891b1ab5b450f518299a926b041",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "mechanical-terminal-labels",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "071b02bd1f55ae064763d0287ddf18a388f0a182922d2b3c1d14ec807f93fcfe",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "mechanical-terminal-labels",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "783f12039f4e19866ae97c074db390fa0cf4ad85f235fe0da7fa5716e99c9c42",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-optional-context",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "9f0a849783755c54fbc9fc3ade082a813d47207a46f65879bed592ed5f86ea28",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-optional-context",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "b3da0f5020ac2d4af3091d6077ee49ceb65ad4e6048062d246ccad9f9e5e6829",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "diagnosis-account-scope",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 5,
+        "total": 5
+      },
+      "source_sha256": "e193d34a8d0a759c9ad8091c309008f108960e42631680981fb4cbd25692ef83",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "diagnosis-account-scope",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 5,
+        "total": 5
+      },
+      "source_sha256": "64582376c0ab2d3181877438d1e41af2aa89e0f482ccb24992b5f1d8ef542b03",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "mechanical-receipt-order",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "4f903e2f9c953bfa4d7655829324b859f44be4448bba51de252a41c4e21f64d4",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "mechanical-receipt-order",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "4f903e2f9c953bfa4d7655829324b859f44be4448bba51de252a41c4e21f64d4",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-paired-coverage",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "b05df30369da5d262a1a4407897c3ab44b270abea360d5385d2aa0e8fdbd77eb",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "implementation-paired-coverage",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "cd516da85d2ee8b42daed914f2a602cc23c73af396b6b94099e0f19cf080dfa7",
+      "review_join_verified": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "task_id": "diagnosis-migrated-hold",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "eea6105703303907a92313d943e9346579c3d6139feaa0484be4369cd769965e",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "diagnosis-migrated-hold",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 2,
+        "total": 2
+      },
+      "source_sha256": "eea6105703303907a92313d943e9346579c3d6139feaa0484be4369cd769965e",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-permission-intersection",
+      "variant": "candidate",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "aa74d7026cae9ff157b1415d15c97dd15a12813dd083948a8334a6220f46836e",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "task_id": "high-stakes-permission-intersection",
+      "variant": "baseline",
+      "number": 1,
+      "provider": "codex",
+      "outcome": "accepted",
+      "reason": null,
+      "extra_files": [],
+      "review_reason": null,
+      "checks": {
+        "passed": 4,
+        "total": 4
+      },
+      "source_sha256": "aa74d7026cae9ff157b1415d15c97dd15a12813dd083948a8334a6220f46836e",
+      "review_join_verified": true,
+      "model": "gpt-6-astra",
+      "effort": "high"
+    }
+  ],
+  "matching_policy_selections": 20,
+  "snapshots": 20,
+  "active_trial_attempts": 0,
+  "latency_seconds": {
+    "baseline": {
+      "accepted_samples": 20,
+      "median_admission_to_review": 27.478137850761414,
+      "p95_nearest_rank_admission_to_review": 44.1000759601593
+    },
+    "candidate": {
+      "accepted_samples": 20,
+      "median_admission_to_review": 28.41784429550171,
+      "p95_nearest_rank_admission_to_review": 35.452641010284424
+    }
+  },
+  "first_useful_output_latency": "unavailable: first native output is not independently classified as useful",
+  "quota_usage": "dispatch points are conservative estimates; shared native quota observations cannot establish attributable subscription consumption",
+  "task_latency_seconds": {
+    "baseline": {
+      "samples": 20,
+      "median_first_admission_to_acceptance_including_interleaved_wait": 27.478137850761414,
+      "p95_nearest_rank": 44.1000759601593
+    },
+    "candidate": {
+      "samples": 20,
+      "median_first_admission_to_acceptance_including_interleaved_wait": 28.41784429550171,
+      "p95_nearest_rank": 35.452641010284424
+    }
+  },
+  "paired_outcomes": [
+    {
+      "task_id": "mechanical-public-fields",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "implementation-binding-capacity",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "diagnosis-null-reset",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "high-stakes-denial-precedence",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "implementation-ceiling-points",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "diagnosis-unknown-is-not-zero",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "high-stakes-credential-binding",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "mechanical-stable-dedup",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "diagnosis-usage-snapshot",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "high-stakes-cancel-proof",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "mechanical-bucket-rename",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "implementation-commitment-load",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "high-stakes-idempotent-start",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "mechanical-terminal-labels",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "implementation-optional-context",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "diagnosis-account-scope",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "mechanical-receipt-order",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "implementation-paired-coverage",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "diagnosis-migrated-hold",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    },
+    {
+      "task_id": "high-stakes-permission-intersection",
+      "baseline": [
+        "accepted"
+      ],
+      "candidate": [
+        "accepted"
+      ]
+    }
+  ]
+}

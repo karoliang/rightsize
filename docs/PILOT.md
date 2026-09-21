@@ -4,6 +4,9 @@ Tracking: [#19](https://github.com/karoliang/rightsize/issues/19).
 The promotion criteria remain in [EVALUATION.md](planning/EVALUATION.md).
 The first bounded live trial is documented in [PILOT-RESULTS.md](PILOT-RESULTS.md);
 it stopped at its declared usage threshold and did not complete the promotion gate.
+The [second trial](PILOT-PER-ARM-RESULTS.md) completed all20 pairs with equal arm
+budgets; both policies accepted20/20 with identical selections. Other promotion
+gates remain open.
 
 ```sh
 python3 pilot_tasks.py
