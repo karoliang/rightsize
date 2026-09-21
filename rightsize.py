@@ -285,6 +285,8 @@ def secret(name: str, config: dict | None = None) -> str | None:
 
 
 def iso_to_epoch(text: str) -> float | None:
+    if not isinstance(text, str):
+        return None
     try:
         return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
     except (TypeError, ValueError):
@@ -327,14 +329,15 @@ def human_reset(epoch: float | None) -> str:
 
 def probe_opencode(config=None, key=None) -> dict:
     key = secret("OPENCODE_API_KEY", config) if key is None else key
-    if not key:
+    if not isinstance(key, str) or not key or any(c in key for c in "\r\n\x00"):
         return {"name": "opencode", "status": "no-credential", "buckets": []}
+    base = {"name": "opencode", "quota_account_ref": accounts.digest("opencode-go:" + key)}
     try:
         data = get(OPENCODE_USAGE, key)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         status = {401: "reauth-required", 403: "reauth-required", 429: "denied"}.get(
             getattr(exc, "code", None), "error: quota probe unavailable")
-        return {"name": "opencode", "status": status, "buckets": []}
+        return {**base, "status": status, "buckets": []}
     buckets = []
     for bucket_id, value in (data.get("usage") or {}).items():
         ok = value.get("status") == "ok"
@@ -349,7 +352,7 @@ def probe_opencode(config=None, key=None) -> dict:
                 "raw_status": value.get("status"),
             }
         )
-    return {"name": "opencode", "status": "ok" if buckets else "empty", "buckets": buckets}
+    return {**base, "status": "ok" if buckets else "empty", "buckets": buckets}
 
 
 def newest_codex_rollout() -> Path | None:
@@ -701,6 +704,7 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
             base["account"] = {**binding.public(), "source": "scoped-vault",
                                "account_ref": reference,
                                "fingerprint": accounts.digest(key) if key else None}
+            base["native_binding"] = binding.public()
             if not key:
                 return {**base, "status": "no-credential", "buckets": []}
             result = probe_opencode(config, key) if name == "opencode" else probe_openrouter(config, key)

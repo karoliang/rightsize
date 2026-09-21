@@ -159,6 +159,18 @@ class CredentialBindingTests(unittest.TestCase):
         self.assertEqual(receipt["account_ref"], self.expected["account_ref"])
         self.assertNotIn(self.key, json.dumps(receipt))
 
+    def test_quota_identity_tracks_exact_key_without_exposing_it(self):
+        with patch.object(r, "get", return_value={"usage": {"weekly": {"status": "ok", "percent": 10}}}) as get:
+            first = r.probe_opencode({}, self.key)
+            self.assertIsNone(first["buckets"][0]["resets_at"])
+            self.assertEqual(first["quota_account_ref"], r.probe_opencode({}, self.key)["quota_account_ref"])
+            self.assertNotEqual(first["quota_account_ref"], r.probe_opencode({}, "rotated")["quota_account_ref"])
+            calls = get.call_count
+            for malformed in (12, "bad\nkey", ""):
+                self.assertEqual(r.probe_opencode({}, malformed)["status"], "no-credential")
+            self.assertEqual(get.call_count, calls)
+        self.assertNotIn(self.key, json.dumps(first))
+
     def test_exact_vault_identity_and_rotation_rejected(self):
         scope = ("project", "test", "/router")
         link = self.root / ".infisical.json"

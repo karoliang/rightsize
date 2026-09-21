@@ -103,7 +103,7 @@ def eligibility(api, config, probes, state, attempts, *, stamp=None):
             blocked = "quota denied"
         elif probe.get("status") != "ok" or not account:
             blocked = "fresh account-bound quota unavailable"
-        elif account.get("source") == "scoped-vault":
+        elif account.get("source") == "scoped-vault" and (provider != "opencode" or not probe.get("native_binding")):
             blocked = "vault launch binding requires managed credential adapter"
         elif provider == "codex" and not probe.get("quota_account_ref"):
             blocked = "native quota account identity unavailable"
@@ -171,6 +171,19 @@ def execute(args, config, api):
     return result
 
 
+def current_binding(api, provider, config, observation):
+    current = accounts.select(provider, config).public()
+    account = observation.get("account", {})
+    if provider != "opencode" or account.get("source") != "scoped-vault":
+        return current
+    if current != observation.get("native_binding") or api.vault_scope() is None:
+        return current
+    # No network/secret lookup under the admission lock. The fresh probe owns
+    # this fingerprint; launch resolves it again and rejects rotation.
+    reference = accounts.digest(json.dumps([provider, api.vault_scope()]))[:24]
+    return {**account, "account_ref": reference}
+
+
 def admit_snapshot(args, config, api, ledger, task, judgment, floor, probes):
     # Legacy compatibility lock precedes the SQLite transaction. Native probes
     # were already fetched, and local account metadata is the only callback.
@@ -192,7 +205,7 @@ def admit_snapshot(args, config, api, ledger, task, judgment, floor, probes):
                 request_key=args.request_id, task=task, pick={**pick, "band": decision["band"]},
                 observation=probes[provider], points=api.dispatch_cost(config, provider, decision["band"]),
                 slot_limit=int(config.get("max_inflight", {}).get(provider, config.get("max_inflight", {}).get("_default", 8))),
-                binding_now=lambda: accounts.select(provider, config).public(),
+                binding_now=lambda: current_binding(api, provider, config, probes[provider]),
                 reserve=float(config.get("reserves", {}).get(provider, 10)),
                 external_points=points, external_slots=slots,
                 external_block=external_block(api, state, provider, probes[provider], time.time()))

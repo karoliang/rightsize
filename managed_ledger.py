@@ -254,9 +254,11 @@ class Ledger:
         """Only the trusted adapter supplies receipts/termination evidence; model text cannot."""
         receipt = receipt or {}
         allowed_receipt = {"dispatch_id", "session_id", "provider", "model", "effort", "account_ref",
-                           "fingerprint", "worktree", "pid"}
+                           "fingerprint", "worktree", "pid", "sandbox"}
         if set(receipt) - allowed_receipt or not isinstance(event_id, str) or not event_id:
             raise LedgerError("invalid lifecycle event")
+        if "sandbox" in receipt and receipt["sandbox"] not in ("read-only", "workspace-write"):
+            raise LedgerError("invalid native permission mode")
         if evidence is not None and (not isinstance(evidence, str) or not evidence):
             raise LedgerError("evidence must be a nonempty reference or digest")
         allowed_metrics = {"input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens",

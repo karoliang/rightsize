@@ -1,8 +1,7 @@
 # Native execution adapters
 
-Managed runtime support is incremental. Codex and Claude subscription adapters are
-available; Claude live execution validation, OpenCode, Orca and vault-to-runtime
-credential delivery remain in #14/#17. Offline replay is complete (#18); the
+Managed runtime support is incremental. Codex, Claude and OpenCode Go adapters are available; live Claude/OpenCode
+execution validation, Orca and remaining vault delivery proof remain in #14/#17. Offline replay is complete (#18); the
 20-task paired pilot and promotion gates remain #19. A successful smoke
 test is not a quality or cost benchmark.
 
@@ -10,10 +9,10 @@ test is not a quality or cost benchmark.
 | --- | --- |
 | Codex app-server, ChatGPT native login | Installed protocol/schema inspected; real isolated read-only smoke completed and passed deterministic review; offline lifecycle and recovery fixtures |
 | Claude Code | Native identity/quota/setup verified; offline execution, cancellation and journal recovery tests pass; live task waited below weekly reserve, so execution remains unproven on the installed CLI |
-| OpenCode | Owned authenticated loopback transport verified against installed 1.18.31 health/schema; session execution and vault delivery pending |
+| OpenCode Go | Effective native key/model and session setup verified; offline managed execution/cancellation/history recovery tests pass; real smoke waited on legacy denial, vault key unavailable |
 | Orca | Legacy advisory commands exist; managed terminal/account binding pending |
 
-## OpenCode and Orca adapter preparation
+## OpenCode Go execution and Orca preparation
 
 OpenCode 1.18.31 exposes a native OpenAPI schema at `/doc`. Its session APIs
 separate session creation, asynchronous prompt submission, exact message lookup
@@ -24,16 +23,15 @@ It never attaches to an arbitrary endpoint, follows redirects or modifies auth.
 Startup is bounded to 15 seconds and 64 KiB; JSON requests are bounded to 2 MiB,
 responses default to 4 MiB, and requests have an overall 15-second deadline,
 including trickled headers/body. Native output and error bodies are not forwarded.
-The process is reaped on startup failure and close. This transport does not yet
-admit, submit, cancel or reconcile model tasks.
+The process is reaped on startup failure and close. The managed execution adapter uses this transport for session/message lifecycle calls.
 
 Six fake-child tests cover authentication, partial endpoint output, startup
 failure/reaping, trickled responses, error redaction, redirects and byte limits.
 A real health/schema-only check confirmed installed 1.18.31 and reaped the child;
 no session or inference was requested. The installed schema exposes effective
 provider source/key/options, session model/permissions and message parent/model
-IDs. The next adapter gate is in-memory credential equivalence with quota,
-followed by session/dispatch proof and native outcome recovery. Never publish
+IDs. Managed execution binds credential equivalence to quota, then verifies native
+session/message receipts and reads exact native history for recovery. Never publish
 provider responses containing keys or replace native auth files to obtain proof.
 
 Credential preparation now resolves the exact admitted Go binding with the
@@ -51,8 +49,40 @@ enabled. A real explicitly selected native-account setup passed effective bindin
 and model verification, without creating a session or submitting a task. The
 configured exact vault read returned no key; its path stopped without native
 fallback. Vault delivery is covered by synthetic tests but not live-verified.
-These helpers are not yet wired into managed admission or task execution.
+Managed admission and run now use these helpers; missing or rotated vault keys
+stop before inference. Launch reads the exact key again after setup, outside
+admission locks. A key-derived quota identity pools the same key across native
+homes without persisting its value.
 Native HTTP errors retain only their status code; error bodies remain private.
+
+
+OpenCode execution creates an owned native session with exact model/variant,
+permission rules and launch-key metadata before submitting the prompt. The
+message ID derives from the durable launch key; its native user record must echo
+model/variant before a dispatch receipt is accepted. Main and small-model defaults
+are pinned to the selected Go model. Only this provider is enabled. Inference
+submission is never repeated after an ambiguous acknowledgement.
+
+Permissions are native tool rules, **not an OS sandbox**: read-only permits Read,
+Glob and Grep equivalents; workspace-write additionally permits native file edits.
+Shell, delegation, external-directory access and other tools remain denied. There
+is no permission-bypass option. Repository work happens in an isolated worktree.
+
+Polling verifies session/message/parent/model/variant identity, emits text once,
+and records native counters once per assistant message. Native total is recorded
+only when supplied for every message; no synthetic total combines possibly
+overlapping categories. Tool failures are counted separately. Completion requires
+a matching terminal assistant outcome and an idle session; compaction summaries
+and an abort acknowledgement cannot settle a task. Recovery starts an owned native
+server and reads only the exact recorded session/history, without resuming or
+submitting a prompt. Missing, active or inconsistent evidence retains reservations.
+
+Twelve offline lifecycle tests cover this path, including CLI/worktree artifacts.
+A real setup-only session returned the requested model, rules and launch metadata.
+A bounded real managed smoke waited on an existing unattributed legacy denial,
+before launch. A fresh native quota read was healthy but cannot establish which
+account produced that old denial; it was not erased. Live execution/cancellation
+and vault delivery remain validation gates.
 
 Orca's installed CLI advertises model/effort flags, durable request IDs and
 run/task/dispatch identities, but no worker-start account selector. Account-list
@@ -130,7 +160,7 @@ attempt waited below the configured weekly reserve before launch. No reserve was
 lowered and no paid fallback was enabled. Live Claude execution and cancellation
 remain validation gates; fake-process results do not prove installed behavior.
 
-## Run an admitted Codex or Claude attempt
+## Run an admitted native attempt
 
 ```sh
 rightsize managed run --attempt ATTEMPT_ID --spec task.md --repo /path/to/repo
@@ -193,8 +223,8 @@ directory. JSON command output reports its path and hash, not the full response.
 Worktrees and artifacts are retained for review. They may contain private task
 data; they are not automatically published or copied into a memory database.
 
-Transport bounds are 1 MiB per event, 8 MiB per execution stream, and 2 MiB pending
-input. Reads and writes are nonblocking with deadlines, including partial lines
+Codex/Claude JSON-line transport bounds are 1 MiB per event, 8 MiB per execution
+stream, and 2 MiB pending input. Reads and writes are nonblocking with deadlines, including partial lines
 and a native process that stops reading stdin. Native stderr and raw error text
 are not persisted in routing evidence. Usage/auth/tool/runtime failures remain
 distinct; quality rejection comes from review, not a text/error heuristic.
