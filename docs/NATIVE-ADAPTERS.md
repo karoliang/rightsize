@@ -1,18 +1,19 @@
 # Native execution adapters
 
-Managed runtime support is incremental. Codex subscription execution is available;
-Claude, OpenCode, Orca and vault-to-runtime credential delivery remain in #14/#17.
-The 20-task paired pilot and promotion gates remain #18/#19. A successful smoke
+Managed runtime support is incremental. Codex and Claude subscription adapters are
+available; Claude live execution validation, OpenCode, Orca and vault-to-runtime
+credential delivery remain in #14/#17. Offline replay is complete (#18); the
+20-task paired pilot and promotion gates remain #19. A successful smoke
 test is not a quality or cost benchmark.
 
 | Adapter | Current evidence |
 | --- | --- |
 | Codex app-server, ChatGPT native login | Installed protocol/schema inspected; real isolated read-only smoke completed and passed deterministic review; offline lifecycle and recovery fixtures |
-| Claude Code | Native subscription identity and get_usage quota discovery, bounded control channel and effective-model/effort inspection verified; execution adapter pending |
+| Claude Code | Native identity/quota/setup verified; offline execution, cancellation and journal recovery tests pass; live task waited below weekly reserve, so execution remains unproven on the installed CLI |
 | OpenCode | Native CLI/event interface inventoried; execution and vault delivery pending |
 | Orca | Legacy advisory commands exist; managed terminal/account binding pending |
 
-## Claude integration evidence (execution pending)
+## Claude integration evidence
 
 Installed Claude Code 2.1.267 supports bidirectional `stream-json` with `-p`,
 `--verbose`, explicit `--session-id`, `--permission-mode` and
@@ -52,13 +53,37 @@ rechecks native identity after the query; the canonical ID hash still owns quota
 pooling. No raw identity or credential is returned by discovery. Installed 2.1.267
 rejected `list_permission_rules`; do not rely on that newer SDK control yet.
 
-Remaining proof before enabling execution: bind the setup account to the admitted
-native status identity; resolve exact model and effort before inference; bind the
-acknowledged user message/session to the launch key; verify cancellation and
-read-only recovery. Do not replace missing proof with CLI argument assumptions or
-an exit code. Subscription budget estimates remain distinct from native quota.
+Claude admission requires fresh native control quota, canonical and setup account
+identity, and explicit `usage_credits_enabled=false`. Computed estimates cannot
+admit a managed Claude task. Before sending the task, the adapter verifies account,
+model, effort, native permission mode, fast mode off, no advisor/ultracode, unchanged
+identity and sufficient remaining headroom. Native auth stays owned by Claude.
 
-## Run an admitted Codex attempt
+Execution uses a new session and a user-message UUID derived from the durable
+launch key. Both native init and message acknowledgement must match; losing this
+acknowledgement retains the hold. Assistant output must use the admitted model;
+the terminal result must identify exactly the submitted task. Cancellation uses
+native interrupt with queued cancellation and requires a matching terminal result.
+An interrupt acknowledgement or process exit alone cannot release a hold.
+
+For Claude, `--sandbox read-only` means native plan permissions with only Read,
+Glob and Grep tools and an empty strict MCP configuration. It is **not an OS
+sandbox**. Workspace-write requests native acceptEdits permissions. Native hooks
+and configuration still apply; prompts for additional permission are denied.
+
+Before settling the ledger, a matching terminal result is fsynced to a private,
+hashed metadata journal. Recovery can replay that exact owned receipt and outcome
+without inference. Missing/corrupt journals retain the hold; native conversation
+history recovery after a lost stream is not implemented. This is a narrower
+recovery guarantee than Codex's native history lookup.
+
+Offline fake-process tests cover setup rejection, output deduplication, quota
+failure, cancellation, lost streams, and journal recovery. The real bounded smoke
+attempt waited below the configured weekly reserve before launch. No reserve was
+lowered and no paid fallback was enabled. Live Claude execution and cancellation
+remain validation gates; fake-process results do not prove installed behavior.
+
+## Run an admitted Codex or Claude attempt
 
 ```sh
 rightsize managed run --attempt ATTEMPT_ID --spec task.md --repo /path/to/repo
@@ -69,7 +94,7 @@ rightsize managed review --attempt ATTEMPT_ID --accept --evidence test-report.tx
 
 `run` checks the exact admitted spec hash and creates a detached Git worktree
 from the source repository's committed HEAD. Uncommitted source edits are not
-copied. The default sandbox is read-only; choose `--sandbox workspace-write`
+copied. For Codex, the default sandbox is read-only; choose `--sandbox workspace-write`
 explicitly for implementation work. The adapter requests native `on-request`
 approval behavior and verifies the sandbox returned by Codex. Interactive tool
 approval requests are declined; existing native rules still apply. There is no
@@ -78,11 +103,11 @@ permission-bypass flag. Returned commands/text are never executed by Rightsize.
 The foreground owner holds one execution lock and consumes native events. A
 second invocation returns existing state, not another launch. The default runtime
 deadline is 300 seconds (`--timeout`, maximum 3600). A deadline or separate cancel
-request sends native `turn/interrupt`; the lease is released as cancelled only
+request sends native interruption (`turn/interrupt` for Codex); the lease is released as cancelled only
 after the matching native interrupted outcome. If the stream is lost or malformed,
 the hold remains reconciling. Child processes are closed/reaped on every path.
 
-## Account, setup and launch proof
+## Codex account, setup and launch proof
 
 The adapter reuses the admitted native home without extracting OAuth credentials.
 It checks native auth mode is ChatGPT, fresh included-usage permission is explicitly
@@ -112,7 +137,10 @@ not compete with a running owner for messages.
 
 The ledger records first output, cumulative native token counters, output bytes,
 typed failures and native completion. Token counters are retained as separate
-categories; cached input is not added again to the native total. Native text is
+categories. Codex input includes cached input, which is not added again to its
+total. Claude cumulative `modelUsage` has disjoint uncached input, output, cache
+read and cache creation counts; their sum is its total. Top-level Claude `usage`
+is narrower and is not mixed into those counters. Native text is
 written to a local mode-0600 `output.txt` artifact under the attempt's execution
 directory. JSON command output reports its path and hash, not the full response.
 Worktrees and artifacts are retained for review. They may contain private task

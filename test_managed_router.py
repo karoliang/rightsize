@@ -60,6 +60,19 @@ class ManagedRouterTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(sorted(path.name for path in self.root.iterdir()), before)
 
+    def test_claude_requires_native_identity_and_no_paid_fallback(self):
+        probe = {**self.probes["codex"], "name": "claude",
+                 "quota_source": "native-control", "session_account_ref": "fixture-session",
+                 "usage_credits_enabled": False}
+        def eligible(value):
+            return managed_router.eligibility(r, {}, {"claude": value}, {}, [])["claude"]["eligible"]
+        self.assertTrue(eligible(probe))
+        for key, value in (("quota_source", "computed"), ("quota_account_ref", None),
+                           ("session_account_ref", None), ("usage_credits_enabled", True),
+                           ("usage_credits_enabled", None)):
+            with self.subTest(key=key, value=value):
+                self.assertFalse(eligible({**probe, key: value}))
+
     def test_context_identity_bound_before_probes_and_lease_writes(self):
         import context_manifest as context
         catalog = self.root / "catalog.json"

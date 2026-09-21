@@ -260,7 +260,7 @@ class Ledger:
         if evidence is not None and (not isinstance(evidence, str) or not evidence):
             raise LedgerError("evidence must be a nonempty reference or digest")
         allowed_metrics = {"input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens",
-                           "total_tokens", "output_bytes", "tool_failures"}
+                           "total_tokens", "output_bytes", "tool_failures", "cache_write_input_tokens"}
         if metrics is not None and (not isinstance(metrics, dict) or set(metrics) - allowed_metrics
                                     or any(type(value) is not int or value < 0 for value in metrics.values())):
             raise LedgerError("invalid native metrics")

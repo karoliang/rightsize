@@ -27,7 +27,8 @@ def launch_once(ledger, attempt_id, launcher):
     try:
         receipt = launcher(claim["attempt"])
     except NoLaunch:
-        result = ledger.event(attempt_id, attempt["launch_key"] + ":no-launch", "launch_failed",
+        kind = "cancelled" if ledger.read(attempt_id)["state"] == "cancelling" else "launch_failed"
+        result = ledger.event(attempt_id, attempt["launch_key"] + ":no-launch", kind,
                               evidence="adapter-confirmed-no-launch")
     except Exception:
         result = ledger.event(attempt_id, attempt["launch_key"] + ":unknown", "reconciling",
@@ -106,6 +107,10 @@ def eligibility(api, config, probes, state, attempts, *, stamp=None):
             blocked = "vault launch binding requires managed credential adapter"
         elif provider == "codex" and not probe.get("quota_account_ref"):
             blocked = "native quota account identity unavailable"
+        elif provider == "claude" and (probe.get("quota_source") != "native-control"
+                                        or not probe.get("quota_account_ref") or not probe.get("session_account_ref")
+                                        or probe.get("usage_credits_enabled") is not False):
+            blocked = "native Claude included quota without usage-credit fallback is not confirmed"
         elif info["usable"] is None or info.get("unknown"):
             blocked = "managed admission requires known quota"
         limit = int(config.get("max_inflight", {}).get(provider, config.get("max_inflight", {}).get("_default", 8)))

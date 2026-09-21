@@ -2,7 +2,7 @@
 
 The managed path is opt-in and uses caller judgment, fresh account-bound quota
 and a separate transactional ledger. `route` and legacy `plan` remain advisory.
-Plan/admit do not launch a runtime. `managed run` now supports native Codex
+Plan/admit do not launch a runtime. `managed run` now supports native Codex and Claude
 subscription execution in an isolated worktree; see [native adapters](NATIVE-ADAPTERS.md)
 for exact scope and remaining #17 work. Printed legacy commands remain external.
 
@@ -64,8 +64,8 @@ only on healthy live evidence newer than the denial, never just a reset estimate
 An unattributed denial requires the same context and fingerprint to clear; changing
 homes or credentials cannot silently erase it.
 
-Unknown quota waits even for expensive work. Native Claude estimates require
-usable declared-budget telemetry; vault-to-runtime account delivery and Orca
+Unknown quota waits even for expensive work. Managed Claude requires fresh native quota, verified
+account identity and disabled usage-credit fallback; estimates do not admit tasks; vault-to-runtime account delivery and Orca
 identity are still gated pending #17. Unsupported paths return a wait instead of
 claiming a verified launch. Destructive judgments also wait for explicit approval.
 

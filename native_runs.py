@@ -9,6 +9,7 @@ import subprocess
 from managed_ledger import Ledger, LedgerError
 from managed_router import ledger_path
 import native_codex
+import native_claude
 
 
 def git(arguments, cwd):
@@ -42,7 +43,7 @@ def execute(args, config, api):
         raise LedgerError("attempt not found")
     if attempt["state"] != "admitted":
         return {"status": "existing", "attempt": attempt}
-    if attempt["pick"]["provider"] != "codex":
+    if attempt["pick"]["provider"] not in ("codex", "claude"):
         raise LedgerError("native adapter not yet enabled for this provider")
     with Path(args.spec).open("rb") as handle:
         raw = handle.read(1024 * 1024 + 1)
@@ -68,7 +69,8 @@ def execute(args, config, api):
                 def write(text):
                     output.write(text + "\n")
                     output.flush()
-                adapter = native_codex.Codex(ledger, config, prompt, cwd, sandbox=args.sandbox)
+                adapter_class = native_codex.Codex if attempt["pick"]["provider"] == "codex" else native_claude.Claude
+                adapter = adapter_class(ledger, config, prompt, cwd, sandbox=args.sandbox)
                 result = native_codex.run(ledger, args.attempt, adapter, timeout=args.timeout, output=write)
             return {**result, "worktree": str(cwd), "output_artifact": str(output_path),
                     "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest()}
@@ -81,7 +83,7 @@ def reconcile(args, config, api):
     attempt = ledger.read(args.attempt)
     if not attempt:
         raise LedgerError("attempt not found")
-    if attempt["pick"]["provider"] != "codex":
+    if attempt["pick"]["provider"] not in ("codex", "claude"):
         raise LedgerError("native reconciliation not yet enabled for this provider")
     root = api.STATE.parent / "executions" / attempt["attempt_id"]
     if not root.is_dir():
@@ -92,6 +94,7 @@ def reconcile(args, config, api):
         except BlockingIOError:
             return {"status": "owner-running", "attempt": attempt}
         try:
-            return native_codex.reconcile(ledger, args.attempt, config)
+            adapter = native_codex if attempt["pick"]["provider"] == "codex" else native_claude
+            return adapter.reconcile(ledger, args.attempt, config)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)

@@ -361,7 +361,7 @@ so treat it like a Makefile.
 planning and atomic point/slot admission. They require caller judgment and do
 not launch a native worker themselves. See [managed admission](docs/MANAGED.md)
 for idempotency, leases, structured waits and current adapter boundaries.
-`managed run` executes admitted Codex subscription tasks in isolated worktrees,
+`managed run` executes admitted Codex and Claude subscription tasks in isolated worktrees,
 with native receipts, cancellation and explicit review. See [native adapters](docs/NATIVE-ADAPTERS.md).
 
 ## Offline replay
