@@ -1791,7 +1791,7 @@ def start_wave(elig: dict, config: dict) -> None:
 
 def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = False,
          probes: dict | None = None, max_waves: int = 12,
-         names: list[str] | None = None) -> dict:
+         names: list[str] | None = None, project: str | None = None) -> dict:
     """Route a whole fan-out at once.
 
     Judgments are independent, so they go out in parallel; allocation is not,
@@ -1835,6 +1835,7 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
             task["decision"] = decision
             if decision["blocked"]:
                 task["wave"] = None
+                log_decision(decision, task["spec"], config=config, project=project)
                 continue  # a brief nobody can execute is not a capacity problem
             if not decision["pick"]:
                 still_pending.append(task)
@@ -1847,7 +1848,7 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
                                          decision.get("review_band", 1))
             task["wave"] = wave
             decision["worktree_name"] = task["name"]
-            log_decision(decision, task["spec"], dispatched=hold, config=config)
+            log_decision(decision, task["spec"], dispatched=hold, config=config, project=project)
             if hold:
                 decision["reservation"] = reserve(provider, task["points"], decision["band"],
                                                   task["spec"], ttl, task["name"])
@@ -1875,8 +1876,12 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
         bucket["tasks"] += 1
         bucket["providers"][pick["provider"]] = bucket["providers"].get(pick["provider"], 0) + 1
     for task in tasks:
-        if task["decision"] and not task["decision"].get("decision_id"):
-            log_decision(task["decision"], task["spec"], config=config)
+        decision = task.get("decision")
+        if not decision:
+            continue
+        if not decision.get("decision_id") or (task["wave"] is None
+                                                and not decision["blocked"]):
+            log_decision(decision, task["spec"], config=config, project=project)
     return {
         "tasks": tasks,
         "waves": waves,
@@ -2356,22 +2361,34 @@ def cmd_deals(args, config):
 
 
 def cmd_route(args, config):
+    import outcome_cli
     spec = args.task or Path(args.spec).read_text()
     try:
         judgment = load_judgment(Path(args.judgment), spec) if args.judgment else None
     except (OSError, ValueError) as exc:
         print(f"judgment rejected: {exc}", file=sys.stderr)
         return 2
+    try:
+        project = outcome_cli.canonicalize_project(args.project) if args.project is not None else None
+    except ValueError as exc:
+        print(f"project rejected: {exc}", file=sys.stderr)
+        return 2
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve,
                      judgment=judgment)
-    log_decision(decision, spec, dispatched=args.reserve, config=config)
+    log_decision(decision, spec, dispatched=args.reserve, config=config, project=project)
     return print_decision(decision, args, config, spec)
 
 
 def cmd_rerun(args, config):
+    import outcome_cli
     spec = args.task or Path(args.spec).read_text()
+    try:
+        project = outcome_cli.canonicalize_project(args.project) if args.project is not None else None
+    except ValueError as exc:
+        print(f"project rejected: {exc}", file=sys.stderr)
+        return 2
     decision = rerun(spec, args.because, args.previous, config)
-    log_decision(decision, spec, config=config)
+    log_decision(decision, spec, config=config, project=project)
     return print_decision(decision, args, config, spec)
 
 
@@ -2480,9 +2497,16 @@ def cmd_report(args, config):
         if not args.model or not args.task or not args.dispatch:
             print("--started needs --model, --task and --dispatch (a stable launch id)", file=sys.stderr)
             return 2
+        import outcome_cli
+        try:
+            project = outcome_cli.canonicalize_project(args.project) if args.project is not None else None
+        except ValueError as exc:
+            print(f"project rejected: {exc}", file=sys.stderr)
+            return 2
         receipt = record_launch(config, name, args.model, args.task, args.dispatch,
                                 args.worktree, args.effort, args.decision_id,
-                                args.override_reason, args.native_session)
+                                args.override_reason, args.native_session,
+                                project=project)
         print(f"{name}: recorded launch {args.dispatch}, reservation {receipt}")
         return 0
     if args.clear:
@@ -2528,11 +2552,12 @@ def cmd_report(args, config):
 def record_launch(config: dict, provider: str, model: str, task: str,
                   dispatch: str, worktree: str | None = None, effort: str | None = None,
                   decision_id: str | None = None, override_reason: str | None = None,
-                  native_session: str | None = None) -> str:
+                  native_session: str | None = None, project: str | None = None) -> str:
     """Account for a launch that happened, never make another routing decision."""
     import outcome_cli
     outcome_cli.record_launch(sys.modules[__name__], config, provider, model, task,
-                              dispatch, worktree, effort, decision_id, override_reason, native_session)
+                              dispatch, worktree, effort, decision_id, override_reason,
+                              native_session, project=project)
     bands = [int(band) for band, ladder in config["bands"].items()
              for text in ladder if parse_candidate(text)["provider"] == provider
              and parse_candidate(text)["model"] == model]
@@ -2571,6 +2596,7 @@ def record_launch(config: dict, provider: str, model: str, task: str,
 
 
 def cmd_plan(args, config):
+    import outcome_cli
     paths = []
     if args.specs:
         lines = [line.strip() for line in Path(args.specs).read_text().splitlines() if line.strip()]
@@ -2592,8 +2618,13 @@ def cmd_plan(args, config):
     if not specs:
         print("no tasks given", file=sys.stderr)
         return 2
+    try:
+        project = outcome_cli.canonicalize_project(args.project) if args.project is not None else None
+    except ValueError as exc:
+        print(f"project rejected: {exc}", file=sys.stderr)
+        return 2
     result = plan(specs, config, concurrency=args.concurrency, hold=args.reserve,
-                  names=[p.stem for p in paths] if paths else None)
+                  names=[p.stem for p in paths] if paths else None, project=project)
     if args.json:
         print(json.dumps(result, indent=2))
         return 0
@@ -2888,7 +2919,7 @@ def calibrate(config: dict, probes: dict | None = None) -> list[dict]:
 
 
 def log_decision(decision: dict, spec: str, dispatched: bool = False,
-                 config: dict | None = None) -> None:
+                 config: dict | None = None, project: str | None = None) -> None:
     """Remember what was recommended, so it can be checked against what ran.
 
     A recommendation nobody can verify is a recommendation nobody has to
@@ -2903,7 +2934,8 @@ def log_decision(decision: dict, spec: str, dispatched: bool = False,
     """
     import outcome_cli
     outcome_cli.record_decision(sys.modules[__name__], decision, spec,
-                                config if config is not None else load_config()[0])
+                                config if config is not None else load_config()[0],
+                                project=project)
     if not decision.get("pick"):
         return
     with state_lock():
@@ -3353,6 +3385,8 @@ def main(argv=None):
     route_cmd.add_argument("--judgment", help="versioned task-bound judgment JSON from the active coding agent; skips the judge call")
     route_cmd.add_argument("--reserve", action="store_true",
                            help="hold this dispatch's estimated cost until it is reported done")
+    route_cmd.add_argument("--project",
+                           help="coordinator project directory; overrides cwd and must match a recorded decision when both are given")
     route_cmd.set_defaults(func=cmd_route)
 
     rerun_cmd = sub.add_parser("rerun", help="route again after an attempt did not work out")
@@ -3365,6 +3399,8 @@ def main(argv=None):
     rerun_cmd.add_argument("--json", action="store_true")
     rerun_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
     rerun_cmd.add_argument("--launcher", help="also print the launch command")
+    rerun_cmd.add_argument("--project",
+                           help="coordinator project directory; overrides cwd and must match a recorded decision when both are given")
     rerun_cmd.set_defaults(func=cmd_rerun)
 
     plan_cmd = sub.add_parser("plan", help="route a whole fan-out at once, spreading it across plans")
@@ -3376,6 +3412,8 @@ def main(argv=None):
                           help="hold each dispatch's estimated cost until it is reported done")
     plan_cmd.add_argument("--launcher", help="also print a launch command per task")
     plan_cmd.add_argument("--json", action="store_true")
+    plan_cmd.add_argument("--project",
+                          help="coordinator project directory; overrides cwd and must match a recorded decision when both are given")
     plan_cmd.set_defaults(func=cmd_plan)
 
     audit_cmd = sub.add_parser("audit", help="did workers run the model that was picked for them")
@@ -3411,6 +3449,8 @@ def main(argv=None):
     report.add_argument("--decision-id", help="exact route decision id; no brief or timestamp matching")
     report.add_argument("--override-reason", help="required when launched choice differs from recommendation")
     report.add_argument("--native-session", help="native session id when directly observed")
+    report.add_argument("--project",
+                        help="coordinator project directory; overrides cwd and must match a recorded decision when both are given")
     report.add_argument("--quota-error", action="store_true", default=True,
                         help="the worker failed on quota (default)")
     report.add_argument("--free-request", action="store_true",
@@ -3435,6 +3475,11 @@ def main(argv=None):
                                 choices=["completed", "failed", "cancelled", "review", "rework", "usage", "accepted"])
     outcome_record.add_argument("--data", required=True, help="JSON data for this event, at most 64 KiB")
     outcome_record.set_defaults(func=cmd_outcome, json=True)
+    outcome_closeout = outcome_sub.add_parser(
+        "closeout", help="apply a bounded manifest of completion/review/usage/acceptance events in one transaction")
+    outcome_closeout.add_argument("--manifest", required=True,
+                                  help="JSON manifest with dispatch, optional decision_id/project, and an events list; evidence_path resolves relative to the manifest's directory")
+    outcome_closeout.set_defaults(func=cmd_outcome, json=True)
 
     deals_cmd = sub.add_parser("deals", help="free models, price drops and catalogue changes")
     deals_cmd.add_argument("--limit", type=int, default=12)

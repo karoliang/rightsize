@@ -40,6 +40,8 @@ jobs:
           python test_task_judgment.py
           python test_outcome_store.py
           python test_consumer_outcomes.py
+          python test_consumer_workflow.py
+          python test_consumer_closeout_review.py
       - name: hook matching
         run: python hooks/test_hook.py
       - name: bounded context selection

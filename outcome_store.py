@@ -8,9 +8,11 @@ the database.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
+import stat as stat_module
 import time
 import fcntl
 import math
@@ -45,7 +47,15 @@ _USAGE_OPTIONAL = frozenset({"input_tokens", "output_tokens", "cache_read_tokens
 _ACCEPT_DATA = frozenset({"actor", "evidence_sha256"})
 _TERMINAL_DATA = frozenset({"evidence_sha256"})
 
+_HASH_BEARING_KINDS = frozenset({
+    "completed", "failed", "cancelled", "review", "rework", "accepted",
+})
+
 _HEX = "0123456789abcdef"
+
+# Maximum size of any single evidence file. Evidence larger than this is almost
+# always raw text or a captured log that should have been a digest.
+CLOSEOUT_EVIDENCE_MAX_BYTES = 1024 * 1024
 
 
 class OutcomeError(ValueError):
@@ -267,6 +277,74 @@ def _validate_event_data(kind, data):
     raise OutcomeError(f"unknown event kind {kind!r}")
 
 
+def _validate_evidence_path(ep, where):
+    if not isinstance(ep, str) or not ep.strip():
+        raise OutcomeError(f"{where}: evidence_path must be a nonempty string")
+    parts = Path(ep).parts
+    if Path(ep).is_absolute() or any(part == ".." for part in parts):
+        raise OutcomeError(f"{where}: evidence_path must be a relative path without traversal")
+
+
+def _validate_evidence_file(path, evidence_root, max_bytes, where):
+    """Validate a single evidence file: regular leaf, bounded size, no symlink
+    anywhere on the unresolved path, computed SHA256.
+
+    Walking the resolved parents erases symlinks before ``lstat`` runs, so a
+    symlink in the evidence dir would slip through. Build the candidate path
+    component-by-component from ``evidence_root`` itself, ``lstat`` each
+    intermediate without resolving, and reject any link under the dir. The
+    final open uses ``O_NOFOLLOW`` so a leaf replaced by a FIFO between the
+    lstat and the read cannot block, and the same nonblocking ``fd`` does
+    the fstat and the bounded read.
+    """
+    import os as _os
+    fpath = Path(evidence_root) / path
+    current = Path(evidence_root)
+    try:
+        current.lstat()
+    except OSError as exc:
+        raise OutcomeError(f"{where}: evidence root not readable: {exc}") from exc
+    for part in Path(path).parts:
+        if part in ("", "."):
+            continue
+        current = current / part
+        try:
+            st = current.lstat()
+        except OSError as exc:
+            raise OutcomeError(f"{where}: evidence path component {current!s} not readable: {exc}") from exc
+        if stat_module.S_ISLNK(st.st_mode):
+            raise OutcomeError(f"{where}: evidence path contains a symlink at {current!s}")
+    flags = _os.O_RDONLY | _os.O_NOFOLLOW | _os.O_NONBLOCK
+    try:
+        fd = _os.open(current, flags)
+    except OSError as exc:
+        raise OutcomeError(f"{where}: evidence file not readable: {exc}") from exc
+    try:
+        try:
+            st = _os.fstat(fd)
+        except OSError as exc:
+            raise OutcomeError(f"{where}: evidence file not readable: {exc}") from exc
+        mode = st.st_mode
+        if stat_module.S_ISLNK(mode):
+            raise OutcomeError(f"{where}: evidence file is a symlink")
+        if stat_module.S_ISDIR(mode):
+            raise OutcomeError(f"{where}: evidence file is a directory")
+        if stat_module.S_ISFIFO(mode):
+            raise OutcomeError(f"{where}: evidence file is a fifo")
+        if stat_module.S_ISCHR(mode) or stat_module.S_ISBLK(mode):
+            raise OutcomeError(f"{where}: evidence file is a device")
+        if not stat_module.S_ISREG(mode):
+            raise OutcomeError(f"{where}: evidence file is not a regular file")
+        if st.st_size > max_bytes:
+            raise OutcomeError(f"{where}: evidence file exceeds {max_bytes} bytes")
+        data = _os.read(fd, max_bytes + 1)
+    finally:
+        _os.close(fd)
+    if len(data) > max_bytes:
+        raise OutcomeError(f"{where}: evidence file exceeded {max_bytes} bytes during read")
+    return hashlib.sha256(data).hexdigest()
+
+
 class OutcomeStore:
     """Transactional immutable evidence. No managed admission or network effects."""
 
@@ -403,7 +481,19 @@ class OutcomeStore:
                 and rv["family"] != actual["family"]
                 and (not repairs or events.index(review) > repairs[-1]))
 
-    def event(self, dispatch_id, event_id, kind, data, at=None):
+    def _event(self, db, dispatch_id, event_id, kind, data, at=None,
+               review_validator=None):
+        """Single transactional event writer shared by ``event()`` and ``closeout``.
+
+        All the read-then-check-then-write invariants (terminal conflict,
+        post-accept immutability, monotonic time, accepted-gate, retry preserving
+        the original stamp) live here so both paths exercise the same state
+        machine. The caller must hold an open ``_write`` transaction. The
+        optional ``review_validator`` callback is invoked with the locked
+        ``(db, decision, launch, review_data)`` so reviewer profile/family/
+        floor/capability checks run inside the transaction and cannot race a
+        hook binding the launch.
+        """
         if not isinstance(dispatch_id, str) or not dispatch_id.strip():
             raise OutcomeError("invalid dispatch_id")
         if not isinstance(event_id, str) or not event_id.strip():
@@ -413,35 +503,197 @@ class OutcomeStore:
         if at is not None and not _is_nonneg_number(at):
             raise OutcomeError("event timestamp must be finite nonnegative")
         _validate_event_data(kind, data)
-        with self._write() as db:
-            existing = self._get(db, "events", "event_id", event_id)
-            stamp = existing["at"] if existing and at is None else time.time() if at is None else at
-            record = dict(dispatch_id=dispatch_id, event_id=event_id, kind=kind, data=data, at=stamp)
-            if existing:
-                return self._insert(db, "events", "event_id", record)
-            launch = self._launch(db, dispatch_id)
-            if not launch:
-                raise OutcomeError("unknown dispatch_id")
-            events = self._events(db, dispatch_id)
-            if stamp < max([launch["at"]] + [e["at"] for e in events]):
-                raise OutcomeError("event timestamp predates launch or previous event")
-            if any(e["kind"] == "accepted" for e in events):
-                raise OutcomeError("accepted record is immutable")
-            terminal = [e for e in events if e["kind"] in _TERMINAL_KINDS]
-            if kind in _TERMINAL_KINDS and terminal:
-                raise OutcomeError("terminal outcome already recorded; replay its event id")
-            if kind == "accepted":
-                decision = self._get(db, "decisions", "decision_id", launch["decision_id"])
-                if not decision:
-                    raise OutcomeError("cannot accept unlinked launch")
-                if not terminal or terminal[-1]["kind"] != "completed":
-                    raise OutcomeError("acceptance requires completed execution")
-                reviews = [e for e in events if e["kind"] == "review"]
-                if reviews and reviews[-1]["data"]["verdict"] == "rejected":
-                    raise OutcomeError("latest review rejected the result")
-                if decision["review_required"] and not self._review_valid(launch, events):
-                    raise OutcomeError("fresh independent accepted review required")
+        existing = self._get(db, "events", "event_id", event_id)
+        if existing is not None:
+            # Global event_id identity: a different dispatch that reuses this
+            # event_id would silently leave an audit-trail mismatch.
+            if existing["dispatch_id"] != dispatch_id:
+                raise OutcomeError(
+                    f"event_id {event_id!r} already recorded for dispatch "
+                    f"{existing['dispatch_id']!r}"
+                )
+            if at is not None and at != existing["at"]:
+                raise OutcomeError(
+                    f"event_id {event_id!r} already recorded with a different timestamp"
+                )
+            stamp = existing["at"]
+        else:
+            stamp = time.time() if at is None else at
+        record = dict(dispatch_id=dispatch_id, event_id=event_id, kind=kind, data=data, at=stamp)
+        if existing is not None:
             return self._insert(db, "events", "event_id", record)
+        launch = self._launch(db, dispatch_id)
+        if not launch:
+            raise OutcomeError("unknown dispatch_id")
+        events = self._events(db, dispatch_id)
+        if stamp < max([launch["at"]] + [e["at"] for e in events]):
+            raise OutcomeError("event timestamp predates launch or previous event")
+        if any(e["kind"] == "accepted" for e in events):
+            raise OutcomeError("accepted record is immutable")
+        terminal = [e for e in events if e["kind"] in _TERMINAL_KINDS]
+        if kind in _TERMINAL_KINDS and terminal:
+            raise OutcomeError("terminal outcome already recorded; replay its event id")
+        if kind == "review" and review_validator is not None:
+            decision = self._get(db, "decisions", "decision_id", launch["decision_id"])
+            review_validator(db, decision, launch, data)
+        if kind == "accepted":
+            decision = self._get(db, "decisions", "decision_id", launch["decision_id"])
+            if not decision:
+                raise OutcomeError("cannot accept unlinked launch")
+            if not terminal or terminal[-1]["kind"] != "completed":
+                raise OutcomeError("acceptance requires completed execution")
+            reviews = [e for e in events if e["kind"] == "review"]
+            if reviews and reviews[-1]["data"]["verdict"] == "rejected":
+                raise OutcomeError("latest review rejected the result")
+            if decision["review_required"] and not self._review_valid(launch, events):
+                raise OutcomeError("fresh independent accepted review required")
+        return self._insert(db, "events", "event_id", record)
+
+    def closeout(self, dispatch_id, events, decision_id=None, project=None,
+                 evidence_root=None, max_events=64, max_evidence_bytes=CLOSEOUT_EVIDENCE_MAX_BYTES,
+                 review_validator=None):
+        """Atomic closeout: validate the whole manifest, then apply in one transaction.
+
+        All-or-nothing: any envelope, evidence, dispatch, decision or project
+        failure leaves the store untouched. Idempotent: an event_id that
+        already exists for this dispatch with identical content is left alone
+        and its original timestamp is preserved; a differing record, a cross-
+        dispatch reuse, or any new hash-bearing event that fails the gates
+        fails the batch.
+
+        Reviewer profile/family/floor/capability validation is supplied by the
+        caller as a ``review_validator`` callback invoked from inside the
+        write transaction with the live locked ``(db, decision, launch,
+        review_data)``, so a hook binding the launch before this check cannot
+        weaken acceptance through a stale local view.
+        """
+        if not isinstance(dispatch_id, str) or not dispatch_id.strip():
+            raise OutcomeError("invalid dispatch_id")
+        if not isinstance(events, list):
+            raise OutcomeError("events must be a list")
+        if not events:
+            raise OutcomeError("closeout requires at least one event")
+        if len(events) > max_events:
+            raise OutcomeError(f"closeout exceeds {max_events} events per batch")
+        if isinstance(decision_id, str) and decision_id:
+            pass
+        elif decision_id is not None:
+            raise OutcomeError("decision_id must be a string or omitted")
+
+        # Envelope shape, required fields, unique event_ids within the batch.
+        seen_ids = set()
+        for idx, event in enumerate(events):
+            if not isinstance(event, Mapping):
+                raise OutcomeError(f"event {idx}: must be a mapping")
+            for key in ("event_id", "kind", "data"):
+                if key not in event:
+                    raise OutcomeError(f"event {idx}: missing {key}")
+            for key in event:
+                if key not in ("event_id", "kind", "data", "evidence_path"):
+                    raise OutcomeError(f"event {idx}: unknown field {key!r}")
+            eid = event["event_id"]
+            if not isinstance(eid, str) or not eid.strip():
+                raise OutcomeError(f"event {idx}: invalid event_id")
+            if eid in seen_ids:
+                raise OutcomeError(f"event {idx}: duplicate event_id {eid!r}")
+            seen_ids.add(eid)
+            kind = event["kind"]
+            if not isinstance(kind, str) or kind not in _EVENT_KINDS:
+                raise OutcomeError(f"event {idx}: invalid event kind {kind!r}")
+            if not isinstance(event["data"], Mapping):
+                raise OutcomeError(f"event {idx}: data must be a mapping")
+            ep = event.get("evidence_path")
+            if kind in _HASH_BEARING_KINDS:
+                if ep is None:
+                    raise OutcomeError(
+                        f"event {idx}: evidence_path required for hash-bearing kind {kind!r}"
+                    )
+                _validate_evidence_path(ep, f"event {idx}")
+            elif ep is not None:
+                raise OutcomeError(
+                    f"event {idx}: evidence_path not permitted for kind {kind!r}"
+                )
+
+        # Evidence file integrity: regular files only, bounded, SHA256 matches.
+        # Validated before any transaction so a missing or unsafe file leaves
+        # the store untouched and never creates an empty SQLite file when the
+        # dispatch does not exist yet.
+        for idx, event in enumerate(events):
+            ep = event.get("evidence_path")
+            if ep is None:
+                continue
+            if evidence_root is None:
+                raise OutcomeError(
+                    f"event {idx}: evidence_path set but no evidence root provided"
+                )
+            digest = _validate_evidence_file(ep, evidence_root, max_evidence_bytes,
+                                             f"event {idx}")
+            event_sha = (event.get("data") or {}).get("evidence_sha256")
+            if event_sha and event_sha != digest:
+                raise OutcomeError(
+                    f"event {idx}: evidence_sha256 mismatch (file {digest!r} vs data {event_sha!r})"
+                )
+
+        # Preflight: the dispatch, its decision and project must already exist
+        # under the recorded identity. A non-existent store raises here without
+        # ever opening the write transaction.
+        with self._read() as db:
+            if db is None:
+                raise OutcomeError("unknown dispatch_id")
+            launch = self._launch(db, dispatch_id)
+            if launch is None:
+                raise OutcomeError("unknown dispatch_id")
+            decision = (self._get(db, "decisions", "decision_id", launch["decision_id"])
+                        if launch.get("decision_id") else None)
+            if isinstance(decision_id, str) and decision_id:
+                if not decision or decision["decision_id"] != decision_id:
+                    raise OutcomeError(
+                        f"decision_id {decision_id!r} does not match the dispatch's recorded decision"
+                    )
+            if isinstance(project, str) and project:
+                recorded_project = (decision or launch).get("project")
+                if recorded_project and recorded_project != project:
+                    raise OutcomeError(
+                        f"project {project!r} does not match recorded project {recorded_project!r}"
+                    )
+
+        # Single transaction: every event goes through the shared _event helper,
+        # so post-accept immutability, terminal conflict, monotonic time, retry
+        # preserving original stamps and accepted-gate logic run uniformly.
+        # Optional decision/project consistency is re-validated inside the lock
+        # so a hook that bound the launch after the preflight cannot weaken it.
+        applied = []
+        with self._write() as db:
+            if self._launch(db, dispatch_id) is None:
+                raise OutcomeError("unknown dispatch_id")
+            live_decision = None
+            live_launch = self._launch(db, dispatch_id)
+            live_decision_id = live_launch.get("decision_id")
+            if live_decision_id:
+                live_decision = self._get(db, "decisions", "decision_id", live_decision_id)
+            if isinstance(decision_id, str) and decision_id:
+                if not live_decision or live_decision["decision_id"] != decision_id:
+                    raise OutcomeError(
+                        f"decision_id {decision_id!r} does not match the dispatch's recorded decision"
+                    )
+            if isinstance(project, str) and project:
+                recorded_project = (live_decision or live_launch).get("project")
+                if recorded_project and recorded_project != project:
+                    raise OutcomeError(
+                        f"project {project!r} does not match recorded project {recorded_project!r}"
+                    )
+            for event in events:
+                applied.append(self._event(
+                    db, dispatch_id, event["event_id"], event["kind"], event["data"],
+                    review_validator=review_validator,
+                ))
+        return {"dispatch_id": dispatch_id, "applied": applied}
+
+    def event(self, dispatch_id, event_id, kind, data, at=None, review_validator=None):
+        """Insert one event; idempotent on event_id with identical content."""
+        with self._write() as db:
+            return self._event(db, dispatch_id, event_id, kind, data, at=at,
+                               review_validator=review_validator)
 
     def get_decision(self, decision_id):
         if not isinstance(decision_id, str) or not decision_id.strip():
@@ -467,7 +719,7 @@ class OutcomeStore:
         metrics = {k: 0 for k in ("total_launches", "linked_launches", "unlinked_launches",
                    "completed_launches", "accepted_launches", "rejected_review_launches",
                    "missing_required_review_launches", "known_usage_launches", "unknown_usage_launches",
-                   "known_rework_launches", "unknown_rework_launches")}
+                   "known_rework_launches", "unknown_rework_launches", "closeout_gaps_total")}
         repair = dict(seconds_total=0, events=0, accepted_with_coordinator_rework=0, coverage_accepted=None)
         categories = {k: dict(total=0, known_launches=0, unknown_launches=0) for k in _USAGE_OPTIONAL}
         attempts, first_launch, accepted_at = [], {}, {}
@@ -483,7 +735,8 @@ class OutcomeStore:
             reviews = [e for e in es if e["kind"] == "review"]
             usage = [e for e in es if e["kind"] == "usage"]
             rework = [e for e in es if e["kind"] == "rework"]
-            completed = bool(terminal and terminal[-1]["kind"] == "completed")
+            latest_terminal = terminal[-1]["kind"] if terminal else None
+            completed = bool(latest_terminal == "completed")
             accepted = bool(acceptance)
             latest_review = reviews[-1] if reviews else None
             latest_usage = usage[-1]["data"] if usage else None
@@ -511,10 +764,30 @@ class OutcomeStore:
             first_launch[key] = min(first_launch.get(key, launch["at"]), launch["at"])
             if accepted:
                 accepted_at[key] = min(accepted_at.get(key, acceptance[0]["at"]), acceptance[0]["at"])
+            gaps = []
+            if not decision:
+                gaps.append("missing_decision_link")
+            # A failed/cancelled attempt terminated: neither completion nor
+            # acceptance are pending evidence, so the gaps stay empty. A
+            # missing terminal reports both gaps because nothing finished.
+            if latest_terminal is None:
+                gaps.append("missing_completion")
+                gaps.append("missing_acceptance")
+            elif latest_terminal == "completed" and not accepted:
+                gaps.append("missing_acceptance")
+            if required and not self._review_valid(launch, es):
+                gaps.append("missing_review")
+            # Missing usage and rework stay missing, never implicit zero.
+            if not usage:
+                gaps.append("missing_usage")
+            if not rework:
+                gaps.append("missing_rework_evidence")
+            metrics["closeout_gaps_total"] += len(gaps)
             attempts.append(dict(launch=launch, events=es,
-                status="accepted" if accepted else terminal[-1]["kind"] if terminal else "started",
+                status="accepted" if accepted else latest_terminal or "started",
                 completed=completed, accepted=accepted, review_required=required,
-                latest_review=latest_review, latest_usage=latest_usage, rework_events=rework))
+                latest_review=latest_review, latest_usage=latest_usage, rework_events=rework,
+                closeout_gaps=gaps))
         if metrics["accepted_launches"]:
             repair["coverage_accepted"] = repair["accepted_with_coordinator_rework"] / metrics["accepted_launches"]
         metrics["coordinator_repair"] = repair

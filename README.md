@@ -534,12 +534,57 @@ See [task-fit policy](docs/TASK-FIT.md) for provisional assignments and limits.
 External Orca workflows can now retain exact decisions beyond the legacy
 200-entry history. Route/plan outputs include a `decision_id`; pass it to
 `report --started --decision-id ID`, preserving the exact task text, actual
-model/effort and any override reason. `outcome record` separates completion,
-independent review, repairs, usage and acceptance; `outcome audit --project PATH`
-reports coverage and time to accepted tasks, including recorded retries.
+model/effort and any override reason. `outcome closeout --manifest FILE`
+records completion, independent review, repairs, usage and acceptance for a
+linked launch in one atomic transaction; the CLI takes the manifest file
+only, no `--root`, no `--project` flag — the project, when asserted, is an
+optional manifest field. The manifest is capped at 64 KiB and 64 events;
+each referenced evidence file is capped at 1 MiB. `evidence_path` is
+required on hash-bearing events (`completed`, `failed`, `cancelled`,
+`review`, `rework`, `accepted`) and is resolved relative to the directory
+holding the manifest; absolute paths and `..` traversal are rejected.
+`outcome record` remains for incremental additions. `outcome audit
+--project PATH` reports coverage and time to accepted tasks, including
+recorded retries. `--project` is accepted on `route`, `rerun`, `plan` and
+`report`; an explicit `--project` is canonicalized (resolve + abspath) and
+an explicit value that disagrees with a recorded decision fails before
+write. The launch inherits the decision's recorded project when the launch
+is recorded from a different cwd; only the project inherits — never the
+actual provider/model/effort, which the operator must pass explicitly and
+record unchanged or supply with `--override-reason`.
+
+File hash checks prove the bytes on disk match the recorded
+`evidence_sha256`; they do not prove execution correctness, reviewer
+identity or account binding. The store never re-runs a test or re-reads
+the file beyond the SHA256 match, and a model name in a `review` event is
+caller attestation, not authentication.
 
 High-stakes work requires independent review even when its optional review score
-is low. This gates recorded advisory acceptance, not external Orca settlement or
-managed admission. The fallback classifier also separates path metadata from
-risk and domain correctness from irreversible actions. See
-[the consumer workflow](docs/CONSUMER-WORKFLOW.md) for payloads and limitations.
+is low. Acceptance requires a `review` whose `provider` differs from the
+actual author provider AND whose `family` differs from the actual author
+family: matching EITHER blocks acceptance (`outcome_store.OutcomeStore._review_valid`).
+The reviewer must also use a configured profile at the recorded task floor
+with required capabilities. This gates recorded advisory acceptance, not
+external Orca settlement or managed admission. Same-family `review` events
+are stored when they pass per-event validation; the cross-provider/family
+requirement is enforced at acceptance, not at review-record time. Under a
+MiniMax-only dispatch pool the requirement is unsatisfiable for any
+review-required work; acceptance is blocked until a separate out-of-pool
+reviewer is dispatched, and the coordinator states the blocker rather than
+widening the pool or reclassifying the task to bypass review. When the user
+restricts a particular run to MiniMax-only, that restriction is scoped to
+the run; it does not bind later dispatches automatically.
+
+UI verification claims must name the actual component, the actual browser
+execution path, and a retained artifact (Playwright run, CDP capture, real
+Storybook/Vitest render with snapshot). A mocked helper test, a build
+success alone, an HTTP-only `curl` against the preview URL, or prose
+assertion is not browser proof. Missing artifacts keep the claim
+outstanding.
+
+The fallback classifier also separates path metadata from risk and domain
+correctness from irreversible actions. Public docs reflect the implemented
+parser only, with no invented acceptance, account-binding or savings claims.
+See [the consumer workflow](docs/CONSUMER-WORKFLOW.md) for payloads and
+limitations, and [ADR0005](docs/decisions/0005-consumer-closeout.md) for the
+closeout decisions.
