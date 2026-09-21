@@ -1,0 +1,1073 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "mechanical-public-fields",
+      "tier": "mechanical",
+      "task": "Return a new dictionary containing only provider, model and effort fields present in a record, preserving their values. Never expose other fields.",
+      "initial_source": "def solve(record):\n    return dict(record)\n",
+      "reference_source": "def solve(record):\n    return {key: record[key] for key in (\"provider\", \"model\", \"effort\") if key in record}\n",
+      "cases": [
+        {
+          "args": [
+            {}
+          ],
+          "expected": {}
+        },
+        {
+          "args": [
+            {
+              "provider": "codex",
+              "model": "m",
+              "effort": "low",
+              "token": "private"
+            }
+          ],
+          "expected": {
+            "provider": "codex",
+            "model": "m",
+            "effort": "low"
+          }
+        },
+        {
+          "args": [
+            {
+              "effort": null,
+              "extra": 1
+            }
+          ],
+          "expected": {
+            "effort": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "mechanical-stable-dedup",
+      "tier": "mechanical",
+      "task": "Return strings with duplicates removed, preserving first occurrence order and case. Input is a list of strings.",
+      "initial_source": "def solve(values):\n    return sorted(set(values))\n",
+      "reference_source": "def solve(values):\n    return list(dict.fromkeys(values))\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": []
+        },
+        {
+          "args": [
+            [
+              "z",
+              "a",
+              "z",
+              "A",
+              "a"
+            ]
+          ],
+          "expected": [
+            "z",
+            "a",
+            "A"
+          ]
+        },
+        {
+          "args": [
+            [
+              "",
+              "x",
+              ""
+            ]
+          ],
+          "expected": [
+            "",
+            "x"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mechanical-bucket-rename",
+      "tier": "mechanical",
+      "task": "Copy each bucket, rename percent_used to percent when present, and preserve all other fields. Existing percent is replaced only when percent_used exists. Do not mutate inputs.",
+      "initial_source": "def solve(buckets):\n    return buckets\n",
+      "reference_source": "def solve(buckets):\n    result=[]\n    for bucket in buckets:\n        row=dict(bucket)\n        if \"percent_used\" in row:\n            row[\"percent\"]=row.pop(\"percent_used\")\n        result.append(row)\n    return result\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": []
+        },
+        {
+          "args": [
+            [
+              {
+                "id": "weekly",
+                "percent_used": 12,
+                "resets_at": 44
+              }
+            ]
+          ],
+          "expected": [
+            {
+              "id": "weekly",
+              "percent": 12,
+              "resets_at": 44
+            }
+          ]
+        },
+        {
+          "args": [
+            [
+              {
+                "percent": 1
+              },
+              {
+                "percent": 2,
+                "percent_used": null
+              }
+            ]
+          ],
+          "expected": [
+            {
+              "percent": 1
+            },
+            {
+              "percent": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mechanical-terminal-labels",
+      "tier": "mechanical",
+      "task": "Map completed to completed, failed to runtime-failed, aborted to cancelled, preserving order. Any other status maps to unresolved.",
+      "initial_source": "def solve(statuses):\n    return statuses\n",
+      "reference_source": "def solve(statuses):\n    names={\"completed\":\"completed\",\"failed\":\"runtime-failed\",\"aborted\":\"cancelled\"}\n    return [names.get(status,\"unresolved\") for status in statuses]\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": []
+        },
+        {
+          "args": [
+            [
+              "completed",
+              "failed",
+              "aborted",
+              "started",
+              "cancel-ack"
+            ]
+          ],
+          "expected": [
+            "completed",
+            "runtime-failed",
+            "cancelled",
+            "unresolved",
+            "unresolved"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mechanical-receipt-order",
+      "tier": "mechanical",
+      "task": "Sort receipt dictionaries by integer sequence ascending, preserving input order for ties. Return a new list without mutating inputs.",
+      "initial_source": "def solve(receipts):\n    return receipts\n",
+      "reference_source": "def solve(receipts):\n    return sorted(receipts,key=lambda row: row[\"sequence\"])\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": []
+        },
+        {
+          "args": [
+            [
+              {
+                "sequence": 2,
+                "id": "b"
+              },
+              {
+                "sequence": 1,
+                "id": "a"
+              },
+              {
+                "sequence": 2,
+                "id": "c"
+              }
+            ]
+          ],
+          "expected": [
+            {
+              "sequence": 1,
+              "id": "a"
+            },
+            {
+              "sequence": 2,
+              "id": "b"
+            },
+            {
+              "sequence": 2,
+              "id": "c"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "implementation-binding-capacity",
+      "tier": "implementation",
+      "task": "Return remaining percentage in the tightest quota bucket: max(0, 100 - largest percent). Return null if buckets is empty or any percent is missing/null. Values otherwise lie in [0,100].",
+      "initial_source": "def solve(buckets):\n    return None\n",
+      "reference_source": "def solve(buckets):\n    if not buckets or any(row.get(\"percent\") is None for row in buckets):\n        return None\n    return max(0,100-max(row[\"percent\"] for row in buckets))\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": null
+        },
+        {
+          "args": [
+            [
+              {
+                "percent": 10
+              },
+              {
+                "percent": 93
+              }
+            ]
+          ],
+          "expected": 7
+        },
+        {
+          "args": [
+            [
+              {
+                "percent": 0
+              }
+            ]
+          ],
+          "expected": 100
+        },
+        {
+          "args": [
+            [
+              {
+                "percent": 100
+              }
+            ]
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            [
+              {
+                "percent": 2
+              },
+              {}
+            ]
+          ],
+          "expected": null
+        }
+      ]
+    },
+    {
+      "id": "implementation-ceiling-points",
+      "tier": "implementation",
+      "task": "Convert nonnegative integer basis points to whole percentage points, rounding upward (100 basis points per point).",
+      "initial_source": "def solve(basis_points):\n    return 0\n",
+      "reference_source": "def solve(basis_points):\n    return (basis_points+99)//100\n",
+      "cases": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            1
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            99
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            100
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            101
+          ],
+          "expected": 2
+        },
+        {
+          "args": [
+            10000
+          ],
+          "expected": 100
+        }
+      ]
+    },
+    {
+      "id": "implementation-commitment-load",
+      "tier": "implementation",
+      "task": "Return [total points, count] for attempts whose state is admitted, launching, started, producing, cancelling or reconciling. Points are nonnegative integers. Terminal attempts do not count.",
+      "initial_source": "def solve(attempts):\n    return [0,0]\n",
+      "reference_source": "def solve(attempts):\n    active={\"admitted\",\"launching\",\"started\",\"producing\",\"cancelling\",\"reconciling\"}\n    held=[row for row in attempts if row[\"state\"] in active]\n    return [sum(row[\"points\"] for row in held),len(held)]\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": [
+            0,
+            0
+          ]
+        },
+        {
+          "args": [
+            [
+              {
+                "state": "reconciling",
+                "points": 4
+              },
+              {
+                "state": "completed",
+                "points": 8
+              },
+              {
+                "state": "admitted",
+                "points": 2
+              }
+            ]
+          ],
+          "expected": [
+            6,
+            2
+          ]
+        },
+        {
+          "args": [
+            [
+              {
+                "state": "launching",
+                "points": 1
+              },
+              {
+                "state": "started",
+                "points": 1
+              },
+              {
+                "state": "producing",
+                "points": 1
+              },
+              {
+                "state": "cancelling",
+                "points": 1
+              },
+              {
+                "state": "failed",
+                "points": 1
+              },
+              {
+                "state": "accepted",
+                "points": 1
+              }
+            ]
+          ],
+          "expected": [
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "implementation-optional-context",
+      "tier": "implementation",
+      "task": "Mandatory nonnegative byte sizes must all fit or return null. Otherwise return selected optional indices, scanning in order and greedily including each nonnegative optional size that fits the remaining integer budget. Skip oversized optional entries, continuing the scan.",
+      "initial_source": "def solve(mandatory, optional, budget):\n    return []\n",
+      "reference_source": "def solve(mandatory, optional, budget):\n    remaining=budget-sum(mandatory)\n    if remaining<0:\n        return None\n    selected=[]\n    for index,size in enumerate(optional):\n        if size<=remaining:\n            selected.append(index)\n            remaining-=size\n    return selected\n",
+      "cases": [
+        {
+          "args": [
+            [
+              4,
+              3
+            ],
+            [
+              5,
+              2,
+              1
+            ],
+            10
+          ],
+          "expected": [
+            1,
+            2
+          ]
+        },
+        {
+          "args": [
+            [
+              11
+            ],
+            [],
+            10
+          ],
+          "expected": null
+        },
+        {
+          "args": [
+            [],
+            [
+              0,
+              3,
+              0
+            ],
+            0
+          ],
+          "expected": [
+            0,
+            2
+          ]
+        },
+        {
+          "args": [
+            [
+              2
+            ],
+            [
+              3
+            ],
+            5
+          ],
+          "expected": [
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "implementation-paired-coverage",
+      "tier": "implementation",
+      "task": "Given outcome records with variant baseline or candidate and accepted boolean, return each variant mapped to [accepted count, total count]. Every record counts in the denominator even when accepted is missing/null.",
+      "initial_source": "def solve(records):\n    return {}\n",
+      "reference_source": "def solve(records):\n    result={\"baseline\":[0,0],\"candidate\":[0,0]}\n    for row in records:\n        counts=result[row[\"variant\"]]\n        counts[1]+=1\n        counts[0]+=int(row.get(\"accepted\") is True)\n    return result\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": {
+            "baseline": [
+              0,
+              0
+            ],
+            "candidate": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "args": [
+            [
+              {
+                "variant": "candidate",
+                "accepted": true
+              },
+              {
+                "variant": "candidate"
+              },
+              {
+                "variant": "baseline",
+                "accepted": false
+              },
+              {
+                "variant": "baseline",
+                "accepted": null
+              }
+            ]
+          ],
+          "expected": {
+            "baseline": [
+              0,
+              2
+            ],
+            "candidate": [
+              1,
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "diagnosis-null-reset",
+      "tier": "diagnosis",
+      "task": "A denial remains active when reset is null or now is strictly before reset. It expires at reset. now and non-null reset are integer Unix seconds. Repair the exception and boundary bug.",
+      "initial_source": "def solve(reset, now):\n    return now <= reset\n",
+      "reference_source": "def solve(reset, now):\n    return reset is None or now<reset\n",
+      "cases": [
+        {
+          "args": [
+            null,
+            100
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            101,
+            100
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            100,
+            100
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            99,
+            100
+          ],
+          "expected": false
+        }
+      ]
+    },
+    {
+      "id": "diagnosis-unknown-is-not-zero",
+      "tier": "diagnosis",
+      "task": "Return null when percent is null. Otherwise return 100-percent, including when percent is zero. Repair the truthiness bug.",
+      "initial_source": "def solve(percent):\n    return 100-percent if percent else None\n",
+      "reference_source": "def solve(percent):\n    return None if percent is None else 100-percent\n",
+      "cases": [
+        {
+          "args": [
+            null
+          ],
+          "expected": null
+        },
+        {
+          "args": [
+            0
+          ],
+          "expected": 100
+        },
+        {
+          "args": [
+            100
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            42
+          ],
+          "expected": 58
+        }
+      ]
+    },
+    {
+      "id": "diagnosis-usage-snapshot",
+      "tier": "diagnosis",
+      "task": "Records contain message_id and cumulative nonnegative total. Return the sum of the latest total for each distinct message, not the sum of every observation. Input order is observation order.",
+      "initial_source": "def solve(records):\n    return sum(row[\"total\"] for row in records)\n",
+      "reference_source": "def solve(records):\n    latest={}\n    for row in records:\n        latest[row[\"message_id\"]]=row[\"total\"]\n    return sum(latest.values())\n",
+      "cases": [
+        {
+          "args": [
+            []
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            [
+              {
+                "message_id": "a",
+                "total": 3
+              },
+              {
+                "message_id": "b",
+                "total": 5
+              },
+              {
+                "message_id": "a",
+                "total": 8
+              }
+            ]
+          ],
+          "expected": 13
+        },
+        {
+          "args": [
+            [
+              {
+                "message_id": "a",
+                "total": 4
+              },
+              {
+                "message_id": "a",
+                "total": 4
+              }
+            ]
+          ],
+          "expected": 4
+        }
+      ]
+    },
+    {
+      "id": "diagnosis-account-scope",
+      "tier": "diagnosis",
+      "task": "Return true if any denial matches provider and either has no account_ref (legacy provider-wide) or exactly matches account_ref. A denial for a different known account must not block this account.",
+      "initial_source": "def solve(denials, provider, account_ref):\n    return any(row[\"provider\"]==provider for row in denials)\n",
+      "reference_source": "def solve(denials, provider, account_ref):\n    return any(row[\"provider\"]==provider and (row.get(\"account_ref\") is None or row[\"account_ref\"]==account_ref) for row in denials)\n",
+      "cases": [
+        {
+          "args": [
+            [],
+            "codex",
+            "a"
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            [
+              {
+                "provider": "codex",
+                "account_ref": "b"
+              }
+            ],
+            "codex",
+            "a"
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            [
+              {
+                "provider": "codex"
+              }
+            ],
+            "codex",
+            "a"
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            [
+              {
+                "provider": "codex",
+                "account_ref": "a"
+              }
+            ],
+            "codex",
+            "a"
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            [
+              {
+                "provider": "claude"
+              }
+            ],
+            "codex",
+            "a"
+          ],
+          "expected": false
+        }
+      ]
+    },
+    {
+      "id": "diagnosis-migrated-hold",
+      "tier": "diagnosis",
+      "task": "Return IDs of holds that remain active. Ordinary holds are active only while expires > now. A migrated hold stays active regardless of expiration. Explicit settled=true releases either kind.",
+      "initial_source": "def solve(holds, now):\n    return [row[\"id\"] for row in holds if row[\"expires\"]>now]\n",
+      "reference_source": "def solve(holds, now):\n    return [row[\"id\"] for row in holds if not row.get(\"settled\",False) and (row.get(\"migrated\",False) or row[\"expires\"]>now)]\n",
+      "cases": [
+        {
+          "args": [
+            [
+              {
+                "id": "a",
+                "expires": 0,
+                "migrated": true
+              },
+              {
+                "id": "b",
+                "expires": 100
+              },
+              {
+                "id": "c",
+                "expires": 101
+              },
+              {
+                "id": "d",
+                "expires": 200,
+                "settled": true
+              }
+            ],
+            100
+          ],
+          "expected": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "args": [
+            [
+              {
+                "id": "a",
+                "expires": 0,
+                "migrated": true,
+                "settled": true
+              }
+            ],
+            100
+          ],
+          "expected": []
+        }
+      ]
+    },
+    {
+      "id": "high-stakes-denial-precedence",
+      "tier": "high_stakes",
+      "task": "Decide admission: return false if denied, if capacity is null, if points+reserve exceeds capacity, or if slots_used >= slot_limit. Otherwise true. All numbers are nonnegative integers. Exact point boundary is allowed; exact slot boundary is not.",
+      "initial_source": "def solve(denied, capacity, points, reserve, slots_used, slot_limit):\n    return capacity is not None and points<=capacity\n",
+      "reference_source": "def solve(denied, capacity, points, reserve, slots_used, slot_limit):\n    return not denied and capacity is not None and points+reserve<=capacity and slots_used<slot_limit\n",
+      "cases": [
+        {
+          "args": [
+            true,
+            100,
+            1,
+            0,
+            0,
+            2
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            false,
+            null,
+            0,
+            0,
+            0,
+            2
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            false,
+            12,
+            2,
+            10,
+            1,
+            2
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            false,
+            11,
+            2,
+            10,
+            0,
+            2
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            false,
+            100,
+            1,
+            0,
+            2,
+            2
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            false,
+            100,
+            0,
+            0,
+            0,
+            0
+          ],
+          "expected": false
+        }
+      ]
+    },
+    {
+      "id": "high-stakes-credential-binding",
+      "tier": "high_stakes",
+      "task": "Return true only when prepared and current both have nonempty strings for provider, account_ref and fingerprint, and all three match exactly. Ignore display_name. Never infer a match from missing fields.",
+      "initial_source": "def solve(prepared, current):\n    return prepared.get(\"display_name\")==current.get(\"display_name\")\n",
+      "reference_source": "def solve(prepared, current):\n    return all(isinstance(prepared.get(key),str) and bool(prepared[key]) and prepared[key]==current.get(key) for key in (\"provider\",\"account_ref\",\"fingerprint\"))\n",
+      "cases": [
+        {
+          "args": [
+            {},
+            {}
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            {
+              "provider": "p",
+              "account_ref": "a",
+              "fingerprint": "f"
+            },
+            {
+              "provider": "p",
+              "account_ref": "a",
+              "fingerprint": "f",
+              "display_name": "new"
+            }
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            {
+              "provider": "p",
+              "account_ref": "a",
+              "fingerprint": "f"
+            },
+            {
+              "provider": "p",
+              "account_ref": "a",
+              "fingerprint": "rotated"
+            }
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            {
+              "provider": "p",
+              "account_ref": "",
+              "fingerprint": "f"
+            },
+            {
+              "provider": "p",
+              "account_ref": "",
+              "fingerprint": "f"
+            }
+          ],
+          "expected": false
+        }
+      ]
+    },
+    {
+      "id": "high-stakes-cancel-proof",
+      "tier": "high_stakes",
+      "task": "Return true to release a lease only when terminal is a dictionary with session_id and turn_id exactly matching the supplied nonempty IDs, and outcome is completed, failed or cancelled. cancel_ack is not terminal proof. Missing identifiers never match.",
+      "initial_source": "def solve(session_id, turn_id, terminal, cancel_ack):\n    return cancel_ack\n",
+      "reference_source": "def solve(session_id, turn_id, terminal, cancel_ack):\n    return bool(session_id and turn_id and isinstance(terminal,dict) and terminal.get(\"session_id\")==session_id and terminal.get(\"turn_id\")==turn_id and terminal.get(\"outcome\") in (\"completed\",\"failed\",\"cancelled\"))\n",
+      "cases": [
+        {
+          "args": [
+            "s",
+            "t",
+            null,
+            true
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            "s",
+            "t",
+            {
+              "session_id": "s",
+              "turn_id": "other",
+              "outcome": "cancelled"
+            },
+            true
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            "s",
+            "t",
+            {
+              "session_id": "s",
+              "turn_id": "t",
+              "outcome": "cancelled"
+            },
+            false
+          ],
+          "expected": true
+        },
+        {
+          "args": [
+            "",
+            "",
+            {},
+            true
+          ],
+          "expected": false
+        },
+        {
+          "args": [
+            "s",
+            "t",
+            {
+              "session_id": "s",
+              "turn_id": "t",
+              "outcome": "started"
+            },
+            true
+          ],
+          "expected": false
+        }
+      ]
+    },
+    {
+      "id": "high-stakes-idempotent-start",
+      "tier": "high_stakes",
+      "task": "Return launch only for a request_id absent from the existing mapping. If present with exactly equal task_hash, return existing even if the value is empty. If present with a different hash, return conflict. This function decides only; never mutate the mapping.",
+      "initial_source": "def solve(existing, request_id, task_hash):\n    return \"existing\" if existing.get(request_id) else \"launch\"\n",
+      "reference_source": "def solve(existing, request_id, task_hash):\n    if request_id not in existing:\n        return \"launch\"\n    return \"existing\" if existing[request_id]==task_hash else \"conflict\"\n",
+      "cases": [
+        {
+          "args": [
+            {},
+            "r",
+            "h"
+          ],
+          "expected": "launch"
+        },
+        {
+          "args": [
+            {
+              "r": "h"
+            },
+            "r",
+            "h"
+          ],
+          "expected": "existing"
+        },
+        {
+          "args": [
+            {
+              "r": "h"
+            },
+            "r",
+            "other"
+          ],
+          "expected": "conflict"
+        },
+        {
+          "args": [
+            {
+              "r": ""
+            },
+            "r",
+            ""
+          ],
+          "expected": "existing"
+        }
+      ]
+    },
+    {
+      "id": "high-stakes-permission-intersection",
+      "tier": "high_stakes",
+      "task": "Given requested and allowed lists of permission strings, return the unique requested permissions that are explicitly allowed, in request order. The string * is literal and never grants other permissions. Do not mutate either list.",
+      "initial_source": "def solve(requested, allowed):\n    return requested if \"*\" in allowed else list(set(requested)&set(allowed))\n",
+      "reference_source": "def solve(requested, allowed):\n    return list(dict.fromkeys(item for item in requested if item in allowed))\n",
+      "cases": [
+        {
+          "args": [
+            [
+              "read",
+              "write"
+            ],
+            [
+              "*"
+            ]
+          ],
+          "expected": []
+        },
+        {
+          "args": [
+            [
+              "write",
+              "read",
+              "write",
+              "exec"
+            ],
+            [
+              "read",
+              "write"
+            ]
+          ],
+          "expected": [
+            "write",
+            "read"
+          ]
+        },
+        {
+          "args": [
+            [
+              "*",
+              "read"
+            ],
+            [
+              "*"
+            ]
+          ],
+          "expected": [
+            "*"
+          ]
+        },
+        {
+          "args": [
+            [],
+            [
+              "read"
+            ]
+          ],
+          "expected": []
+        }
+      ]
+    }
+  ]
+}

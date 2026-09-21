@@ -40,6 +40,8 @@ snapshots in alternating order, recording retries and review results. Cap the
 pilot at one initial attempt plus one retry per variant per task, and set a
 provider-specific usage ceiling before starting; no paid API fallback. This is a
 proposed experiment, not an assertion that 20 tasks gives statistical certainty.
+The concrete 20-task corpus and equivalent snapshot preparation are documented in
+[PILOT.md](../PILOT.md). Reference checks are offline preparation, not live results.
 
 | Measure | Definition / proposed acceptance |
 | --- | --- |
