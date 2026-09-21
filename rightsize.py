@@ -3321,7 +3321,8 @@ def main(argv=None):
     global STATE
     previous_state = STATE
     try:
-        if not (args.command == "managed" and args.action in ("migrate", "rollback")):
+        if not (args.command == "managed" and args.action in (
+                "migrate", "rollback", "status", "cancel", "reconcile", "review")):
             import state_migration
             STATE = state_migration.active_path(STATE)
         return args.func(args, config)

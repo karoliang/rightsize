@@ -197,6 +197,16 @@ class MigrationTests(unittest.TestCase):
             with patch.object(r, "STATE", self.target):
                 with self.assertRaises(LedgerError):r.load_json(self.target, {})
 
+    def test_existing_attempt_can_be_inspected_and_cancelled_during_state_recovery(self):
+        attempt = self.admit()["attempt"]
+        m.migrate(r, apply=True)
+        self.target.write_bytes(b"corrupt legacy evidence")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(r.main(["managed", "status", "--attempt", attempt["attempt_id"]]), 0)
+            self.assertEqual(r.main(["managed", "cancel", "--attempt", attempt["attempt_id"]]), 0)
+        self.assertEqual(self.ledger.read(attempt["attempt_id"])["state"], "cancelled")
+        self.assertEqual(self.target.read_bytes(), b"corrupt legacy evidence")
+
     def test_cli_routes_compatible_commands_through_migrated_state(self):
         out = io.StringIO()
         with redirect_stdout(out):

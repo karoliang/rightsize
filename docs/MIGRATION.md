@@ -57,7 +57,10 @@ a non-atomic rename sequence. The normal package still has no dependencies.
 ## Interrupted transitions
 
 The manifest records `prepared`, `active`, `restoring`, or `rolled-back`.
-Ordinary commands reject incomplete transitions. Rerun the same apply command
+Admission/launch and ordinary legacy commands reject incomplete transitions.
+Managed status, cancellation, native reconciliation and review remain available
+against the separate ledger so an existing worker can still be settled safely.
+Rerun the same apply command
 to recover a prepared migration or restoring rollback. The operation checks
 backup digests and the current fence/source state before continuing. Changed
 evidence is an error, never permission to overwrite it.
