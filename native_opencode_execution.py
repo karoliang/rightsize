@@ -242,7 +242,7 @@ def metrics(rows):
     return result
 
 
-def reconcile(ledger, attempt_id, config, *, transport=Server, api=None):
+def reconcile(ledger, attempt_id, config, *, transport=Server, api=None, adapter_class=OpenCode):
     attempt = ledger.read(attempt_id)
     if not attempt or attempt["state"] not in ACTIVE:
         return {"status": "existing", "attempt": attempt}
@@ -251,7 +251,7 @@ def reconcile(ledger, attempt_id, config, *, transport=Server, api=None):
     try:
         sid = native_id(receipt.get("session_id"), "ses")
         sandbox = receipt["sandbox"]
-        adapter = OpenCode(ledger, config, "", receipt["worktree"], transport=transport, sandbox=sandbox, api=api)
+        adapter = adapter_class(ledger, config, "", receipt["worktree"], transport=transport, sandbox=sandbox, api=api)
         adapter.attempt, adapter.receipt = attempt, receipt
         adapter.message_id = "msg_" + attempt["launch_key"]
         adapter.credential = credentials(adapter.api, config, attempt["account"])

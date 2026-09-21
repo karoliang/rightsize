@@ -37,7 +37,7 @@ def worktree(repo, target):
     return target.resolve()
 
 
-def execute(args, config, api):
+def execute(args, config, api, *, adapter_factory=None):
     ledger = Ledger(ledger_path(api))
     attempt = ledger.read(args.attempt)
     if not attempt:
@@ -72,7 +72,9 @@ def execute(args, config, api):
                     output.flush()
                 adapter_class = {"codex": native_codex.Codex, "claude": native_claude.Claude,
                                  "opencode": native_opencode_execution.OpenCode}[attempt["pick"]["provider"]]
-                adapter = adapter_class(ledger, config, prompt, cwd, sandbox=args.sandbox)
+                adapter = (adapter_class(ledger, config, prompt, cwd, sandbox=args.sandbox)
+                           if adapter_factory is None else adapter_factory(
+                               attempt["pick"]["provider"], ledger, config, prompt, cwd, sandbox=args.sandbox))
                 result = native_codex.run(ledger, args.attempt, adapter, timeout=args.timeout, output=write)
             return {**result, "worktree": str(cwd), "output_artifact": str(output_path),
                     "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest()}
@@ -80,7 +82,7 @@ def execute(args, config, api):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def reconcile(args, config, api):
+def reconcile(args, config, api, *, opencode_adapter_class=None):
     ledger = Ledger(ledger_path(api))
     attempt = ledger.read(args.attempt)
     if not attempt:
@@ -98,6 +100,8 @@ def reconcile(args, config, api):
         try:
             adapter = {"codex": native_codex, "claude": native_claude,
                        "opencode": native_opencode_execution}[attempt["pick"]["provider"]]
+            if attempt["pick"]["provider"] == "opencode" and opencode_adapter_class is not None:
+                return adapter.reconcile(ledger, args.attempt, config, adapter_class=opencode_adapter_class)
             return adapter.reconcile(ledger, args.attempt, config)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)

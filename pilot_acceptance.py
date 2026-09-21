@@ -94,13 +94,13 @@ def bounded(command, *, payload=b'', timeout=15):
             stream.close()
 
 
-def source_bytes(path):
+def source_bytes(path, limit=MAX_SOURCE):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as handle:
         if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
             raise AcceptanceError('candidate must be a regular file')
-        raw = handle.read(MAX_SOURCE + 1)
-    if len(raw) > MAX_SOURCE:
+        raw = handle.read(limit + 1)
+    if len(raw) > limit:
         raise AcceptanceError('candidate source limit exceeded')
     return raw
 

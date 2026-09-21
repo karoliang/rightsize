@@ -77,7 +77,9 @@ Claude execution and vault delivery still need live validation. Orca's
 inspected contract gap is documented in [ORCA-CONTRACT.md](planning/ORCA-CONTRACT.md)
 and #21. Offline replay/shadow (#18) compares 15 hash-bound synthetic snapshots
 with the fixed baseline; see [the evidence and limits](REPLAY.md). The paired live
-pilot and promotion remain #19. Versioned migration/guarded rollback are implemented
+pilot and promotion remain #19. A fixed coding corpus, isolated acceptance and a
+durable paired driver are implemented; live paired results and final analysis
+remain, as described in [PILOT.md](PILOT.md). Versioned migration/guarded rollback are implemented
 and tested, with only a read-only preview on live state; see [MIGRATION.md](MIGRATION.md).
 GitHub remains
 the source of truth for open/closed state; planning closure does not imply these

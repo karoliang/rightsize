@@ -100,7 +100,8 @@ def prepare(destination):
                     "task_sha256": task_hash,
                     "judgment": {"tier": row["tier"], "size": 0,
                                  "second_opinion": 0, "spec_complete": 1,
-                                 "destructive": int(row["tier"] == "high_stakes")}}
+                                 # These edit isolated fixtures, not live security state.
+                                 "destructive": 0}}
         pair = {"id": row["id"], "tier": row["tier"], "task_sha256": task_hash,
                 "initial_source_sha256": digest(source.encode()),
                 "acceptance_sha256": digest(json.dumps(row["cases"], sort_keys=True).encode()),

@@ -78,7 +78,7 @@ def cases():
     return rows
 
 
-def capture():
+def capture(snapshots=None):
     source = subprocess.check_output(["git", "show", replay.BASELINE + ":rightsize.py"],
                                      cwd=Path(__file__).resolve().parent, timeout=10)
     if hashlib.sha256(source).hexdigest() != replay.BASELINE_SOURCE:
@@ -86,8 +86,9 @@ def capture():
     module = types.ModuleType("rightsize_fixed_baseline")
     module.__file__ = str(Path(__file__).resolve().parent / "rightsize.py")
     exec(compile(source, "<fixed baseline>", "exec"), module.__dict__)
-    snapshots, records = cases(), {}
+    snapshots, records = cases() if snapshots is None else copy.deepcopy(snapshots), {}
     for case in snapshots:
+        replay.validate(case)
         frozen = replay.policy(module, case["at"])
         # Function globals are a separate dictionary owned by the cloned policy.
         namespace = frozen.decide.__globals__

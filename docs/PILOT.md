@@ -45,8 +45,9 @@ additional context. The harness must enforce source permissions.
 ## Remaining execution gate
 
 The generated manifest deliberately has `live_ready: false` and no usage ceilings.
-It is a preparation artifact, not permission for an unbounded loop. Before any
-pilot launch, the runner still needs to:
+It is a preparation artifact, not permission for an unbounded loop. The driver
+below implements the control flow for these gates; a live trial must still prove
+the resulting evidence before promotion:
 
 1. Freeze the candidate revision, corpus and per-provider usage ceilings before
    seeing results; record identical native permission limits for both arms.
@@ -121,3 +122,101 @@ Tests execute all20 references and all20 starting defects in real containers,
 plus isolation probes for host files, environment, network and writes, and CPU,
 memory, output and wall-time failures. Container absence is checked after each.
 These are acceptance-harness proofs, still zero live model pilot attempts.
+
+## Durable paired driver
+
+`pilot_run.py` now connects frozen observations, the original baseline policy,
+current managed admission, native execution and independent container review.
+It is an opt-in experiment runner, not a change to ordinary routing.
+
+Create an explicit limits file outside the checkout. For example, the following
+are per-provider ceilings, not a suggested entitlement or a dollar estimate:
+
+```json
+{
+  "opencode": {"attempts": 60, "dispatch_points": 50, "input_tokens": 2000000, "output_tokens": 100000},
+  "codex": {"attempts": 40, "dispatch_points": 100, "input_tokens": 2000000, "output_tokens": 100000},
+  "claude": {"attempts": 20, "dispatch_points": 100, "input_tokens": 2000000, "output_tokens": 100000}
+}
+```
+
+```sh
+python3 pilot_run.py init /private/new-trial --limits /private/limits.json --native-opencode
+python3 pilot_run.py step /private/new-trial
+python3 pilot_run.py report /private/new-trial
+```
+
+`init` requires a clean committed candidate, pins its revision, configuration,
+manifest and limits, and prepares both arms. Unlike the standalone preparation
+command, it marks that manifest ready for explicit driver steps with its frozen
+usage ceilings. `--native-opencode` explicitly selects the existing native Go
+home for this trial, bypassing the separate vault choice without modifying the
+production configuration. No credentials are copied into the bundle.
+
+Each `step` can launch at most one new native attempt. It holds a run lock and
+persists admission/dispatch intent first. Repeating a step after a crash reuses
+its admission request or observes the exact recorded native attempt. A step that
+was already dispatching never invokes launch again. An unresolved attempt blocks
+advancement; the native owner lock also applies to scoped OpenCode recovery.
+The fixed baseline is executed from its verified Git object against the same
+captured observations as the candidate, with no judge call or baseline-side
+state writes. Actual admission uses fresh observations and current account,
+denial, slot, point and capability-floor checks for either arm. It does not
+replace a refused historical selection with the candidate's preferred model.
+
+The first attempts follow the manifest's alternating order. A reviewed rejection
+permits one retry after both first attempts for that pair; other outcomes do not
+silently retry. Each retry starts from the same initial files and task contract,
+without test answers or generated feedback. Its two arms share a newly captured
+observation. High-stakes fixtures retain that tier, but `destructive=0` reflects
+that these tasks only edit isolated test files. This is not an approval bypass
+for production changes.
+
+The conservative dispatch-point and attempt ceilings are enforced before an
+admission is attempted and never refunded to create more pilot capacity. Native
+input/output counters are separate per-provider **stop thresholds**: when an
+observed running counter reaches its remaining threshold, the driver requests
+native cancellation and still requires terminal proof. Counters arrive in native
+updates and may overshoot a threshold before cancellation is observed; these are
+not hard provider billing limits. Missing terminal usage stops the run. Included
+quota/reserve checks remain authoritative, and there is no paid fallback or
+automatic budget reset. Other native token categories remain in each attempt's
+metrics; do not sum overlapping counters or compare unlike provider categories
+as a common price.
+
+Pilot execution adds these source controls:
+
+- Codex uses a named profile with root reads denied, only the worktree writable,
+  `.git`/`TASK.md` read-only, no temporary-directory or network grants, and minimal
+  system/tool reads. On the inspected Homebrew installation, the tool prefix
+  must also be readable for Codex's own helper to start. The profile is verified
+  in the prepared response. The required experimental protocol capability is
+  enabled explicitly. Inherited MCP/plugin entries and web/app tools are disabled
+  for the pilot thread, and shell tools do not inherit the host environment.
+- OpenCode retains native read/glob/grep rules and external-directory denial,
+  but grants edits only to `solution.py`. Recovery reconstructs the same rules.
+- Claude remains a recorded refusal for pilot execution until equivalent source
+  restriction is verified. The policy may still select it; this limitation is
+  visible rather than a hidden change to the routing ladder.
+
+The local Codex no-inference check prepared this profile successfully. A command
+under the same native profile could read the task and edit `solution.py`, but
+could neither read a sibling file outside the worktree nor modify `TASK.md`.
+OpenCode's restrictions remain native tool permissions, not an OS sandbox.
+Generated Python acceptance always uses the separately verified Docker boundary.
+
+Git worktrees are initialized from the immutable arm snapshots. Before launch,
+the driver records hashes of the initial source, task and worktree Git pointer.
+Review rejects extra files or changed task/Git metadata, and binds the container
+result to the exact produced source hash. Only a matching independent review is
+recorded as accepted in the managed ledger. If a crash occurs after that ledger
+write, resumption requires the same review evidence rather than accepting a
+standalone accepted label.
+
+The report preserves refusals and unresolved attempts in attempted-task
+coverage, separates unstarted tasks and reports per-provider budget consumption.
+It summarizes recorded state; it is not independent re-verification or automatic
+promotion. Native first-output/settlement times and review times are retained per
+attempt, but first-useful-output classification, final latency analysis and manual
+inspection of high-stakes failures remain evaluation work. No live paired trial
+results are asserted by the driver's simulated tests.
