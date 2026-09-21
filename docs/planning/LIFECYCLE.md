@@ -2,6 +2,10 @@
 
 Date: 2026-09-21. Ticket: #10. Proposed contract for managed dispatch.
 
+Implementation checkpoint: #16 provides atomic managed admission, a versioned
+SQLite ledger and fake-launcher lifecycle proof. See [managed commands and state
+contract](../MANAGED.md). Real native adapters remain #17; migration/rollback #19.
+
 ## Identity and records
 
 A task ID is stable across retries. Each attempt has a new decision ID and attempt

@@ -68,7 +68,8 @@ outcome records. No universal API proxy or full agent rewrite selected.
 Execution is tracked in [#20](https://github.com/karoliang/rightsize/issues/20).
 Caller judgment (#13) and bounded context manifests (#15) are implemented.
 Account selection, scoped credentials and quota identity are implemented for #14;
-managed vault/Orca launch binding remains. Next is atomic admission (#16), then
-native adapters (#17), replay (#18), and rollout/rollback (#19). GitHub remains
+managed vault/Orca launch binding remains. Atomic managed admission and fake
+launcher lifecycle (#16) are implemented; next are native adapters (#17), replay
+(#18), and rollout/rollback (#19). GitHub remains
 the source of truth for open/closed state; planning closure does not imply these
 features ship.

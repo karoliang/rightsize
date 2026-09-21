@@ -7,6 +7,10 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Added (2026-09-21, router planning)
 
+- Opt-in managed plan/admit/status commands and a versioned SQLite lifecycle
+  ledger. Atomic account point/slot admission, capability floors, bounded
+  re-probing, idempotent launch claims, confirmed outcomes and conservative
+  reconciliation are covered by 25 offline ledger/CLI/fake-launcher cases (#16).
 - `context` builds bounded, task-hashed manifests from host-normalized catalogs
   and approved local roots, preserving mandatory rules, explicit skill priority,
   selected references, exact UTF-8 byte counts and provenance. Eleven offline

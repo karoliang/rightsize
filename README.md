@@ -358,6 +358,13 @@ packaged config, dicts merging key by key and a list replacing. Every command
 names the overlay it used. That file can change the commands rightsize prints,
 so treat it like a Makefile.
 
+## Managed admission
+
+`rightsize managed plan` and `managed admit` provide opt-in, account-aware
+planning and atomic point/slot admission. They require caller judgment and do
+not launch a native worker themselves. See [managed admission](docs/MANAGED.md)
+for idempotency, leases, structured waits and current adapter boundaries.
+
 ## Selected context
 
 `rightsize context` builds a bounded manifest from a host-normalized skill catalog,

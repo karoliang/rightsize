@@ -398,6 +398,8 @@ def probe_codex(config: dict | None = None) -> dict:
         return {**base, "status": "account-changed", "buckets": []}
     if not isinstance(live, dict):
         live = {}
+    if isinstance(live.get("accountId"), str) and live["accountId"]:
+        base["quota_account_ref"] = accounts.digest("codex:" + live["accountId"])
     if live.get("status"):
         status = live["status"] if live["status"] in ("unknown", "denied", "reauth-required") else "unknown"
         return {**base, "status": status, "buckets": []}
@@ -885,7 +887,15 @@ def reservation_load(name: str) -> tuple[float, int]:
     """
     state = load_json(STATE, {}) or {}
     live = [r for r in sweep_reservations(state) if r["provider"] == name]
-    return sum(r["points"] for r in live), len(live)
+    managed = managed_commitments(name)
+    return sum(r["points"] for r in live) + managed[0], len(live) + managed[1]
+
+
+def managed_commitments(name: str) -> tuple[float, int]:
+    from managed_ledger import ACTIVE, Ledger
+    live = [attempt for attempt in Ledger(STATE.with_name("managed.sqlite3")).read()
+            if attempt["pick"]["provider"] == name and attempt["state"] in ACTIVE]
+    return sum(attempt["points"] for attempt in live), len(live)
 
 
 def reserve(name: str, points: float, band: int, task: str, ttl: float,
@@ -899,6 +909,11 @@ def reserve(name: str, points: float, band: int, task: str, ttl: float,
     with state_lock():
         state = load_json(STATE, {}) or {}
         sweep_reservations(state)
+        # Legacy holds cannot atomically re-evaluate point budgets. While a
+        # managed attempt owns this provider, keep legacy pre-reservation out
+        # rather than allowing a stale recommendation to overbook its account.
+        if managed_commitments(name)[1]:
+            return None
         if limit is not None:
             live = sum(1 for r in state["reservations"] if r["provider"] == name)
             if live >= limit:
@@ -3043,11 +3058,42 @@ def cmd_context(args, config):
     return 0
 
 
+def cmd_managed(args, config):
+    import managed_router
+    from managed_ledger import Ledger, LedgerError
+    try:
+        if args.action == "status":
+            result = Ledger(managed_router.ledger_path(sys.modules[__name__])).read(args.attempt)
+        else:
+            result = managed_router.execute(args, config, sys.modules[__name__])
+    except (LedgerError, OSError, sqlite3.DatabaseError, ValueError) as exc:
+        reason = str(exc) if isinstance(exc, LedgerError) else "managed input or state unavailable/invalid"
+        print(json.dumps({"status": "error", "reason": reason}), file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0 if not isinstance(result, dict) or result.get("status") != "wait" else 3
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="rightsize", description=__doc__)
     parser.add_argument("--account", action="append", default=[], metavar="PROVIDER=REFERENCE",
                         help="select a configured native account binding for this invocation")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    managed_cmd = sub.add_parser("managed", help="opt-in account-aware admission; does not launch by itself")
+    managed_sub = managed_cmd.add_subparsers(dest="action", required=True)
+    for action in ("plan", "admit"):
+        managed_action = managed_sub.add_parser(action)
+        managed_action.add_argument("--spec", required=True)
+        managed_action.add_argument("--judgment", required=True)
+        managed_action.add_argument("--task-id", required=True)
+        managed_action.add_argument("--floor", type=int, choices=(1, 2, 3), default=1)
+        if action == "admit":
+            managed_action.add_argument("--request-id", required=True, help="stable idempotency key for this intent")
+        managed_action.set_defaults(func=cmd_managed, json=True)
+    managed_status = managed_sub.add_parser("status")
+    managed_status.add_argument("--attempt")
+    managed_status.set_defaults(func=cmd_managed, json=True)
 
     context_cmd = sub.add_parser("context", help="build a bounded context manifest from a host-normalized catalog")
     context_task = context_cmd.add_mutually_exclusive_group(required=True)
