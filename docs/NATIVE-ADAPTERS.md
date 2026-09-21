@@ -10,8 +10,37 @@ test is not a quality or cost benchmark.
 | --- | --- |
 | Codex app-server, ChatGPT native login | Installed protocol/schema inspected; real isolated read-only smoke completed and passed deterministic review; offline lifecycle and recovery fixtures |
 | Claude Code | Native identity/quota/setup verified; offline execution, cancellation and journal recovery tests pass; live task waited below weekly reserve, so execution remains unproven on the installed CLI |
-| OpenCode | Native CLI/event interface inventoried; execution and vault delivery pending |
+| OpenCode | Owned authenticated loopback transport verified against installed 1.18.31 health/schema; session execution and vault delivery pending |
 | Orca | Legacy advisory commands exist; managed terminal/account binding pending |
+
+## OpenCode and Orca adapter preparation
+
+OpenCode 1.18.31 exposes a native OpenAPI schema at `/doc`. Its session APIs
+separate session creation, asynchronous prompt submission, exact message lookup
+and abort. See the [native server contract](https://opencode.ai/docs/server/).
+`native_opencode.Server` starts an owned server on loopback with an ephemeral port
+and a random in-memory password, overriding inherited server username/password.
+It never attaches to an arbitrary endpoint, follows redirects or modifies auth.
+Startup is bounded to 15 seconds and 64 KiB; JSON requests are bounded to 2 MiB,
+responses default to 4 MiB, and requests have an overall 15-second deadline,
+including trickled headers/body. Native output and error bodies are not forwarded.
+The process is reaped on startup failure and close. This transport does not yet
+admit, submit, cancel or reconcile model tasks.
+
+Six fake-child tests cover authentication, partial endpoint output, startup
+failure/reaping, trickled responses, error redaction, redirects and byte limits.
+A real health/schema-only check confirmed installed 1.18.31 and reaped the child;
+no session or inference was requested. The installed schema exposes effective
+provider source/key/options, session model/permissions and message parent/model
+IDs. The next adapter gate is in-memory credential equivalence with quota,
+followed by session/dispatch proof and native outcome recovery. Never publish
+provider responses containing keys or replace native auth files to obtain proof.
+
+Orca's installed CLI advertises model/effort flags, durable request IDs and
+run/task/dispatch identities, but no worker-start account selector. Account-list
+metadata alone does not prove which account a new worker uses. Managed Orca
+execution remains gated until account binding is proven; no worker was started
+during this read-only inventory.
 
 ## Claude integration evidence
 
