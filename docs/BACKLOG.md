@@ -69,7 +69,10 @@ Execution is tracked in [#20](https://github.com/karoliang/rightsize/issues/20).
 Caller judgment (#13) and bounded context manifests (#15) are implemented.
 Account selection, scoped credentials and quota identity are implemented for #14;
 managed vault/Orca launch binding remains. Atomic managed admission and fake
-launcher lifecycle (#16) are implemented; next are native adapters (#17), replay
-(#18), and rollout/rollback (#19). GitHub remains
+launcher lifecycle (#16) are implemented. Native Codex execution and selected
+context delivery are available; Claude/OpenCode/Orca and vault delivery remain
+in #14/#17. Offline replay/shadow (#18) compares 15 hash-bound synthetic snapshots
+with the fixed baseline; see [the evidence and limits](REPLAY.md). The paired live
+pilot, migration and rollback remain #19. GitHub remains
 the source of truth for open/closed state; planning closure does not imply these
 features ship.

@@ -3123,6 +3123,10 @@ def main(argv=None):
                         help="select a configured native account binding for this invocation")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    for action in ("replay", "shadow"):
+        offline = sub.add_parser(action, help="offline decisions from explicit snapshots; no probes or launches")
+        offline.add_argument("--snapshot", required=True, help="version 1 replay/shadow JSON")
+
     managed_cmd = sub.add_parser("managed", help="opt-in account-aware admission; does not launch by itself")
     managed_sub = managed_cmd.add_subparsers(dest="action", required=True)
     for action in ("plan", "admit"):
@@ -3267,6 +3271,9 @@ def main(argv=None):
     deals_cmd.set_defaults(func=cmd_deals)
 
     args = parser.parse_args(argv)
+    if args.command in ("replay", "shadow"):
+        import replay
+        return replay.command(args, sys.modules[__name__])
     config, overlay = load_config()
     if config is None:
         print(f"config missing: {CONFIG}", file=sys.stderr)

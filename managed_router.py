@@ -82,9 +82,9 @@ def external_block(api, state, provider, probe, stamp):
     return None
 
 
-def eligibility(api, config, probes, state, attempts):
+def eligibility(api, config, probes, state, attempts, *, stamp=None):
     """Read-only policy inputs. The ledger rechecks commitments at admission."""
-    stamp = time.time()
+    stamp = time.time() if stamp is None else stamp
     result = {}
     for provider, probe in probes.items():
         info = api.headroom(probe, float(config.get("reserves", {}).get(provider, 10)),

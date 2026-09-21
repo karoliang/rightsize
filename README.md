@@ -364,6 +364,13 @@ for idempotency, leases, structured waits and current adapter boundaries.
 `managed run` executes admitted Codex subscription tasks in isolated worktrees,
 with native receipts, cancellation and explicit review. See [native adapters](docs/NATIVE-ADAPTERS.md).
 
+## Offline replay
+
+Offline safety checks are available through `rightsize replay --snapshot
+fixtures/replay.json` and `rightsize shadow --snapshot FILE`. They consume captured
+metadata without credentials, probes, reservations or launches. See
+[replay and shadow](docs/REPLAY.md) for baseline provenance and report limits.
+
 ## Selected context
 
 `rightsize context` builds a bounded manifest from a host-normalized skill catalog,

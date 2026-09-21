@@ -1,0 +1,1656 @@
+{
+  "baseline": {
+    "records": {
+      "account-changed": {
+        "snapshot_sha256": "7d394dbf00058403dcd9358dbb76971a96993d7bdeb195817c78ae3a829235fb",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "all-unavailable": {
+        "snapshot_sha256": "3dade68c445ebeb0c2b929cdfae6865a07be80624da290d28f2bdceeb435e652",
+        "verdict": {
+          "account_sha256": null,
+          "band": 3,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-3",
+            "provider": "opencode"
+          },
+          "status": "recommend"
+        }
+      },
+      "denied-account-missing-buckets": {
+        "snapshot_sha256": "680411165c7be8d4e9c293456a972a83465c6d8b14717380026b0b9524db46dd",
+        "verdict": {
+          "account_sha256": null,
+          "band": 3,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-3",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "denied-weekly": {
+        "snapshot_sha256": "d63dbf415b3d472ce5fc669990908c9b995a5df45d7a8241e1f1e713ab85656f",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "destructive": {
+        "snapshot_sha256": "5c2be00e02b6ef90c282a9a092f9582e02bc94e1eb3bce629c5ba74047a4cb83",
+        "verdict": {
+          "account_sha256": null,
+          "band": 3,
+          "pick": null,
+          "status": "wait"
+        }
+      },
+      "healthy": {
+        "snapshot_sha256": "378906d7ce2b0243943dbe8cdd3db8b7b6584a0cfb34beece98771a597059180",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "status": "recommend"
+        }
+      },
+      "legacy-points": {
+        "snapshot_sha256": "605478748f043bb9bf296c1e1ef4ded6e4cb6df651b14794cac141d12c7f18fc",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "legacy-slots": {
+        "snapshot_sha256": "9ecbfd6099f90955e55c1279640f638a87e13280bd44e8b0720f8bd0a9553157",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "migrated-legacy-record-without-receipt": {
+        "snapshot_sha256": "6b4fede82023052a65cf76581d368d194955e3eda12aac5193e3b3a916cdbf0b",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "status": "recommend"
+        }
+      },
+      "missing-native-quota-identity": {
+        "snapshot_sha256": "97bce59fcfde8a2dd366d92bedc8526fab2da82a88b97b4e9b7aafba76e25604",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "missing-telemetry": {
+        "snapshot_sha256": "72d01d86a836557096c4921c2338d663ec9c2f79ab3dc54292524602cdf52caa",
+        "verdict": {
+          "account_sha256": null,
+          "band": 3,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-3",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "selected-context-hash": {
+        "snapshot_sha256": "560be014e64dbab505c246e08520dd78d381ac9cb87739afe0e164dfd5e3be66",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "status": "recommend"
+        }
+      },
+      "sticky-legacy-denial": {
+        "snapshot_sha256": "ac06d490a9c7bec3df4657df6d303b89b8548bebf4f3191b902409258f377148",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "codex"
+          },
+          "status": "recommend"
+        }
+      },
+      "uncertain-managed-attempt": {
+        "snapshot_sha256": "88eb510845f6354d10c711690c9b36ef01a28b312dd6a9fa7692a5676725c7f5",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "status": "recommend"
+        }
+      },
+      "unreviewed-and-unattributed-outcomes": {
+        "snapshot_sha256": "ebf561305fd6fdbd8875b1b01481af149359d9cf288057f83d41f7a3d7e7b0b4",
+        "verdict": {
+          "account_sha256": null,
+          "band": 1,
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "status": "recommend"
+        }
+      }
+    },
+    "revision": "a168a85055a3f1fa527da593fced87cf37c10892",
+    "source_sha256": "7d5fa7483fab5924f119fc35a4f253b634d70a3b623d1fef393da62ce6dd8ff8"
+  },
+  "cases": [
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "healthy",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "denied-weekly",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "raw_status": "rate-limited",
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "denied-account-missing-buckets",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "high_stakes"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "denied"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "missing-telemetry",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "diagnosis"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": null,
+              "resets_at": 1700003600,
+              "source": "unavailable"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "sticky-legacy-denial",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {
+        "quota_denials": {
+          "opencode": {
+            "weekly": {
+              "id": "weekly",
+              "raw_status": "rate-limited"
+            }
+          }
+        }
+      },
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "legacy-slots",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {
+        "reservations": [
+          {
+            "expires": 1700000060,
+            "points": 2,
+            "provider": "opencode"
+          },
+          {
+            "expires": 1700000060,
+            "points": 2,
+            "provider": "opencode"
+          }
+        ]
+      },
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "legacy-points",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {
+        "reservations": [
+          {
+            "expires": 1700000060,
+            "points": 84,
+            "provider": "opencode"
+          }
+        ]
+      },
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [
+        {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "context_hash": "none",
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "points": 85,
+          "spec_hash": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a",
+          "state": "reconciling"
+        }
+      ],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "uncertain-managed-attempt",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "all-unavailable",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "reauth-required"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "reauth-required"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "destructive",
+      "judgment": {
+        "destructive": 1,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "high_stakes"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "account-changed",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "account-changed"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "missing-native-quota-identity",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 100,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "65540538c0699555e6c3ff53349f03855847da518a453cb775332fbfbf498917",
+      "floor": 1,
+      "id": "selected-context-hash",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [
+        {
+          "pick": {
+            "provider": "codex"
+          },
+          "state": "completed"
+        },
+        {
+          "state": "accepted"
+        }
+      ],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "unreviewed-and-unattributed-outcomes",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {},
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    },
+    {
+      "at": 1700000000,
+      "attempts": [
+        {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "migration_source": "legacy-json",
+          "pick": {
+            "effort": "low",
+            "model": "fixture-band-1",
+            "provider": "opencode"
+          },
+          "points": 2,
+          "state": "reconciling"
+        }
+      ],
+      "config": {
+        "agents": {
+          "codex": "codex",
+          "opencode": "opencode"
+        },
+        "bands": {
+          "1": [
+            "opencode:fixture-band-1:low",
+            "codex:fixture-band-1:low"
+          ],
+          "2": [
+            "opencode:fixture-band-2:low",
+            "codex:fixture-band-2:low"
+          ],
+          "3": [
+            "opencode:fixture-band-3:low",
+            "codex:fixture-band-3:low"
+          ]
+        },
+        "dispatch_cost": {
+          "_default": 2
+        },
+        "max_inflight": {
+          "_default": 2
+        },
+        "reserves": {
+          "codex": 10,
+          "opencode": 10
+        },
+        "review_ladder": []
+      },
+      "context_sha256": "none",
+      "floor": 1,
+      "id": "migrated-legacy-record-without-receipt",
+      "judgment": {
+        "destructive": 0,
+        "second_opinion": 0,
+        "size": 0,
+        "spec_complete": 1,
+        "tier": "implementation"
+      },
+      "legacy": {
+        "reservations": [
+          {
+            "expires": 1700000060,
+            "points": 2,
+            "provider": "opencode"
+          }
+        ]
+      },
+      "probes": {
+        "codex": {
+          "account": {
+            "account_ref": "08f6b585592467d20717e8ab",
+            "fingerprint": "4127f69e8dcd66005ad9816a9e08fc638bbf28f1f1fe1ee2dc628629d15c9479",
+            "provider": "codex",
+            "runtime": "codex",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "codex",
+          "observed_at": 1700000000,
+          "quota_account_ref": "08f6b585592467d20717e8abd8dd02b9fb430ba65eb4b745c373ce3001ef5dae",
+          "status": "ok"
+        },
+        "opencode": {
+          "account": {
+            "account_ref": "372662df1b70ffe8d0435e71",
+            "fingerprint": "838ffc2c44c8e4f03aec8e1970e30811e8d2ce0ee609708f228c4477124b77a8",
+            "provider": "opencode",
+            "runtime": "opencode",
+            "source": "native",
+            "status": "unverified"
+          },
+          "buckets": [
+            {
+              "id": "weekly",
+              "percent": 5,
+              "resets_at": 1700003600,
+              "source": "live"
+            }
+          ],
+          "name": "opencode",
+          "observed_at": 1700000000,
+          "quota_account_ref": "372662df1b70ffe8d0435e7103fce3b1417a95391d745160fd7ae8379f5d2ebb",
+          "status": "ok"
+        }
+      },
+      "task_sha256": "4c4c46448e5b2bb9c9e543b06274c99af1b74750b87cf09cc2e46b514790308a"
+    }
+  ],
+  "schema_version": 1
+}
