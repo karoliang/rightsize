@@ -63,7 +63,13 @@ class OpenCode:
         model = {"id": self.attempt["pick"]["model"], "providerID": "opencode-go"}
         if self.attempt["pick"]["effort"]:
             model["variant"] = self.attempt["pick"]["effort"]
-        if (Path(session.get("directory", "")).resolve() != self.worktree or session.get("model") != model
+        observed = session.get("model")
+        # OpenCode 1.18.31 persists an explicit default after a turn even when
+        # its creation response omitted variant. An explicitly requested effort
+        # still requires an exact match; message-level checks remain unchanged.
+        if not self.attempt["pick"]["effort"] and observed == {**model, "variant": "default"}:
+            observed = model
+        if (Path(session.get("directory", "")).resolve() != self.worktree or observed != model
                 or session.get("permission") != self.rules
                 or session.get("metadata", {}).get("rightsize_launch_key") != self.attempt["launch_key"]):
             raise ProtocolError("native session differs from admitted setup")

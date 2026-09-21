@@ -1,6 +1,6 @@
 # Native execution adapters
 
-Managed runtime support is incremental. Codex, Claude and OpenCode Go adapters are available; live Claude/OpenCode
+Managed runtime support is incremental. Codex, Claude and OpenCode Go adapters are available; live Claude
 execution validation, Orca and remaining vault delivery proof remain in #14/#17. Offline replay is complete (#18); the
 20-task paired pilot and promotion gates remain #19. A successful smoke
 test is not a quality or cost benchmark.
@@ -9,7 +9,7 @@ test is not a quality or cost benchmark.
 | --- | --- |
 | Codex app-server, ChatGPT native login | Installed protocol/schema inspected; real isolated read-only smoke completed and passed deterministic review; offline lifecycle and recovery fixtures |
 | Claude Code | Native identity/quota/setup verified; offline execution, cancellation and journal recovery tests pass; live task waited below weekly reserve, so execution remains unproven on the installed CLI |
-| OpenCode Go | Effective native key/model and session setup verified; offline managed execution/cancellation/history recovery tests pass; real smoke waited on legacy denial, vault key unavailable |
+| OpenCode Go | Reviewed native smoke, matching native cancellation, and GET-only history recovery for both outcomes verified; scoped-vault live proof remains |
 | Orca | Legacy advisory commands exist; managed terminal/account binding pending |
 
 ## OpenCode Go execution and Orca preparation
@@ -77,12 +77,34 @@ and an abort acknowledgement cannot settle a task. Recovery starts an owned nati
 server and reads only the exact recorded session/history, without resuming or
 submitting a prompt. Missing, active or inconsistent evidence retains reservations.
 
-Twelve offline lifecycle tests cover this path, including CLI/worktree artifacts.
+Thirteen offline lifecycle tests cover this path, including CLI/worktree artifacts.
 A real setup-only session returned the requested model, rules and launch metadata.
-A bounded real managed smoke waited on an existing unattributed legacy denial,
-before launch. A fresh native quota read was healthy but cannot establish which
-account produced that old denial; it was not erased. Live execution/cancellation
-and vault delivery remain validation gates.
+The first real smoke waited on an unattributed legacy denial. On 2026-09-21 the
+user confirmed that record belonged to the existing native Go login. A fresh
+same-context probe reported healthy rolling/weekly/monthly buckets (30/12/56%).
+The denial was reconciled under the state lock, preserving a private byte-exact
+backup and attribution/probe audit. Healthy quota alone was not used to infer
+historical account ownership. The configured vault path was not changed.
+
+A subsequent isolated read-only task returned the exact expected text and was
+separately marked accepted. A one-second cancellation test ended with matching
+native `cancelled` evidence. GET-only history recovery restored both outcomes
+on private ledger copies with dispatch/outcome evidence removed, leaving the
+production accepted/cancelled records unchanged. No prompt was resubmitted and
+no active live attempts remained after these checks. This establishes these
+installed-runtime paths, not pilot quality or scoped-vault delivery.
+
+Recovery exposed a native normalization: the creation response omitted an
+unrequested variant, but the persisted session later added `variant: "default"`.
+The adapter now accepts that exact normalization only when no effort was
+requested. Other session fields and user/assistant message identity stay exact;
+an explicit effort change remains unresolved. A regression test failed before
+the fix and now passes, alongside the real history-recovery check.
+
+The tiny successful task reported 32,678 input and 10 output tokens (native total
+32,688). Pilot budgets must include native session overhead rather than treating
+prompt bytes as all input. The cancelled run reported zero counters; this is
+recorded native telemetry, not proof that the provider charged zero usage.
 
 Orca's installed CLI advertises model/effort flags, durable request IDs and
 run/task/dispatch identities, but no worker-start account selector. Account-list

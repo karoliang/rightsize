@@ -180,6 +180,23 @@ class ExecutionTests(unittest.TestCase):
                     self.assertEqual(result["status"], "reconciling")
                 finally:case.doCleanups()
 
+    def test_recovery_accepts_native_default_variant_but_not_changed_effort(self):
+        result, _, backend = self.execute("disconnect")
+        self.assertEqual(result["status"], "reconciling")
+        backend.mode = "complete"
+        backend.session["model"]["variant"] = "high"
+        self.assertEqual(reconcile(self.ledger, self.attempt["attempt_id"], {},
+            transport=backend.connect, api=r)["status"], "reconciling")
+        backend.session["model"]["variant"] = "default"
+        before = len(backend.calls)
+        recovered = reconcile(self.ledger, self.attempt["attempt_id"], {}, transport=backend.connect, api=r)
+        self.assertEqual(recovered["status"], "completed")
+        self.assertTrue(all(method == "GET" for method, _ in backend.calls[before:]))
+        adapter = self.adapter(backend)
+        adapter.attempt = {**self.attempt, "pick": {**self.attempt["pick"], "effort": "high"}}
+        with self.assertRaises(ProtocolError):
+            adapter.check_session(backend.session)
+
     def test_quota_error_redacted_and_denial_persisted(self):
         result, _, _ = self.execute("quota")
         self.assertEqual(result["status"], "quota_failed")

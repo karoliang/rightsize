@@ -71,8 +71,9 @@ Caller judgment (#13) and bounded context manifests (#15) are implemented.
 Account selection, scoped credentials and quota identity are implemented for #14;
 live vault/Orca proof remains. Atomic managed admission and fake launcher
 lifecycle (#16) are implemented. Native Codex, Claude and OpenCode Go execution
-and selected context delivery are implemented. Codex has a reviewed live smoke;
-Claude/OpenCode execution and vault delivery still need live validation. Orca's
+and selected context delivery are implemented. Codex and OpenCode have reviewed
+live smokes; OpenCode cancellation and GET-only outcome recovery are also verified.
+Claude execution and vault delivery still need live validation. Orca's
 inspected contract gap is documented in [ORCA-CONTRACT.md](planning/ORCA-CONTRACT.md)
 and #21. Offline replay/shadow (#18) compares 15 hash-bound synthetic snapshots
 with the fixed baseline; see [the evidence and limits](REPLAY.md). The paired live
