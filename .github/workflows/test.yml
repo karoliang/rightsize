@@ -38,6 +38,10 @@ jobs:
         run: |
           python test_managed_ledger.py
           python test_managed_router.py
+      - name: native transport and Codex lifecycle
+        run: |
+          python test_native_transport.py
+          python test_native_codex.py
       - name: config is valid json
         run: python -c "import json;json.load(open('config.json'))"
       - name: cli responds without credentials

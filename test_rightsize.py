@@ -639,6 +639,7 @@ def main():
     original = ar.codex_rate_limits
     ar.codex_rate_limits = lambda timeout=15.0, binding=None: {
         "accountId": "e81eb3ba-1ed5-420f-8196-abb639352b15",
+        "ordinaryUsageAllowed": True,
         "rateLimits": {"planType": "pro",
                        "primary": {"usedPercent": 7, "windowDurationMins": 10080,
                                    "resetsAt": time.time() + 6 * 86400}},
@@ -647,9 +648,9 @@ def main():
         probe = ar.probe_codex(CONFIG)
     finally:
         ar.codex_rate_limits = original
-    assert probe["buckets"][0]["percent"] == 7, probe
+    assert probe["buckets"][1]["percent"] == 7, probe
     assert probe["buckets"][0]["source"] == "live", probe
-    assert probe["buckets"][0]["account"] == probe["account"]["account_ref"], probe
+    assert probe["buckets"][1]["account"] == probe["account"]["account_ref"], probe
     assert "age_seconds" not in probe["buckets"][0], "a live reading does not age"
 
     # With no answer, unattributable rollout data must not become quota evidence.

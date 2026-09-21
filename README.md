@@ -7,10 +7,10 @@ subscription, Codex, Claude Code, OpenRouter's free tier), every dispatch is a
 small decision: which plan has headroom, which bucket is about to reset and
 expire unused, which one is quietly on course to run out before its window
 does, and how much model this particular task actually needs. This answers that
-in about two seconds, with a stated reason.
+with a stated reason.
 
 ```
-$ rightsize route --task "add a rate limit to the signup endpoint" --orca
+$ rightsize route --task "add a rate limit to the signup endpoint"
 judgment   jev (jev-1.13.0)
            tier=implementation size=0.83 second_opinion=0.21 spec_complete=0.94 destructive=0.03
 dispatch   band 1 -> agent opencode, model deepseek-v4.1-flash
@@ -19,10 +19,6 @@ dispatch   band 1 -> agent opencode, model deepseek-v4.1-flash
   quota    opencode:deepseek-v4.1-flash chosen: its weekly bucket resets in 21h 50m
            with 9 points usable, so spend it before it expires
 
-orca worktree create --name add-rate-limit-signup-endpoint --json > /dev/null
-HANDLE=$(orca terminal create --worktree name:add-rate-limit-signup-endpoint \
-  --command 'opencode -m opencode-go/deepseek-v4.1-flash' --json | ...)
-orca orchestration worker-start --spec "..." --worktree name:... --terminal "$HANDLE" --json
 ```
 
 The split it is built on: **quota is arithmetic, the task is a judgment.**
@@ -32,7 +28,8 @@ What kind of work a task is, and how much model it needs, goes to a typed
 judgment. The model is never asked which provider to use, because providers
 change every few months and the questions do not.
 
-It decides and steps out. It is not a proxy and never sits in the token path.
+Legacy routing stays advisory. The opt-in managed path owns admission and native
+execution lifecycle, beginning with Codex; it is not a generic API proxy.
 
 No dependencies. Python 3 standard library only.
 
@@ -364,6 +361,8 @@ so treat it like a Makefile.
 planning and atomic point/slot admission. They require caller judgment and do
 not launch a native worker themselves. See [managed admission](docs/MANAGED.md)
 for idempotency, leases, structured waits and current adapter boundaries.
+`managed run` executes admitted Codex subscription tasks in isolated worktrees,
+with native receipts, cancellation and explicit review. See [native adapters](docs/NATIVE-ADAPTERS.md).
 
 ## Selected context
 

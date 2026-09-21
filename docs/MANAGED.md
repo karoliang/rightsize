@@ -2,8 +2,9 @@
 
 The managed path is opt-in and uses caller judgment, fresh account-bound quota
 and a separate transactional ledger. `route` and legacy `plan` remain advisory.
-This admission slice does not launch a native runtime; adapters are tracked in
-#17. Do not run a printed legacy command and describe it as managed execution.
+Plan/admit do not launch a runtime. `managed run` now supports native Codex
+subscription execution in an isolated worktree; see [native adapters](NATIVE-ADAPTERS.md)
+for exact scope and remaining #17 work. Printed legacy commands remain external.
 
 ```sh
 rightsize managed plan --spec task.md --judgment judgment.json --task-id task-123
@@ -29,6 +30,9 @@ different intent fails. Active attempts and completed-but-unreviewed tasks canno
 be retried with another request key. The initial limit is two attempts per task.
 Retries cannot lower the original capability floor. `--floor` may raise it.
 No automatic retries or higher-priced quota fallbacks run in this slice.
+The legacy policy's same-band forecast-only pacing relaxation is retained when
+strict pacing leaves no candidate. Known denials, reserves and measured burn are
+still enforced; the capability band does not change.
 
 ## Durable state and compatibility
 

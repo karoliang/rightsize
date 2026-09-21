@@ -87,7 +87,8 @@ def eligibility(api, config, probes, state, attempts):
     stamp = time.time()
     result = {}
     for provider, probe in probes.items():
-        info = api.headroom(probe, float(config.get("reserves", {}).get(provider, 10)), {}, provider)
+        info = api.headroom(probe, float(config.get("reserves", {}).get(provider, 10)),
+                            state.get("snapshots", {}), api.probe_scope(provider, probe))
         account = probe.get("account") or {}
         held = [a for a in attempts if a["state"] in ACTIVE and
                 a["account"]["account_ref"] == account.get("account_ref")]
@@ -103,6 +104,8 @@ def eligibility(api, config, probes, state, attempts):
             blocked = "fresh account-bound quota unavailable"
         elif account.get("source") == "scoped-vault":
             blocked = "vault launch binding requires managed credential adapter"
+        elif provider == "codex" and not probe.get("quota_account_ref"):
+            blocked = "native quota account identity unavailable"
         elif info["usable"] is None or info.get("unknown"):
             blocked = "managed admission requires known quota"
         limit = int(config.get("max_inflight", {}).get(provider, config.get("max_inflight", {}).get("_default", 8)))
@@ -113,6 +116,17 @@ def eligibility(api, config, probes, state, attempts):
                             "eligible": not blocked, "blocked": blocked, "hard_blocked": blocked,
                             "buckets": probe.get("buckets", [])}
     return result
+
+
+def decision_at_floor(api, judgment, config, elig, floor):
+    decision = api.decide(judgment, config, elig, fallback=False, floor_band=floor)
+    if not decision["pick"] and not decision["blocked"]:
+        # Reuse the existing single-task policy's forecast-only relaxation,
+        # without its lower/higher-band fallbacks. Measured burn still vetoes.
+        decision = api.decide(judgment, config, elig, fallback=False, floor_band=floor, relax_pace=True)
+        if decision["pick"]:
+            decision["reasons"].append("kept capability band; only whole-window forecast pacing was relaxed")
+    return decision
 
 
 def execute(args, config, api):
@@ -138,7 +152,7 @@ def execute(args, config, api):
     probes = api.probe_all(config)
     if args.action == "plan":
         elig = eligibility(api, config, probes, state, attempts)
-        decision = api.decide(judgment, config, elig, fallback=False, floor_band=floor)
+        decision = decision_at_floor(api, judgment, config, elig, floor)
         return {"status": "planned" if decision["pick"] and not decision["blocked"] else "wait",
                 "task": task, "decision": decision, "lease_created": False}
     for refresh in range(2):
@@ -159,7 +173,7 @@ def admit_snapshot(args, config, api, ledger, task, judgment, floor, probes):
         elig = eligibility(api, config, probes, state, attempts)
         failures = {}
         for _ in range(len(elig)):
-            decision = api.decide(judgment, config, elig, fallback=False, floor_band=floor)
+            decision = decision_at_floor(api, judgment, config, elig, floor)
             if decision["blocked"] or not decision["pick"] or decision["confirm_first"]:
                 return wait(decision["blocked"] or ("destructive task requires explicit approval" if decision["confirm_first"]
                                                    else "no eligible account at capability floor"),

@@ -239,6 +239,8 @@ class Ledger:
                        "request_key": request_key, "pick": pick, "account": account,
                        "quota_ref": ref,
                        "observation": observation, "points": cost / 1000000,
+                       "reserve_points": reserve_units / 1000000,
+                       "external_points": external_cost / 1000000,
                        "state": "admitted", "at": stamp, "expires": stamp + lease_seconds,
                        "attempt_number": len(previous) + 1}
             db.execute("INSERT OR REPLACE INTO tasks VALUES (?, ?, ?)",
@@ -248,7 +250,7 @@ class Ledger:
                         cost, "admitted", stamp, attempt["expires"], encode(attempt)))
             return {"status": "admitted", "attempt": attempt}
 
-    def event(self, attempt_id, event_id, kind, *, receipt=None, evidence=None, clock=time.time):
+    def event(self, attempt_id, event_id, kind, *, receipt=None, evidence=None, metrics=None, clock=time.time):
         """Only the trusted adapter supplies receipts/termination evidence; model text cannot."""
         receipt = receipt or {}
         allowed_receipt = {"dispatch_id", "session_id", "provider", "model", "effort", "account_ref",
@@ -257,7 +259,12 @@ class Ledger:
             raise LedgerError("invalid lifecycle event")
         if evidence is not None and (not isinstance(evidence, str) or not evidence):
             raise LedgerError("evidence must be a nonempty reference or digest")
-        payload = {"kind": kind, "receipt": receipt, "evidence": evidence}
+        allowed_metrics = {"input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens",
+                           "total_tokens", "output_bytes", "tool_failures"}
+        if metrics is not None and (not isinstance(metrics, dict) or set(metrics) - allowed_metrics
+                                    or any(type(value) is not int or value < 0 for value in metrics.values())):
+            raise LedgerError("invalid native metrics")
+        payload = {"kind": kind, "receipt": receipt, "evidence": evidence, "metrics": metrics}
         digest = identity(payload)
         with self.transaction() as db:
             stamp = clock()
@@ -271,11 +278,21 @@ class Ledger:
                     raise LedgerError("event id reused with different evidence")
                 return {"applied": False, "attempt": attempt}
             state = attempt["state"]
-            if kind == "launching":
+            if kind == "prepared":
+                if state != "launching" or not receipt.get("session_id"):
+                    raise LedgerError("prepared native session requires a launch claim")
+                attempt["prepared_receipt"] = receipt
+                kind = state
+            elif kind == "metrics":
+                if state not in (*ACTIVE, "completed") or metrics is None:
+                    raise LedgerError("metrics require an executing or completed attempt")
+                attempt["metrics"] = metrics
+                kind = state
+            elif kind == "launching":
                 if state != "admitted" or attempt["expires"] <= stamp:
                     raise LedgerError("launch is not claimable; reconcile instead of retrying")
             elif kind == "started":
-                if state not in ("launching", "reconciling") or not receipt.get("dispatch_id"):
+                if state not in ("launching", "reconciling", "cancelling") or not receipt.get("dispatch_id"):
                     raise LedgerError("launch receipt required")
                 expected = {**{k: attempt["pick"][k] for k in ("provider", "model", "effort")},
                             **{k: attempt["account"][k] for k in ("account_ref", "fingerprint")}}
@@ -284,6 +301,8 @@ class Ledger:
                     kind = "reconciling"
                     attempt["launch_mismatch"] = True
                     attempt["reconcile_reason"] = "observed launch differs from admitted selection"
+                elif state == "cancelling":
+                    kind = "cancelling"
             elif kind == "producing":
                 if state not in ("started", "producing"):
                     raise LedgerError("output requires a bound started attempt")
@@ -291,6 +310,10 @@ class Ledger:
             elif kind == "cancelling":
                 if state not in ACTIVE:
                     raise LedgerError("terminal attempt cannot be cancelled")
+                if state == "admitted":
+                    kind = "cancelled"
+                    attempt["settled_at"] = stamp
+                    attempt["outcome_evidence"] = "cancelled-before-native-launch-claim"
             elif kind == "reconciling":
                 if state not in ACTIVE:
                     raise LedgerError("terminal attempt cannot become unresolved")

@@ -400,12 +400,18 @@ def probe_codex(config: dict | None = None) -> dict:
         live = {}
     if isinstance(live.get("accountId"), str) and live["accountId"]:
         base["quota_account_ref"] = accounts.digest("codex:" + live["accountId"])
+    permission = live.get("ordinaryUsageAllowed")
+    if permission is False:
+        return {**base, "status": "denied", "buckets": [
+            {"id": "ordinary-usage", "percent": None, "resets_at": None,
+             "source": "live", "raw_status": "quota-exceeded"}]}
     if live.get("status"):
         status = live["status"] if live["status"] in ("unknown", "denied", "reauth-required") else "unknown"
         return {**base, "status": status, "buckets": []}
     if isinstance(live.get("rateLimits"), dict) and live["rateLimits"].get("primary"):
         limits = live["rateLimits"]
-        buckets = []
+        buckets = [{"id": "ordinary-usage", "percent": 0 if permission is True else None,
+                    "resets_at": None, "source": "live" if permission is True else "unavailable"}]
         for slot in ("primary", "secondary"):
             value = limits.get(slot)
             if not value:
@@ -1773,7 +1779,8 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
 
 
 def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
-           floor_band: int = 0, exclude: set[str] | None = None, attempt: int = 0) -> dict:
+           floor_band: int = 0, exclude: set[str] | None = None, attempt: int = 0,
+           relax_pace: bool = False) -> dict:
     """One decision against one eligibility snapshot.
 
     `fallback` is the difference between a single dispatch and a wave of them.
@@ -1797,7 +1804,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         )
 
     ladders = config["bands"]
-    chosen, notes = pick(ladders[str(band)], elig, band, exclude, config)
+    chosen, notes = pick(ladders[str(band)], elig, band, exclude, config, relax_pace=relax_pace)
     used_band = band
     if chosen is None and not fallback:
         reasons.append(f"band {band} is full; holding this task for a later wave "
@@ -3064,6 +3071,29 @@ def cmd_managed(args, config):
     try:
         if args.action == "status":
             result = Ledger(managed_router.ledger_path(sys.modules[__name__])).read(args.attempt)
+        elif args.action == "run":
+            import native_runs
+            result = native_runs.execute(args, config, sys.modules[__name__])
+        elif args.action == "reconcile":
+            import native_runs
+            result = native_runs.reconcile(args, config, sys.modules[__name__])
+        elif args.action == "review":
+            with Path(args.evidence).open("rb") as handle:
+                evidence = handle.read(1024 * 1024 + 1)
+            if not evidence or len(evidence) > 1024 * 1024:
+                raise LedgerError("review evidence must be nonempty and at most 1 MiB")
+            digest = hashlib.sha256(evidence).hexdigest()
+            ledger = Ledger(managed_router.ledger_path(sys.modules[__name__]))
+            result = ledger.event(args.attempt, "review:" + args.attempt + ":" + digest,
+                                  "accepted" if args.accept else "rejected", evidence="sha256:" + digest)
+            result = {"status": result["attempt"]["state"], "attempt": result["attempt"]}
+        elif args.action == "cancel":
+            ledger = Ledger(managed_router.ledger_path(sys.modules[__name__]))
+            attempt = ledger.read(args.attempt)
+            if not attempt:
+                raise LedgerError("attempt not found")
+            result = ledger.event(args.attempt, attempt["launch_key"] + ":cancel-request", "cancelling")
+            result = {"status": result["attempt"]["state"], "attempt": result["attempt"]}
         else:
             result = managed_router.execute(args, config, sys.modules[__name__])
     except (LedgerError, OSError, sqlite3.DatabaseError, ValueError) as exc:
@@ -3094,6 +3124,26 @@ def main(argv=None):
     managed_status = managed_sub.add_parser("status")
     managed_status.add_argument("--attempt")
     managed_status.set_defaults(func=cmd_managed, json=True)
+    managed_run = managed_sub.add_parser("run", help="run an admitted task in a new isolated worktree")
+    managed_run.add_argument("--attempt", required=True)
+    managed_run.add_argument("--spec", required=True)
+    managed_run.add_argument("--repo", required=True, help="source Git repository; runs from committed HEAD")
+    managed_run.add_argument("--sandbox", choices=("read-only", "workspace-write"), default="read-only")
+    managed_run.add_argument("--timeout", type=int, default=300)
+    managed_run.set_defaults(func=cmd_managed, json=True)
+    managed_cancel = managed_sub.add_parser("cancel", help="request cancellation from the running native owner")
+    managed_cancel.add_argument("--attempt", required=True)
+    managed_cancel.set_defaults(func=cmd_managed, json=True)
+    managed_reconcile = managed_sub.add_parser("reconcile", help="read native outcome without relaunching")
+    managed_reconcile.add_argument("--attempt", required=True)
+    managed_reconcile.set_defaults(func=cmd_managed, json=True)
+    managed_review = managed_sub.add_parser("review", help="record an explicit review backed by evidence")
+    managed_review.add_argument("--attempt", required=True)
+    managed_review.add_argument("--evidence", required=True, help="local review/test evidence; only its hash is recorded")
+    review_outcome = managed_review.add_mutually_exclusive_group(required=True)
+    review_outcome.add_argument("--accept", action="store_true")
+    review_outcome.add_argument("--reject", action="store_true")
+    managed_review.set_defaults(func=cmd_managed, json=True)
 
     context_cmd = sub.add_parser("context", help="build a bounded context manifest from a host-normalized catalog")
     context_task = context_cmd.add_mutually_exclusive_group(required=True)

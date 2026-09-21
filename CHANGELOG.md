@@ -7,6 +7,10 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Added (2026-09-21, router planning)
 
+- First native adapter: Codex app-server execution with isolated worktrees,
+  verified account/model/effort/permissions, exact thread/turn receipts, output
+  artifacts, lease renewal, native cancellation and read-only reconciliation.
+  Added managed run/cancel/reconcile/review commands; other adapters remain #17.
 - Opt-in managed plan/admit/status commands and a versioned SQLite lifecycle
   ledger. Atomic account point/slot admission, capability floors, bounded
   re-probing, idempotent launch claims, confirmed outcomes and conservative
@@ -29,6 +33,10 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ### Fixed (2026-09-21)
 
+- Codex's explicit `ordinaryUsageAllowed=false` now vetoes routing even when
+  percentages look healthy, and recovery requires an explicit healthy flag.
+- Managed routing retains the existing same-band forecast-only pacing relaxation
+  without weakening capability floors, quota denials, reserves or measured burn.
 - Codex app-server probes now enforce a real deadline, bound stdout, complete
   initialization before querying, and close/reap the child on every path (#14).
 - Codex no longer uses potentially shared rollout files as quota fallback.

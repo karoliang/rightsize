@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import accounts
 import rightsize as r
+import managed_router
 from managed_ledger import Ledger
 from managed_router import NoLaunch, launch_once
 
@@ -33,6 +34,7 @@ class ManagedRouterTests(unittest.TestCase):
         self.ledger = Ledger(self.root / "managed.sqlite3")
         self.account = accounts.select("codex").public()
         self.probes = {"codex": {"name": "codex", "status": "ok", "observed_at": r.now(),
+                                "quota_account_ref": "synthetic-quota-account",
                                 "account": self.account, "buckets": [
                                     {"id": "primary-300m", "percent": 10, "source": "live",
                                      "resets_at": r.now() + 300}]}}
@@ -115,6 +117,18 @@ class ManagedRouterTests(unittest.TestCase):
         self.assertEqual(result["decision"]["band"], 3)
         self.assertIsNone(result["decision"]["pick"])
         self.assertFalse(self.ledger.path.exists())
+
+    def test_forecast_relaxation_preserves_band_and_never_relaxes_measured_burn(self):
+        config, _ = r.load_config()
+        judgment = r.load_judgment(self.judgment, self.spec.read_text())
+        eligible = managed_router.eligibility(r, config, self.probes, {}, [])
+        eligible["codex"]["overrun"] = True
+        eligible["codex"]["over_pace"] = {"id": "weekly", "pace": 2, "projected": 200}
+        decision = managed_router.decision_at_floor(r, judgment, config, eligible, 1)
+        self.assertEqual(decision["band"], 1)
+        self.assertIsNotNone(decision["pick"])
+        eligible["codex"]["burn_over"] = {"id": "weekly", "projected": 200, "rate": 200}
+        self.assertIsNone(managed_router.decision_at_floor(r, judgment, config, eligible, 1)["pick"])
 
     def test_fake_launcher_receipt_is_bound_and_launches_once(self):
         _, result, _ = self.invoke()
