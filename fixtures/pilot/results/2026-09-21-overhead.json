@@ -1,0 +1,255 @@
+{
+  "trial_candidate": "87c121695711ecbe49ae4d077abc2c71b4564902",
+  "native_sessions": 30,
+  "command_executions": 82,
+  "command_exit_failures": 22,
+  "failure_causes": {
+    "git_global_config_read_denied": 21,
+    "diff_reported_changed_files": 1
+  },
+  "sessions_with_apple_tool_cache_warnings": 30,
+  "native_model_responses": 121,
+  "per_response_input_sum_matches_each_ledger_total": true,
+  "per_attempt": [
+    {
+      "task": "mechanical-public-fields",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 12684,
+      "tool_failures": 1
+    },
+    {
+      "task": "mechanical-public-fields",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15137,
+      "tool_failures": 1
+    },
+    {
+      "task": "implementation-binding-capacity",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15171,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-binding-capacity",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15178,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-null-reset",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 5,
+      "first_input": 17663,
+      "tool_failures": 1
+    },
+    {
+      "task": "diagnosis-null-reset",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17676,
+      "tool_failures": 1
+    },
+    {
+      "task": "high-stakes-denial-precedence",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17684,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-denial-precedence",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17690,
+      "tool_failures": 0
+    },
+    {
+      "task": "implementation-ceiling-points",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 5,
+      "first_input": 15144,
+      "tool_failures": 1
+    },
+    {
+      "task": "implementation-ceiling-points",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15142,
+      "tool_failures": 1
+    },
+    {
+      "task": "diagnosis-unknown-is-not-zero",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17657,
+      "tool_failures": 1
+    },
+    {
+      "task": "diagnosis-unknown-is-not-zero",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 5,
+      "first_input": 17682,
+      "tool_failures": 1
+    },
+    {
+      "task": "high-stakes-credential-binding",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17664,
+      "tool_failures": 1
+    },
+    {
+      "task": "high-stakes-credential-binding",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17687,
+      "tool_failures": 1
+    },
+    {
+      "task": "mechanical-stable-dedup",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 6,
+      "first_input": 15144,
+      "tool_failures": 2
+    },
+    {
+      "task": "mechanical-stable-dedup",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15144,
+      "tool_failures": 1
+    },
+    {
+      "task": "mechanical-stable-dedup",
+      "variant": "candidate",
+      "number": 2,
+      "calls": 4,
+      "first_input": 15151,
+      "tool_failures": 1
+    },
+    {
+      "task": "mechanical-stable-dedup",
+      "variant": "baseline",
+      "number": 2,
+      "calls": 4,
+      "first_input": 12673,
+      "tool_failures": 1
+    },
+    {
+      "task": "diagnosis-usage-snapshot",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15209,
+      "tool_failures": 0
+    },
+    {
+      "task": "diagnosis-usage-snapshot",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17667,
+      "tool_failures": 1
+    },
+    {
+      "task": "high-stakes-cancel-proof",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17709,
+      "tool_failures": 0
+    },
+    {
+      "task": "high-stakes-cancel-proof",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17704,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-bucket-rename",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15168,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-bucket-rename",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15168,
+      "tool_failures": 1
+    },
+    {
+      "task": "implementation-commitment-load",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 5,
+      "first_input": 15179,
+      "tool_failures": 1
+    },
+    {
+      "task": "implementation-commitment-load",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 5,
+      "first_input": 15173,
+      "tool_failures": 1
+    },
+    {
+      "task": "high-stakes-idempotent-start",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 17694,
+      "tool_failures": 1
+    },
+    {
+      "task": "high-stakes-idempotent-start",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 17695,
+      "tool_failures": 0
+    },
+    {
+      "task": "mechanical-terminal-labels",
+      "variant": "candidate",
+      "number": 1,
+      "calls": 4,
+      "first_input": 15129,
+      "tool_failures": 1
+    },
+    {
+      "task": "mechanical-terminal-labels",
+      "variant": "baseline",
+      "number": 1,
+      "calls": 3,
+      "first_input": 15178,
+      "tool_failures": 1
+    }
+  ]
+}

@@ -28,6 +28,10 @@ class PilotExecutionTests(unittest.TestCase):
         self.assertEqual(request['config']['plugins'], {'private-plugin': {'enabled': False}})
         self.assertNotIn('SENTINEL', str(request))
         self.assertEqual(request['config']['shell_environment_policy']['inherit'], 'none')
+        environment = request['config']['shell_environment_policy']['set']
+        self.assertEqual(environment['PYTHONDONTWRITEBYTECODE'], '1')
+        self.assertLess(environment['PATH'].split(':').index('/opt/homebrew/bin'),
+                        environment['PATH'].split(':').index('/usr/bin'))
         fs = request['config']['permissions'][execution.PROFILE]['filesystem']
         self.assertEqual(fs[':root'], 'deny')
         self.assertEqual(fs[str(rpc.worktree)], 'write')

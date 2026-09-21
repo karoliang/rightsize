@@ -74,7 +74,14 @@ def prompt(row):
             "dependencies. Keep executable code inside function definitions; no "
             "decorators or dunder introspection. Do not mutate arguments. Inputs "
             "follow the stated domain. Available builtins: " + BUILTINS + ".\n\n"
-            + row["task"] + "\n")
+            + row["task"] + "\n\n"
+            "Environment: only task files are accessible; Git configuration and "
+            "worktree administration are outside the permitted sources. Do not "
+            "run Git commands. If shell checks are available, use "
+            "/opt/homebrew/bin/python3 -B on Homebrew macOS (login shells can "
+            "reset PATH), or python3 -B elsewhere, for small in-memory checks "
+            "and inspect solution.py directly. Do not "
+            "create cache files or test files. Independent acceptance runs separately.\n")
 
 
 def prepare(destination):

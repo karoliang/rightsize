@@ -95,3 +95,37 @@ avoidable context/test overhead and a newly predeclared, fairly budgeted complet
 evaluation. Native Claude, scoped vault delivery and the Orca prepared-account
 contract remain separate gates in #14/#17/#21. No production state migration or
 default routing promotion was performed for this trial.
+
+## Follow-up: overhead attribution and setup correction
+
+A read-only audit of the exact 30 native session traces now attributes all22
+command-exit failures:21 Git commands failed reading the intentionally denied
+global `.gitconfig`; one successful source comparison returned the normal `diff`
+exit1 for changed files. The latter is not a coding failure. Native command-exit
+metrics remain unchanged; interpreting all nonzero exits as model errors would
+be wrong. [Redacted attribution](../fixtures/pilot/results/2026-09-21-overhead.json)
+contains per-attempt response counts without account/session identities or paths.
+
+All30 sessions emitted Apple Python/Git tool-cache warnings. Python imports also
+explain the extra cache directories that caused the two first-attempt rejections.
+The next pilot prompt says not to run Git (its administrative/configuration files
+are intentionally outside scope), to inspect the source directly, and to use
+cache-free Python checks. The child environment disables bytecode writes.
+
+A real no-inference native sandbox check found that macOS login-shell startup
+resets PATH: Homebrew-first PATH alone still selected `/usr/bin/python3` and
+produced cache warnings. Explicit `/opt/homebrew/bin/python3 -B` then ran the
+trusted check without warnings or extra files; sibling reads and TASK.md writes
+remained denied. No filesystem access was broadened. Prepared native profile
+validation still passes. This establishes the check command, not future model
+adherence or a measured token reduction.
+
+The30 native turns contained121 model responses,3–6 per turn. First-response
+input ranged12,673–17,709 tokens. Summing each response's native input matched
+the corresponding ledger total exactly. Native base instructions, injected
+developer/tool/skill metadata and user rules are much larger than the bounded
+task prompt and recur across responses. Character counts are not token
+attribution; mandatory instructions have not been stripped or rewritten to
+manufacture savings. Optional catalog selection and a newly predeclared fair
+complete evaluation remain in#22. The earlier halted trial and its limits are
+unchanged; prompt/setup changes require a new frozen trial.

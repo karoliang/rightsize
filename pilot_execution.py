@@ -38,7 +38,9 @@ class ScopedCodexProcess(JsonProcess):
         if not isinstance(resolved, dict):
             raise ProtocolError('pilot native configuration unavailable')
         settings = {**params.get('config', {}), 'permissions': {PROFILE: profile(self.worktree)},
-                    'shell_environment_policy': {'inherit': 'none', 'set': {'PATH': '/usr/bin:/bin:/opt/homebrew/bin'}},
+                    'shell_environment_policy': {'inherit': 'none', 'set': {
+                        'PATH': '/opt/homebrew/bin:/usr/bin:/bin',
+                        'PYTHONDONTWRITEBYTECODE': '1'}},
                     'web_search': 'disabled', 'features': {'apps': False}}
         for section in ('mcp_servers', 'plugins'):
             entries = resolved.get(section, {})
