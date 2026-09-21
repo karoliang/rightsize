@@ -36,6 +36,24 @@ IDs. The next adapter gate is in-memory credential equivalence with quota,
 followed by session/dispatch proof and native outcome recovery. Never publish
 provider responses containing keys or replace native auth files to obtain proof.
 
+Credential preparation now resolves the exact admitted Go binding with the
+existing native/environment/scoped-vault resolver. Only the owned child receives
+the selected key, through an environment reference in inline native configuration;
+no auth/config file or parent environment is written. It enables only OpenCode Go
+and disables sharing and auto-update for that child. Effective provider inspection
+checks the resolved key, official Go endpoint, native model ID, transport package
+and selected effort variant. Credential/endpoint overrides in model or variant
+options, custom headers and additional connected providers are rejected.
+
+The installed `/api/provider/opencode-go` route returned 404 despite appearing in
+the advertised schema. The established `/provider` route works with only Go
+enabled. A real explicitly selected native-account setup passed effective binding
+and model verification, without creating a session or submitting a task. The
+configured exact vault read returned no key; its path stopped without native
+fallback. Vault delivery is covered by synthetic tests but not live-verified.
+These helpers are not yet wired into managed admission or task execution.
+Native HTTP errors retain only their status code; error bodies remain private.
+
 Orca's installed CLI advertises model/effort flags, durable request IDs and
 run/task/dispatch identities, but no worker-start account selector. Account-list
 metadata alone does not prove which account a new worker uses. Managed Orca

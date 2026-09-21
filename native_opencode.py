@@ -1,6 +1,7 @@
 """Owned OpenCode loopback transport. No model calls or auth-store writes."""
 
 import base64
+from dataclasses import dataclass, field
 import http.client
 import json
 import os
@@ -12,7 +13,105 @@ import subprocess
 import threading
 import time
 
+import accounts
 from native_transport import ProtocolError
+
+
+class ResponseError(ProtocolError):
+    """Only an HTTP status, never the credential-bearing native error body."""
+
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"native request returned HTTP {status}")
+
+
+@dataclass(repr=False)
+class Credentials:
+    account: dict
+    native_binding: dict
+    key: str = field(repr=False)
+    environment: dict = field(repr=False)
+
+
+def credentials(api, config, expected):
+    """Resolve the admitted Go credential once, then deliver only in child env.
+
+    This uses the existing exact-scoped resolver. It does not add a login, write
+    a config/auth file, enumerate a vault, or fall back after a failed read.
+    """
+    binding = accounts.select("opencode", config)
+    if binding.status != "unverified":
+        raise ProtocolError("native account selection unavailable")
+    key = api.secret("OPENCODE_API_KEY", config)
+    if not isinstance(key, str) or not key or any(c in key for c in "\r\n\x00"):
+        raise ProtocolError("selected credential unavailable")
+    public = binding.public()
+    if binding.source == "native" and (api.ROOT / ".infisical.json").exists():
+        scope = api.vault_scope()
+        if scope is None:
+            raise ProtocolError("explicit vault scope unavailable")
+        public = {**public, "source": "scoped-vault",
+                  "account_ref": accounts.digest(json.dumps(["opencode", scope]))[:24],
+                  "fingerprint": accounts.digest(key)}
+    if public != expected or accounts.select("opencode", config).public() != binding.public():
+        raise ProtocolError("credential binding changed since admission")
+    env = binding.environment()
+    try:
+        settings = json.loads(env.get("OPENCODE_CONFIG_CONTENT", "{}"))
+        if not isinstance(settings, dict):
+            raise ValueError()
+        providers = settings.setdefault("provider", {})
+        provider = providers.setdefault("opencode-go", {})
+        options = provider.setdefault("options", {})
+        options["apiKey"] = "{env:RIGHTSIZE_OPENCODE_GO_KEY}"
+        settings["enabled_providers"] = ["opencode-go"]
+        settings["share"] = "disabled"
+        settings["autoupdate"] = False
+        env["OPENCODE_CONFIG_CONTENT"] = json.dumps(settings, allow_nan=False)
+    except (ValueError, TypeError, AttributeError):
+        raise ProtocolError("native inline configuration malformed") from None
+    env["RIGHTSIZE_OPENCODE_GO_KEY"] = key
+    return Credentials(public, binding.public(), key, env)
+
+
+def verify_provider(value, credential, model, effort):
+    """Prove effective Go key/endpoint/model before creating an inference task.
+
+    Provider results may contain keys. The caller must keep them in memory and
+    must never persist this response as routing evidence.
+    """
+    try:
+        rows = [row for row in value["all"] if row["id"] == "opencode-go"]
+        if len(rows) != 1 or value["connected"] != ["opencode-go"]:
+            raise ValueError()
+        provider = rows[0]
+        options = provider["options"]
+        if set(options) - {"apiKey", "baseURL", "setCacheKey", "timeout", "headerTimeout", "chunkTimeout"}:
+            raise ValueError()
+        effective_key = options.get("apiKey", provider.get("key"))
+        if effective_key != credential.key:
+            raise ValueError()
+        entry = provider["models"][model]
+        if (entry["providerID"] != "opencode-go" or entry["id"] != model
+                or entry["api"]["id"] != model
+                or entry["api"]["npm"] != "@ai-sdk/openai-compatible"
+                or entry["api"]["url"].rstrip("/") != "https://opencode.ai/zen/go/v1"
+                or options.get("baseURL", "https://opencode.ai/zen/go/v1").rstrip("/") != "https://opencode.ai/zen/go/v1"
+                or options.get("headers") or entry.get("headers")):
+            raise ValueError()
+        # Model/variant options are applied after provider options. A credential
+        # or endpoint override there would invalidate the quota/launch binding.
+        layers = [entry.get("options", {})]
+        if effort:
+            layers.append(entry["variants"][effort])
+        sensitive = {"apiKey", "baseURL", "headers", "fetch", "url", "provider", "model"}
+        if any(not isinstance(layer, dict) or sensitive.intersection(layer) for layer in layers):
+            raise ValueError()
+        return {"provider": "opencode", "model": model, "effort": effort,
+                "account_ref": credential.account["account_ref"],
+                "fingerprint": credential.account["fingerprint"]}
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise ProtocolError("effective native provider differs from admitted binding") from None
 
 
 class Server:
@@ -115,7 +214,7 @@ class Server:
             with connection.getresponse() as response:
                 if response.status not in (200, 201, 204):
                     # No redirect following, proxy, or raw provider error body.
-                    raise ProtocolError("native request was not accepted")
+                    raise ResponseError(response.status)
                 data = bytearray()
                 while True:
                     chunk = response.read1(min(65536, max_bytes + 1 - len(data)))
@@ -129,6 +228,8 @@ class Server:
                 if response.status == 204 and not data:
                     return None
                 return json.loads(data)
+        except ResponseError:
+            raise
         except (OSError, http.client.HTTPException, ValueError, UnicodeError, RecursionError):
             raise ProtocolError("native response unavailable or invalid") from None
         finally:

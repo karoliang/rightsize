@@ -1,6 +1,7 @@
 """Loopback transport proof with an owned fake child, no provider calls."""
 
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -8,7 +9,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from native_opencode import Server
+import accounts
+import rightsize as r
+from native_opencode import Server, ResponseError, credentials, verify_provider
 from native_transport import ProtocolError
 
 
@@ -108,6 +111,8 @@ class ServerTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaises(ProtocolError) as error:server.request("GET", path, max_bytes=1024)
                 self.assertNotIn("SECRET_SENTINEL", str(error.exception))
+        with self.assertRaises(ResponseError) as error:server.request("GET", "/error")
+        self.assertEqual(error.exception.status, 500)
 
     def test_request_surface_and_input_budget(self):
         server = self.server()
@@ -116,6 +121,87 @@ class ServerTests(unittest.TestCase):
                                    ("POST", "/message", {"text": "x" * (2 * 1024 * 1024)})):
             with self.subTest(method=method, path=path):
                 with self.assertRaises(ProtocolError):server.request(method, path, body)
+
+
+class CredentialBindingTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        for patcher in (patch.dict(os.environ, {}, clear=True),
+                        patch.object(accounts.Path, "home", return_value=self.root),
+                        patch.object(r, "ROOT", self.root)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.key = "SECRET_SENTINEL"
+        secret = patch.object(r, "secret", return_value=self.key)
+        self.secret = secret.start()
+        self.addCleanup(secret.stop)
+        self.binding = accounts.select("opencode", {})
+        self.expected = self.binding.public()
+
+    def provider(self):
+        return {"connected": ["opencode-go"], "all": [{"id": "opencode-go", "key": "other-native-key",
+            "options": {"apiKey": self.key}, "models": {"fixture": {"id": "fixture", "providerID": "opencode-go",
+            "api": {"id": "fixture", "url": "https://opencode.ai/zen/go/v1", "npm": "@ai-sdk/openai-compatible"},
+            "headers": {}, "options": {}, "variants": {"high": {"reasoningEffort": "high"}}}}}]}
+
+    def test_selected_key_only_in_child_environment(self):
+        value = credentials(r, {}, self.expected)
+        self.secret.assert_called_once_with("OPENCODE_API_KEY", {})
+        self.assertEqual(value.environment["RIGHTSIZE_OPENCODE_GO_KEY"], self.key)
+        self.assertNotIn(self.key, repr(value))
+        self.assertNotIn(self.key, json.dumps(value.account))
+        self.assertNotIn(self.key, value.environment["OPENCODE_CONFIG_CONTENT"])
+        self.assertNotIn("RIGHTSIZE_OPENCODE_GO_KEY", os.environ)
+        self.assertEqual(list(self.root.iterdir()), [])
+        receipt = verify_provider(self.provider(), value, "fixture", "high")
+        self.assertEqual(receipt["account_ref"], self.expected["account_ref"])
+        self.assertNotIn(self.key, json.dumps(receipt))
+
+    def test_exact_vault_identity_and_rotation_rejected(self):
+        scope = ("project", "test", "/router")
+        link = self.root / ".infisical.json"
+        link.write_text(json.dumps(dict(zip(("workspaceId", "defaultEnvironment", "rightsizePath"), scope))))
+        expected = {**self.expected, "source": "scoped-vault",
+            "account_ref": accounts.digest(json.dumps(["opencode", scope]))[:24], "fingerprint": accounts.digest(self.key)}
+        self.assertEqual(credentials(r, {}, expected).account, expected)
+        self.secret.return_value = "rotated"
+        with self.assertRaises(ProtocolError):credentials(r, {}, expected)
+        self.secret.return_value = None
+        with self.assertRaises(ProtocolError):credentials(r, {}, expected)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), [".infisical.json"])
+
+    def test_inline_configuration_preserved_without_persisting_credentials(self):
+        original = {"instructions": ["AGENTS.md"], "provider": {"opencode-go": {"options": {"timeout": 1000}}}}
+        with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": json.dumps(original)}):
+            result = credentials(r, {}, self.expected)
+        settings = json.loads(result.environment["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual(settings["instructions"], original["instructions"])
+        self.assertEqual(settings["provider"]["opencode-go"]["options"]["timeout"], 1000)
+        self.assertEqual(settings["enabled_providers"], ["opencode-go"])
+        self.assertEqual(settings["share"], "disabled")
+        for malformed in ("{", "[]", '{"provider":false}'):
+            with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": malformed}):
+                with self.assertRaises(ProtocolError):credentials(r, {}, self.expected)
+
+    def test_effective_key_endpoint_model_variant_and_overrides(self):
+        value = credentials(r, {}, self.expected)
+        for change in ("key", "endpoint", "model", "variant", "model-options", "headers", "package", "extra-provider"):
+            with self.subTest(change=change):
+                data = self.provider()
+                provider = data["all"][0]
+                model = provider["models"]["fixture"]
+                if change == "key":provider["options"]["apiKey"] = "wrong"
+                if change == "endpoint":provider["options"]["baseURL"] = "https://example.invalid"
+                if change == "model":model["api"]["id"] = "another"
+                if change == "variant":model["variants"] = {}
+                if change == "model-options":model["options"]["apiKey"] = "wrong"
+                if change == "headers":model["headers"]["Authorization"] = "wrong"
+                if change == "package":model["api"]["npm"] = "unverified-transport"
+                if change == "extra-provider":data["connected"].append("opencode")
+                with self.assertRaises(ProtocolError) as error:verify_provider(data, value, "fixture", "high")
+                self.assertNotIn(self.key, str(error.exception))
 
 
 if __name__ == "__main__":
