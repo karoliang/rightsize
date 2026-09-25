@@ -19,6 +19,7 @@
   },
   "bands": {
     "1": [
+      "minimax:MiniMax-M3",
       "opencode:deepseek-v4.1-flash",
       "opencode:qwen3.8-flash",
       "opencode:glm-5.3-flash",
