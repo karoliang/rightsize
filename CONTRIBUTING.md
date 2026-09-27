@@ -36,11 +36,17 @@ These are the constraints, not preferences:
 
 ## Running things
 
-The test suite needs Python 3.11 or newer. `test_model_policy.py` calls
-`contextlib.chdir` (3.11) and `hooks/claude_pretooluse.py` uses PEP 604 union
-syntax in runtime-evaluated annotations (3.10+); a 3.9 interpreter, like
-`/usr/bin/python3` on this host, fails import on the hook and produces a flood
-of confusing errors that look like a broken repository.
+The test suite needs Python 3.11 or newer, because `test_model_policy.py` calls
+`contextlib.chdir`, which landed in 3.11. Verified by running that test on both:
+it fails on 3.10 and passes on 3.11. On a 3.9 interpreter, like
+`/usr/bin/python3` on this host, discovery produces a flood of confusing errors
+that look like a broken repository, which is what the guard below exists to
+prevent.
+
+`hooks/claude_pretooluse.py` used to be a second reason: its PEP 604 unions in
+runtime-evaluated annotations failed to import on 3.9. That is no longer true.
+The hook now carries `from __future__ import annotations`, so the install
+command in its own docstring works on the system interpreter.
 
 On this host the known-good invocation is the uv-managed 3.12.14:
 

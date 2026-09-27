@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Run the offline test suite with an interpreter-version guard.
 
-The suite needs Python 3.11 or newer. test_model_policy.py calls
-contextlib.chdir, which landed in 3.11; hooks/claude_pretooluse.py uses PEP
-604 union syntax in runtime-evaluated annotations, which 3.9 rejects at
-import. /usr/bin/python3 on this host is 3.9.6 and produces a flood of
-confusing errors that look like a broken repository.
+The suite needs Python 3.11 or newer: test_model_policy.py calls
+contextlib.chdir, which landed in 3.11. /usr/bin/python3 on this host is 3.9.6
+and produces a flood of confusing errors that look like a broken repository.
+
+The hook, hooks/claude_pretooluse.py, is no longer a reason: it carries
+from __future__ import annotations and imports fine on 3.9.
 
 Run it from the repo root:
 
