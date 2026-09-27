@@ -23,6 +23,8 @@ Codex while it had eighty-five points free.
          "command": "python3 /path/to/rightsize/hooks/claude_pretooluse.py"}]}]}}
 """
 
+from __future__ import annotations  # PEP 604 unions below must parse on 3.9
+
 import json
 import re
 import shlex
