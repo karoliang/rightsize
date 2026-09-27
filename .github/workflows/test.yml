@@ -30,7 +30,9 @@ jobs:
       - name: syntax
         run: python -m compileall -q .
       - name: policy tests (offline, no tokens)
-        run: python test_rightsize.py
+        run: |
+          python test_rightsize.py
+          python test_model_policy.py
       - name: quota and launch regressions
         run: python test_reliability.py
       - name: caller judgment contract

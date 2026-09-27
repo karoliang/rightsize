@@ -29,6 +29,20 @@ class TaskFitTests(unittest.TestCase):
                    'bucket':'rolling', 'inflight':0, 'reserved':0,
                    'buckets':[]} for p in providers}
 
+    def test_sol_is_qualified_band_three_candidate_without_changing_existing_entries(self):
+        band_three = self.config['bands']['3']
+        self.assertIn('codex:gpt-6-sol', band_three)
+        self.assertEqual(
+            [candidate for candidate in band_three if candidate != 'codex:gpt-6-sol'],
+            ['codex:gpt-6-astra', 'claude:claude-opus-5', 'opencode:glm-5.3',
+             'opencode:kimi-k3'])
+        profile = self.config['model_profiles']['codex:gpt-6-sol']
+        self.assertNotEqual(
+            profile['evidence'],
+            'provisional: existing ladder placement; not comparative task evaluation')
+        self.assertEqual(profile['max_band'], 3)
+        self.assertIn('review', profile['capabilities'])
+
     def test_no_downgrade_for_high_quality_or_retry(self):
         c = copy.deepcopy(self.config)
         c['bands']['3'] = ['claude:claude-opus-5']
@@ -105,12 +119,15 @@ class TaskFitTests(unittest.TestCase):
         probes={p:{'name':p,'status':'ok','buckets':[
             {'id':'rolling','percent':0,'resets_at':r.now()+18000,'source':'live'}]}
             for p in ('codex','claude')}
+        # This case checks what is charged for a review leg. The shipped
+        # policy and independent review are covered in test_model_policy.py.
+        unrestricted={**self.config,'model_policy':{}}
         with patch.object(r,'judge',return_value=self.judgment('high_stakes',second_opinion=1)):
-            plan=r.plan(['review sensitive change'],self.config,probes=probes)
+            plan=r.plan(['review sensitive change'],unrestricted,probes=probes)
         task=plan['tasks'][0]
         decision=task['decision']
         self.assertIsNotNone(decision['review'])
-        expected=sum(r.dispatch_cost(self.config,p,3) for p in ('codex','claude'))
+        expected=sum(r.dispatch_cost(unrestricted,p,3) for p in ('codex','claude'))
         self.assertAlmostEqual(task['points'],expected)
 
     def test_bad_task_effort_or_missing_requirements_refuses_candidate(self):

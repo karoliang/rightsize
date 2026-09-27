@@ -112,7 +112,7 @@ codex       ok       usable 89 pts    binding primary-10080m    resets 6d 21h
                      about 74 band 1, 24 band 3 dispatches left before the reserve
 ```
 
-## The policy, in six rules
+## The policy, in seven rules
 
 1. **Band from the judgment.** Mechanical and ordinary implementation sit in
    band 1. Design, diagnosis and anything touching auth, money, migrations or
@@ -136,6 +136,11 @@ codex       ok       usable 89 pts    binding primary-10080m    resets 6d 21h
 6. **Fallback is code.** A quota error takes a provider out until its known
    reset; a full band waits for the next wave rather than being answered with a
    model that suits it worse.
+7. **A forbidden model is unselectable, in every role.** Exclusions live in
+   `model_policy`, not in the brief: a spec is input to the judgment and never
+   reaches selection. When policy empties the eligible set the decision blocks
+   and says which model it was, instead of descending a band. A task that
+   genuinely needs an excluded model records why and gets escalated.
 
 Price is the burn multiplier on a percent-bucket subscription: a model at
 `$3/M` input eats your weekly allowance twenty times faster than one at
@@ -410,6 +415,7 @@ launchctl load ~/Library/LaunchAgents/com.rightsize.refresh.plist
 
 ```bash
 python3 test_rightsize.py    # policy, offline, no tokens
+python3 test_model_policy.py # forbidden models, both ladders, the blocked case
 python3 hooks/test_hook.py   # what the dispatch hook does and does not match
 ./eval_questions.py          # the judgments, needs TYPESAFE_API_KEY, costs a fraction of a cent
 ```
@@ -425,6 +431,8 @@ are now atomic and serialised by a lock.
 ## Documentation
 
 - [docs/POLICY.md](docs/POLICY.md): how a decision is made, rule by rule.
+- [docs/MODEL-POLICY.md](docs/MODEL-POLICY.md): making a model unselectable, the
+  exception contract, and why a constraint in the spec was never one.
 - [docs/KEYS.md](docs/KEYS.md): getting each API key, what it costs, what
   breaks without it.
 - [docs/ADAPTERS.md](docs/ADAPTERS.md): adding a launcher (config), a caller

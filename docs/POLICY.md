@@ -159,7 +159,16 @@ mood.
 
 ## 5. Pick: spend the bucket that expires first
 
-Walk the band's ladder from `config.json`, dropping candidates whose provider:
+Walk the band's ladder from `config.json`, dropping candidates that are
+excluded outright:
+
+- the model is **forbidden** by `model_policy`, in which case it is unselectable
+  in this band, in every fallback band and in the review ladder, and if that
+  empties the eligible set the decision blocks rather than substituting anything.
+  See [MODEL-POLICY.md](MODEL-POLICY.md);
+- the model **already had a go** at this task, from `rerun --previous`.
+
+Then dropping candidates whose provider:
 
 - is not eligible;
 - has **unknown** headroom, while the band is below 3 and the provider is not

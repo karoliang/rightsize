@@ -34,6 +34,7 @@
     ],
     "3": [
       "codex:gpt-6-astra",
+      "codex:gpt-6-sol",
       "claude:claude-opus-5",
       "opencode:glm-5.3",
       "opencode:kimi-k3"
@@ -148,6 +149,12 @@
       "home": "~/.local/share"
     }
   },
+  "model_policy": {
+    "forbidden": {
+      "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role"
+    }
+  },
+  "_comment_model_policy": "Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",
   "task_profiles": {
     "mechanical": {
       "minimum_band": 1,
@@ -334,6 +341,33 @@
         "high_stakes": "high"
       },
       "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "codex:gpt-6-sol": {
+      "family": "gpt-6-sol",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "medium",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "qualified on LH 2026-09-28 with codex exec --model gpt-6-sol -c model_reasoning_effort=high: exit 0; 6/6 read-only policy-review fixtures, 3/3 seeded defects caught with correct rule attribution, 3/3 clean controls passed with no false positives, plus one unseeded real defect found where exception necessity truthiness was checked without approval verification"
     },
     "claude:claude-opus-5": {
       "family": "claude-opus-5",

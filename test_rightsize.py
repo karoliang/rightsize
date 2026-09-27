@@ -74,13 +74,19 @@ def judged(tier, size=0.5, second=0.1, complete=0.9, destructive=0.05):
     }
 
 
-def route_with(judgment, state, monkey={}):
+def route_with(judgment, state, monkey={}, config=None):
     original = ar.judge
     ar.judge = lambda spec: judgment
     try:
-        return ar.route("test spec", CONFIG, probes=state)
+        return ar.route("test spec", config or CONFIG, probes=state)
     finally:
         ar.judge = original
+
+
+# Quota rules are about which of two live plans to spend, so a case that needs
+# two providers in one band needs a band both can reach. These cases isolate
+# quota arithmetic from the shipped model policy, which has separate tests.
+UNRESTRICTED = {**CONFIG, "model_policy": {}}
 
 
 def main():
@@ -535,7 +541,8 @@ def main():
     # rung. Expiring-first is right while a bucket has slack, and wrong when it
     # does not.
     thin = {"opencode": time.time() + 19 * HOUR, "codex": time.time() + 7 * 86400}
-    decision = route_with(judged("design"), probes(opencode=77, codex=0, resets=thin))
+    decision = route_with(judged("design"), probes(opencode=77, codex=0, resets=thin),
+                          config=UNRESTRICTED)
     assert decision["band"] == 3, decision["band"]
     assert decision["pick"]["provider"] == "codex", decision["pick"]
     assert any("roomiest plan" in note for note in decision["notes"]), decision["notes"]
