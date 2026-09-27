@@ -394,6 +394,40 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertTrue(any(m.startswith("error") and "none of them had a usable provider" in m
                             for m in messages), messages)
 
+    def test_doctor_rerun_gap_checks_higher_bands_and_keeps_terminal_warning(self):
+        c = copy.deepcopy(self.config)
+        c['bands'] = {'1': [OPUS], '2': [SOL], '3': [SOL]}
+        c['review_ladder'] = [OPUS, 'opencode:kimi-k2.6']
+        cached = {provider: {'status': 'no-credential'}
+                  for provider in ('claude', 'codex', 'opencode')}
+        cached['claude'] = cached['codex'] = cached['opencode'] = {'status': 'ok'}
+        r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
+
+        messages = [text for level, text in r.doctor(c) if level == 'warn']
+        self.assertFalse(any(text.startswith('band 1 has one permitted candidate')
+                             and 'higher band' in text for text in messages), messages)
+        self.assertFalse(any(text.startswith('band 2 has one permitted candidate')
+                             and 'higher band' in text for text in messages), messages)
+        self.assertTrue(any(text.startswith('band 3 has one permitted candidate')
+                            and 'higher band' in text for text in messages), messages)
+
+    def test_doctor_reviewer_uses_review_ladder_only_for_band_one(self):
+        c = copy.deepcopy(self.config)
+        c['bands'] = {'1': [OPUS], '2': [SOL], '3': [SOL]}
+        c['review_ladder'] = [OPUS, 'opencode:kimi-k2.6']
+        cached = {provider: {'status': 'no-credential'}
+                  for provider in ('claude', 'codex', 'opencode')}
+        cached['claude'] = cached['codex'] = cached['opencode'] = {'status': 'ok'}
+        r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
+
+        messages = [text for level, text in r.doctor(c) if level == 'warn']
+        self.assertFalse(any(text.startswith('band 1 has one permitted candidate')
+                             and 'reviewer' in text for text in messages), messages)
+        self.assertTrue(any(text.startswith('band 2 has one permitted candidate')
+                            and 'reviewer' in text for text in messages), messages)
+        self.assertTrue(any(text.startswith('band 3 has one permitted candidate')
+                            and 'reviewer' in text for text in messages), messages)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
