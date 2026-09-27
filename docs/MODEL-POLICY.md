@@ -44,6 +44,12 @@ exclusion is applied, so an operator reading a decision sees the policy rather
 than an unexplained absence. A list of keys is accepted too, and gets a generic
 reason.
 
+The shipped config is the owner policy. A repository `.rightsize.json` may add
+forbidden models, using either a mapping or a list, but its policy is unioned
+with the owner's forbidden entries. An empty mapping, empty list, or null policy
+section cannot clear them. If both files name the same model, the owner's
+reason wins. Other repository settings keep their usual merge behavior.
+
 There is no separate filter. `pick()` already took an `exclude` set for "this
 model already had a go at this task"; policy extends the same argument to a
 mapping that carries a reason per entry. Every selection in `decide()` passes
@@ -63,6 +69,9 @@ band, and the review ladder.
   **blocked** and the block names the forbidden models. It does not descend a
   band, it does not relax a quality floor, and it does not report a bare
   "nothing eligible" that reads like a quota problem which will pass on its own.
+- **Capacity stays distinct.** If any task-qualified candidate in the tried
+  bands is permitted but lacks capacity, the decision remains unplaced without
+  a policy block. `plan` may try it in a later wave when a slot opens.
 - **Blocked is not unplaced.** In `plan`, a policy block lands in `blocked`
   rather than `unplaced`, because waiting for another wave will not un-forbid a
   model. `cmd_plan` prints the reason per blocked task for the same reason:
@@ -129,15 +138,15 @@ by whoever needs a reviewer.
 
 ## Rollback
 
-Delete the `model_policy` section, or delete one entry from it, and the router
-returns to its previous behaviour. Nothing else changes: no ladder, no profile,
-no threshold and no quality floor was edited to make this work, and none needs
+The owner can delete the `model_policy` section, or delete one entry from the
+owner config, to return to the previous behaviour. A repository overlay cannot
+perform that rollback. No ladder, profile, threshold or quality floor needs
 restoring. Reverting the code commit is also safe, because a config carrying
 `model_policy` is simply ignored by a build that does not know the key.
 
 ## Tests
 
-`python3 test_model_policy.py`. Sixteen cases, offline, no tokens. Both repros
+`python3 -m pytest -q test_model_policy.py`. Offline, no tokens. Both repros
 from #32 are pinned, each with its control: the same judgment and the same
 headroom against a config with the policy removed still picks the forbidden
 model, which is what makes the passing case mean something.

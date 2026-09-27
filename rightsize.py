@@ -102,16 +102,42 @@ def now() -> float:
     return time.time()
 
 
+def forbidden_entries(value) -> dict[str, str]:
+    """Normalize both supported forbidden-list forms for policy merging."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return {key: "excluded by operator policy" for key in value}
+    return {}
+
+
+def merge_model_policy(owner, overlay):
+    """Repo policy may add exclusions, but cannot remove or rewrite owner ones."""
+    if not isinstance(owner, dict) or not isinstance(overlay, dict):
+        return owner
+    combined = merge(owner, overlay)
+    if "forbidden" in owner:
+        combined["forbidden"] = {
+            **forbidden_entries(overlay.get("forbidden")),
+            **forbidden_entries(owner["forbidden"]),
+        }
+    return combined
+
+
 def merge(base, overlay):
     """Deep-merge for config: dicts merge key by key, everything else replaces.
 
     A list replaces rather than appends on purpose: a repo pinning a band ladder
-    means "these candidates", not "these as well as whatever was there".
+    means "these candidates", not "these as well as whatever was there". The
+    model policy is the exception: repo exclusions can only add to owner policy.
     """
     if isinstance(base, dict) and isinstance(overlay, dict):
         out = dict(base)
         for key, value in overlay.items():
-            out[key] = merge(out.get(key), value) if key in out else value
+            if key == "model_policy" and key in out:
+                out[key] = merge_model_policy(out[key], value)
+            else:
+                out[key] = merge(out[key], value) if key in out else value
         return out
     return overlay
 
@@ -2038,11 +2064,13 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         # The dangerous version of this branch is the silent one. If policy is
         # what emptied the ladder, say so and block: a decision that reports
         # only "nothing eligible" reads like a quota problem that will pass.
-        removed = sorted({c for level in dict.fromkeys(tried)
-                          for c in ladders.get(level, []) if candidate_key(c) in barred})
-        if removed and not blocked:
+        qualified_tried = [c for level in dict.fromkeys(tried)
+                           for c in ladders.get(level, [])]
+        removed = sorted({c for c in qualified_tried if candidate_key(c) in barred})
+        if (removed and all(candidate_key(c) in barred for c in qualified_tried)
+                and not blocked):
             blocked = (
-                "every task-qualified candidate is unavailable and model policy forbids "
+                "model policy forbids every task-qualified candidate in the tried bands: "
                 + ", ".join(removed)
                 + ". Nothing was substituted, no band was lowered and no quality floor"
                   " was relaxed: free capacity on a permitted model, add one to band"

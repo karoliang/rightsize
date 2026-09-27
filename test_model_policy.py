@@ -14,6 +14,7 @@ block" but "does it quietly substitute something else", so both directions are
 asserted every time.
 """
 import copy
+import contextlib
 import json
 import unittest
 from pathlib import Path
@@ -72,6 +73,21 @@ class ModelPolicyTests(unittest.TestCase):
         bare.pop("model_policy")
         return bare
 
+    def load_overlay(self, overlay):
+        """Load a repo file from a nested worktree over the owner config."""
+        root = Path(self.temp())
+        owner = root / 'config.json'
+        owner.write_text(json.dumps(self.config))
+        repo = root / 'repo'
+        worktree = repo / 'nested'
+        worktree.mkdir(parents=True)
+        local = repo / '.rightsize.json'
+        local.write_text(json.dumps(overlay))
+        with patch.object(r, 'CONFIG', owner), contextlib.chdir(worktree):
+            loaded, found = r.load_config()
+        self.assertEqual(found, local.resolve())
+        return loaded
+
     def picked(self, decision):
         pick = decision["pick"]
         return f"{pick['provider']}:{pick['model']}" if pick else None
@@ -79,6 +95,34 @@ class ModelPolicyTests(unittest.TestCase):
     def reviewer(self, decision):
         review = decision["review"]
         return f"{review['provider']}:{review['model']}" if review else None
+
+    # -- repo policy overlays ---------------------------------------------
+    def test_repo_overlay_cannot_clear_or_shrink_owner_policy(self):
+        owner_reason = r.forbidden_models(self.config)[ASTRA]
+        for overlay in ({'model_policy': {'forbidden': {}}},
+                        {'model_policy': {'forbidden': []}},
+                        {'model_policy': None},
+                        {'model_policy': {'forbidden': {OPUS: 'repo exclusion'}}}):
+            with self.subTest(overlay=overlay):
+                loaded = self.load_overlay(overlay)
+                self.assertEqual(r.forbidden_models(loaded)[ASTRA], owner_reason)
+                decision = r.decide(self.judgment(), loaded,
+                                    self.eligibility({'codex': 999, 'claude': 90,
+                                                      'opencode': 10}))
+                self.assertNotEqual(self.picked(decision), ASTRA)
+
+    def test_repo_overlay_can_add_forbidden_models_without_replacing_owner_policy(self):
+        owner_reason = r.forbidden_models(self.config)[ASTRA]
+        for forbidden in ({OPUS: 'repo exclusion', ASTRA: 'spoofed reason'}, [OPUS]):
+            with self.subTest(forbidden=forbidden):
+                loaded = self.load_overlay({'model_policy': {'forbidden': forbidden}})
+                barred = r.forbidden_models(loaded)
+                self.assertEqual(barred[ASTRA], owner_reason)
+                self.assertIn(OPUS, barred)
+                decision = r.decide(self.judgment(), loaded,
+                                    self.eligibility({'codex': 999, 'claude': 90,
+                                                      'opencode': 10}))
+                self.assertNotIn(self.picked(decision), (ASTRA, OPUS))
 
     # -- the filter, not the prose ----------------------------------------
     def test_spec_prose_is_not_a_constraint_but_config_policy_is(self):
@@ -111,13 +155,13 @@ class ModelPolicyTests(unittest.TestCase):
     def test_band_fallback_cannot_reach_a_forbidden_model(self):
         """Astra must not arrive as the escalation target either.
 
-        Band 1 and band 2 have nothing eligible, so the climb reaches band 3,
-        where the only candidate is forbidden. That has to end in a block, not
-        in the forbidden model arriving by a different door.
+        Band 1 and band 2 have no task-qualified candidates, so the climb
+        reaches band 3, where the only candidate is forbidden. That has to end
+        in a block, not in the forbidden model arriving by a different door.
         """
         c = copy.deepcopy(self.config)
-        c['bands']['1'] = ['opencode:deepseek-v4.1-flash']
-        c['bands']['2'] = ['opencode:deepseek-v4-pro']
+        c['bands']['1'] = []
+        c['bands']['2'] = []
         c['bands']['3'] = [ASTRA]
         d = r.decide(self.judgment('implementation'), c,
                      self.eligibility({'codex': 999}, blocked=('opencode', 'claude', 'minimax')))
@@ -160,7 +204,7 @@ class ModelPolicyTests(unittest.TestCase):
     def test_all_candidates_excluded_blocks_and_reports(self):
         """Blocks, and does not substitute. Both directions, every time."""
         c = copy.deepcopy(self.config)
-        c['bands']['3'] = [ASTRA, 'opencode:glm-5.3', 'opencode:kimi-k3']
+        c['bands']['3'] = [ASTRA]
         d = r.decide(self.judgment('design'), c, self.eligibility(blocked=('opencode',)))
         self.assertIsNone(d['pick'], "a forbidden model must never be the pick")
         self.assertIsNotNone(d['blocked'], "an empty eligible set must block, not go quiet")
@@ -175,9 +219,9 @@ class ModelPolicyTests(unittest.TestCase):
                 self.assertNotIn(r.candidate_key(candidate), json.dumps(d['pick'] or {}))
 
     def test_capacity_shortage_is_still_not_a_policy_block(self):
-        """Truthfulness runs both ways: no policy, no policy block."""
-        c = self.without_policy()
-        c['bands']['3'] = [OPUS]
+        """A forbidden ladder entry does not turn a permitted model's quota into policy."""
+        c = copy.deepcopy(self.config)
+        c['bands']['3'] = [ASTRA, OPUS]
         d = r.decide(self.judgment('design'), c, self.eligibility(blocked=('claude',)))
         self.assertIsNone(d['pick'])
         self.assertIsNone(d['blocked'])
@@ -195,6 +239,22 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(result['unplaced'], [], "a forbidden model is not a capacity problem")
         self.assertIsNone(result['tasks'][0]['decision']['pick'])
         self.assertIn(ASTRA, result['tasks'][0]['decision']['blocked'])
+
+    def test_plan_waits_for_permitted_capacity_instead_of_reporting_policy_block(self):
+        c = copy.deepcopy(self.config)
+        c['bands']['3'] = [ASTRA, OPUS]
+        c['max_inflight']['claude'] = 1
+        with patch.object(r, 'judge', return_value=self.judgment('design')):
+            result = r.plan(['first design task', 'second design task'], c, max_waves=2,
+                            probes={'codex': {'status': 'no-credential', 'buckets': []},
+                                    'claude': probe(5),
+                                    'opencode': {'status': 'no-credential', 'buckets': []},
+                                    'minimax': {'status': 'no-credential', 'buckets': []}})
+        self.assertEqual(result['blocked'], [])
+        self.assertEqual(result['unplaced'], [])
+        self.assertEqual([task['wave'] for task in result['tasks']], [1, 2])
+        self.assertEqual([self.picked(task['decision']) for task in result['tasks']],
+                         [OPUS, OPUS])
 
     def test_route_enforces_the_policy_end_to_end(self):
         judgment = self.judgment('design', second_opinion=0.7)
