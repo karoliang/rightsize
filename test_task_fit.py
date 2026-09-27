@@ -119,12 +119,16 @@ class TaskFitTests(unittest.TestCase):
         probes={p:{'name':p,'status':'ok','buckets':[
             {'id':'rolling','percent':0,'resets_at':r.now()+18000,'source':'live'}]}
             for p in ('codex','claude')}
+        # What is charged for a review leg, not who may perform one: the shipped
+        # policy leaves band 3 without an independent permitted reviewer (#32),
+        # and that is covered in test_model_policy.py.
+        unrestricted={**self.config,'model_policy':{}}
         with patch.object(r,'judge',return_value=self.judgment('high_stakes',second_opinion=1)):
-            plan=r.plan(['review sensitive change'],self.config,probes=probes)
+            plan=r.plan(['review sensitive change'],unrestricted,probes=probes)
         task=plan['tasks'][0]
         decision=task['decision']
         self.assertIsNotNone(decision['review'])
-        expected=sum(r.dispatch_cost(self.config,p,3) for p in ('codex','claude'))
+        expected=sum(r.dispatch_cost(unrestricted,p,3) for p in ('codex','claude'))
         self.assertAlmostEqual(task['points'],expected)
 
     def test_bad_task_effort_or_missing_requirements_refuses_candidate(self):
