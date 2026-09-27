@@ -2947,6 +2947,7 @@ def doctor(config: dict) -> list[tuple[str, str]]:
                 higher = [candidate for _, higher_ladder in bands[index + 1:]
                            for candidate in higher_ladder
                            if candidate_key(candidate) not in forbidden
+                           and candidate_key(candidate) != candidate_key(available[0])
                            and (not cached or
                                 (cached.get(parse_candidate(candidate)["provider"]) or {}).get(
                                     "status") == "ok")]
@@ -2963,7 +2964,9 @@ def doctor(config: dict) -> list[tuple[str, str]]:
                     out.append(("warn", f"band {level} has one permitted candidate{suffix};"
                                         " no permitted usable candidate exists in a higher"
                                         " band for a rerun"))
-                if len(available) == 1 and len(review_available) <= 1:
+                if (len(available) == 1 and
+                        not any(candidate_key(candidate) != candidate_key(available[0])
+                                for candidate in review_available)):
                     suffix = (f" with a usable provider at the last reading ({available[0]})"
                               if cached else f" ({available[0]})")
                     out.append(("warn", f"band {level} has one permitted candidate{suffix};"

@@ -406,8 +406,11 @@ class ModelPolicyTests(unittest.TestCase):
         messages = [text for level, text in r.doctor(c) if level == 'warn']
         self.assertFalse(any(text.startswith('band 1 has one permitted candidate')
                              and 'higher band' in text for text in messages), messages)
-        self.assertFalse(any(text.startswith('band 2 has one permitted candidate')
-                             and 'higher band' in text for text in messages), messages)
+        # SOL is the previous candidate everywhere, so band 3 cannot absorb
+        # the retry. The former false-green assertion expected this to stay
+        # silent merely because band 3 contained SOL.
+        self.assertTrue(any(text.startswith('band 2 has one permitted candidate')
+                            and 'higher band' in text for text in messages), messages)
         self.assertTrue(any(text.startswith('band 3 has one permitted candidate')
                             and 'higher band' in text for text in messages), messages)
 
@@ -427,6 +430,41 @@ class ModelPolicyTests(unittest.TestCase):
                             and 'reviewer' in text for text in messages), messages)
         self.assertTrue(any(text.startswith('band 3 has one permitted candidate')
                             and 'reviewer' in text for text in messages), messages)
+
+    def test_doctor_rerun_gap_warns_for_nonterminal_band_without_usable_higher_band(self):
+        c = copy.deepcopy(self.config)
+        c['bands'] = {'1': [OPUS], '2': [SOL], '3': [ASTRA]}
+        c['review_ladder'] = [OPUS, 'opencode:kimi-k2.6']
+        cached = {provider: {'status': 'no-credential'}
+                  for provider in ('claude', 'codex', 'opencode')}
+        cached['claude'] = cached['codex'] = cached['opencode'] = {'status': 'ok'}
+        r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
+
+        messages = [text for level, text in r.doctor(c) if level == 'warn']
+        self.assertTrue(any(text.startswith('band 2 has one permitted candidate')
+                            and 'higher band' in text for text in messages), messages)
+
+    def test_doctor_reviewer_warns_when_only_reviewer_is_the_implementer(self):
+        c = copy.deepcopy(self.config)
+        c['bands'] = {'1': [OPUS]}
+        c['review_ladder'] = [OPUS]
+        cached = {'claude': {'status': 'ok'}}
+        r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
+
+        messages = [text for level, text in r.doctor(c) if level == 'warn']
+        self.assertTrue(any(text.startswith('band 1 has one permitted candidate')
+                            and 'reviewer' in text for text in messages), messages)
+
+    def test_doctor_reviewer_accepts_one_distinct_reviewer(self):
+        c = copy.deepcopy(self.config)
+        c['bands'] = {'1': [SOL]}
+        c['review_ladder'] = [OPUS]
+        cached = {'claude': {'status': 'ok'}, 'codex': {'status': 'ok'}}
+        r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
+
+        messages = [text for level, text in r.doctor(c) if level == 'warn']
+        self.assertFalse(any(text.startswith('band 1 has one permitted candidate')
+                             and 'reviewer' in text for text in messages), messages)
 
 
 if __name__ == '__main__':
