@@ -2929,7 +2929,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
         # Read-only: the last cached reading, never a fresh probe. Preflight
         # must not spend a network call to answer a question about config.
         cached = ((load_json(STATE, {}) or {}).get("probe_cache") or {}).get("probes") or {}
-        for level, ladder in sorted(config["bands"].items()):
+        bands = sorted(config["bands"].items(), key=lambda item: int(item[0]))
+        for index, (level, ladder) in enumerate(bands):
             permitted = [c for c in ladder if candidate_key(c) not in forbidden]
             live = [c for c in permitted
                     if (cached.get(parse_candidate(c)["provider"]) or {}).get("status") == "ok"]
@@ -2941,15 +2942,35 @@ def doctor(config: dict) -> list[tuple[str, str]]:
                 out.append(("error", f"band {level} permits {', '.join(permitted)} and none of"
                                      " them had a usable provider at the last reading, so"
                                      " every task at that floor blocks"))
-            elif cached and len(live) == 1:
-                out.append(("warn", f"band {level} has one permitted candidate with a usable"
-                                    f" provider at the last reading ({live[0]}), so a rerun at"
-                                    " that floor has nothing left to choose and there is no"
-                                    " independent reviewer"))
-            elif len(permitted) == 1:
-                out.append(("warn", f"band {level} has one permitted candidate"
-                                    f" ({permitted[0]}), so a rerun at that floor has"
-                                    " nothing left to choose and no independent reviewer"))
+            else:
+                available = live if cached else permitted
+                higher = [candidate for _, higher_ladder in bands[index + 1:]
+                           for candidate in higher_ladder
+                           if candidate_key(candidate) not in forbidden
+                           and candidate_key(candidate) != candidate_key(available[0])
+                           and (not cached or
+                                (cached.get(parse_candidate(candidate)["provider"]) or {}).get(
+                                    "status") == "ok")]
+                review_ladder = (config.get("review_ladder", []) if int(level) == 1
+                                 else ladder)
+                review_available = [candidate for candidate in review_ladder
+                                    if candidate_key(candidate) not in forbidden
+                                    and (not cached or
+                                         (cached.get(parse_candidate(candidate)["provider"])
+                                          or {}).get("status") == "ok")]
+                if len(available) == 1 and not higher:
+                    suffix = (f" with a usable provider at the last reading ({available[0]})"
+                              if cached else f" ({available[0]})")
+                    out.append(("warn", f"band {level} has one permitted candidate{suffix};"
+                                        " no permitted usable candidate exists in a higher"
+                                        " band for a rerun"))
+                if (len(available) == 1 and
+                        not any(candidate_key(candidate) != candidate_key(available[0])
+                                for candidate in review_available)):
+                    suffix = (f" with a usable provider at the last reading ({available[0]})"
+                              if cached else f" ({available[0]})")
+                    out.append(("warn", f"band {level} has one permitted candidate{suffix};"
+                                        " no independent reviewer is available"))
 
     fetched = registry.get("fetched_at")
     age = None
