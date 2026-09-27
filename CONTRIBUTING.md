@@ -36,13 +36,30 @@ These are the constraints, not preferences:
 
 ## Running things
 
+The test suite needs Python 3.11 or newer. `test_model_policy.py` calls
+`contextlib.chdir` (3.11) and `hooks/claude_pretooluse.py` uses PEP 604 union
+syntax in runtime-evaluated annotations (3.10+); a 3.9 interpreter, like
+`/usr/bin/python3` on this host, fails import on the hook and produces a flood
+of confusing errors that look like a broken repository.
+
+On this host the known-good invocation is the uv-managed 3.12.14:
+
 ```bash
-python3 test_rightsize.py    # the policy, offline, no network, no tokens
-python3 test_reliability.py  # quota, launcher, receipt and audit regressions
-python3 test_judgment.py     # caller contract, no separate model call
-python3 hooks/test_hook.py   # hook matching
-./eval_questions.py          # the judgments, needs TYPESAFE_API_KEY, costs ~a cent
-python3 -m compileall -q .   # syntax over every file
+/Users/karo/.local/share/uv/python/cpython-3.12-macos-aarch64-none/bin/python3.12 tests.py
+```
+
+That run reports `382 tests, OK (skipped=4)`. CI runs the same suite on 3.11,
+3.12 and 3.13 (see `.github/workflows/test.yml`); the wrapper at `rightsize`
+itself stays on bare `python3` and the tool keeps working there.
+
+```bash
+python3 tests.py              # version-guarded runner, refuses < 3.11
+python3 test_rightsize.py     # the policy, offline, no network, no tokens
+python3 test_reliability.py   # quota, launcher, receipt and audit regressions
+python3 test_judgment.py      # caller contract, no separate model call
+python3 hooks/test_hook.py    # hook matching
+./eval_questions.py           # the judgments, needs TYPESAFE_API_KEY, costs ~a cent
+python3 -m compileall -q .    # syntax over every file
 ```
 
 `test_rightsize.py` must stay offline and hermetic: it points `rightsize.STATE`
