@@ -29,6 +29,20 @@ class TaskFitTests(unittest.TestCase):
                    'bucket':'rolling', 'inflight':0, 'reserved':0,
                    'buckets':[]} for p in providers}
 
+    def test_sol_is_qualified_band_three_candidate_without_changing_existing_entries(self):
+        band_three = self.config['bands']['3']
+        self.assertIn('codex:gpt-6-sol', band_three)
+        self.assertEqual(
+            [candidate for candidate in band_three if candidate != 'codex:gpt-6-sol'],
+            ['codex:gpt-6-astra', 'claude:claude-opus-5', 'opencode:glm-5.3',
+             'opencode:kimi-k3'])
+        profile = self.config['model_profiles']['codex:gpt-6-sol']
+        self.assertNotEqual(
+            profile['evidence'],
+            'provisional: existing ladder placement; not comparative task evaluation')
+        self.assertEqual(profile['max_band'], 3)
+        self.assertIn('review', profile['capabilities'])
+
     def test_no_downgrade_for_high_quality_or_retry(self):
         c = copy.deepcopy(self.config)
         c['bands']['3'] = ['claude:claude-opus-5']

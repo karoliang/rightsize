@@ -33,6 +33,7 @@
     ],
     "3": [
       "codex:gpt-6-astra",
+      "codex:gpt-6-sol",
       "claude:claude-opus-5",
       "opencode:glm-5.3",
       "opencode:kimi-k3"
@@ -333,6 +334,33 @@
         "high_stakes": "high"
       },
       "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+    },
+    "codex:gpt-6-sol": {
+      "family": "gpt-6-sol",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "effort_by_task": {
+        "mechanical": "low",
+        "implementation": "medium",
+        "design": "high",
+        "diagnosis": "high",
+        "high_stakes": "high"
+      },
+      "evidence": "qualified on LH 2026-09-28 with codex exec --model gpt-6-sol -c model_reasoning_effort=high: exit 0; 6/6 read-only policy-review fixtures, 3/3 seeded defects caught with correct rule attribution, 3/3 clean controls passed with no false positives, plus one unseeded real defect found where exception necessity truthiness was checked without approval verification"
     },
     "claude:claude-opus-5": {
       "family": "claude-opus-5",
