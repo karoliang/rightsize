@@ -84,9 +84,8 @@ def route_with(judgment, state, monkey={}, config=None):
 
 
 # Quota rules are about which of two live plans to spend, so a case that needs
-# two providers in one band needs a band both can reach. The shipped config
-# forbids the only codex entry in band 3 (#32), which is a policy question and
-# not the rule being checked here.
+# two providers in one band needs a band both can reach. These cases isolate
+# quota arithmetic from the shipped model policy, which has separate tests.
 UNRESTRICTED = {**CONFIG, "model_policy": {}}
 
 

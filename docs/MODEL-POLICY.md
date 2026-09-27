@@ -20,11 +20,12 @@ tier and four scores, and the selector never reads a word of it. A sentence in a
 brief is a wish about selection, not a constraint on it, and no amount of
 emphasis in prose changes which list `pick()` walks.
 
-The second half was narrower and worse. `rerun --previous codex:gpt-6-astra`
-correctly kept Astra out of the implementer ladder, re-decided to
-`claude:claude-opus-5` without lowering the quality floor, and then selected
-`codex:gpt-6-astra` as the reviewer. An exclusion that covers one role is not an
-exclusion; a forbidden model simply arrives through the other door.
+The second half was narrower and worse. Before Sol joined band 3,
+`rerun --previous codex:gpt-6-astra` correctly kept Astra out of the
+implementer ladder, re-decided to `claude:claude-opus-5` without lowering the
+quality floor, and then selected `codex:gpt-6-astra` as the reviewer. An
+exclusion that covers one role is not an exclusion; a forbidden model simply
+arrives through the other door.
 
 Both are the same fix: the exclusion has to live where candidates are filtered.
 
@@ -127,14 +128,12 @@ left:
 - **warn** when a band has exactly one, because a rerun at that floor has
   nothing left to choose and there is no independent reviewer.
 
-That check exists because of a dependency nobody had connected. Band 3 is
-`["codex:gpt-6-astra", "claude:claude-opus-5", "opencode:glm-5.3",
-"opencode:kimi-k3"]`, and `OPENCODE_API_KEY missing` was recorded as a
-non-blocking warning. It is not non-blocking: both OpenCode entries are unusable
-without it, so band 3 has two live candidates, one of which is forbidden. That
-leaves exactly one permitted band 3 implementer and **no permitted band 3
-reviewer at all**. The router now says so instead of leaving it to be discovered
-by whoever needs a reviewer.
+That check began with a dependency nobody had connected. Before Sol joined
+band 3, a missing `OPENCODE_API_KEY` made both OpenCode entries unusable,
+leaving Opus as the only permitted band 3 candidate. The current band also has
+Sol. With Codex and Claude usable, the router can choose Sol to implement and
+Opus to review independently. `doctor` uses the last provider reading to warn
+when only one permitted candidate is usable, or error when none is usable.
 
 ## Rollback
 

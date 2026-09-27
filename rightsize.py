@@ -2919,9 +2919,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
 
     # A ladder whose only permitted entries are unusable is not a ladder. This
     # is the check that would have caught band 3 having one live implementer and
-    # no reviewer at all once the forbidden model is removed: the ladder has
-    # four entries, policy takes one, and a missing OPENCODE_API_KEY takes two
-    # more, which was on record as a non-blocking warning.
+    # no reviewer at all once the forbidden model was removed. Its result
+    # depends on the current band and the last provider reading.
     forbidden = forbidden_models(config)
     if forbidden:
         out.append(("ok", "model policy forbids " + ", ".join(sorted(forbidden))

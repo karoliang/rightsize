@@ -23,6 +23,7 @@ from unittest.mock import patch
 import rightsize as r
 
 ASTRA = "codex:gpt-6-astra"
+SOL = "codex:gpt-6-sol"
 OPUS = "claude:claude-opus-5"
 NECESSITY = ("the failing transport handshake only reproduces under Astra's ultra"
              " effort level, which no other profiled model exposes")
@@ -137,7 +138,7 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(self.picked(loose), ASTRA)
 
         strict = r.decide(self.judgment(), self.config, self.eligibility(room))
-        self.assertEqual(self.picked(strict), OPUS)
+        self.assertEqual(self.picked(strict), SOL)
         self.assertEqual(strict["band"], 3)
         self.assertEqual(strict["quality_floor"], 3)
         self.assertIn(ASTRA, strict["policy"]["enforced"])
@@ -180,12 +181,13 @@ class ModelPolicyTests(unittest.TestCase):
                                probes={'codex': probe(5), 'claude': probe(40),
                                        'opencode': {'status': 'no-credential', 'buckets': []},
                                        'minimax': {'status': 'no-credential', 'buckets': []}})
-        self.assertEqual(self.picked(decision), OPUS)
+        self.assertEqual(self.picked(decision), SOL)
         self.assertNotEqual(self.reviewer(decision), ASTRA)
-        self.assertIsNone(self.reviewer(decision))
-        self.assertTrue(any(n.startswith("review:") and "forbidden by model policy" in n
+        self.assertEqual(self.reviewer(decision), OPUS)
+        self.assertNotEqual(self.picked(decision), self.reviewer(decision))
+        self.assertTrue(any(n.startswith("review:") and OPUS in n and "chosen" in n
                             for n in decision["notes"]))
-        self.assertEqual(decision["policy"]["review_forbidden"], [ASTRA])
+        self.assertIn(ASTRA, decision["policy"]["enforced"])
         self.assertTrue(decision["review_required"])
 
     def test_review_ladder_refuses_a_forbidden_model_even_with_room(self):
@@ -263,8 +265,10 @@ class ModelPolicyTests(unittest.TestCase):
                                probes={'codex': probe(5), 'claude': probe(40),
                                        'opencode': {'status': 'no-credential', 'buckets': []},
                                        'minimax': {'status': 'no-credential', 'buckets': []}})
-        self.assertEqual(self.picked(decision), OPUS)
+        self.assertEqual(self.picked(decision), SOL)
         self.assertNotEqual(self.reviewer(decision), ASTRA)
+        self.assertEqual(self.reviewer(decision), OPUS)
+        self.assertNotEqual(self.picked(decision), self.reviewer(decision))
 
     # -- the exception contract ------------------------------------------
     def test_exception_needs_a_real_model_and_a_specific_necessity(self):
@@ -356,23 +360,36 @@ class ModelPolicyTests(unittest.TestCase):
                             for m in messages), messages)
 
     def test_doctor_counts_only_providers_the_last_reading_could_use(self):
-        """The dependency from #32: policy takes one entry, credentials take two."""
+        """Only a permitted candidate on a usable provider counts as live."""
         c = copy.deepcopy(self.config)
-        self.assertEqual(c['bands']['3'],
-                         [ASTRA, OPUS, 'opencode:glm-5.3', 'opencode:kimi-k3'])
-        r.save_json(r.STATE, {"probe_cache": {"at": r.now(), "probes": {
-            "codex": {"status": "ok"}, "claude": {"status": "ok"},
-            "opencode": {"status": "no-credential"},
-            "minimax": {"status": "no-credential"}}}})
+        band = c['bands']['3']
+        self.assertIn(ASTRA, band)
+        forbidden = r.forbidden_models(c)
+        permitted = [candidate for candidate in band
+                     if r.candidate_key(candidate) not in forbidden]
+        self.assertTrue(permitted)
+        only_live = permitted[0]
+        live_provider = r.parse_candidate(only_live)['provider']
+        # Keep one permitted entry on the live provider and the entries on
+        # other providers. Derive the fixture from the shipped band so a new
+        # model on any provider cannot silently change this one-live case.
+        c['bands']['3'] = [candidate for candidate in band
+                           if r.candidate_key(candidate) in forbidden
+                           or candidate == only_live
+                           or r.parse_candidate(candidate)['provider'] != live_provider]
+        providers = {r.parse_candidate(candidate)['provider']
+                     for candidate in c['bands']['3']}
+        self.assertGreater(len(providers), 1)
+        cached = {provider: {"status": "no-credential"} for provider in providers}
+        cached[live_provider] = {"status": "ok"}
+        r.save_json(r.STATE, {"probe_cache": {"at": r.now(), "probes": cached}})
         messages = [f"{level}: {text}" for level, text in r.doctor(c)]
-        self.assertTrue(any(m.startswith("warn") and OPUS in m
+        self.assertTrue(any(m.startswith("warn") and only_live in m
                             and "one permitted candidate with a usable provider" in m
                             for m in messages), messages)
         # And with the permitted entry unusable too, that band blocks outright.
-        r.save_json(r.STATE, {"probe_cache": {"at": r.now(), "probes": {
-            "codex": {"status": "ok"}, "claude": {"status": "no-credential"},
-            "opencode": {"status": "no-credential"},
-            "minimax": {"status": "no-credential"}}}})
+        cached[live_provider] = {"status": "no-credential"}
+        r.save_json(r.STATE, {"probe_cache": {"at": r.now(), "probes": cached}})
         messages = [f"{level}: {text}" for level, text in r.doctor(c)]
         self.assertTrue(any(m.startswith("error") and "none of them had a usable provider" in m
                             for m in messages), messages)
