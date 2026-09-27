@@ -102,16 +102,42 @@ def now() -> float:
     return time.time()
 
 
+def forbidden_entries(value) -> dict[str, str]:
+    """Normalize both supported forbidden-list forms for policy merging."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return {key: "excluded by operator policy" for key in value}
+    return {}
+
+
+def merge_model_policy(owner, overlay):
+    """Repo policy may add exclusions, but cannot remove or rewrite owner ones."""
+    if not isinstance(owner, dict) or not isinstance(overlay, dict):
+        return owner
+    combined = merge(owner, overlay)
+    if "forbidden" in owner:
+        combined["forbidden"] = {
+            **forbidden_entries(overlay.get("forbidden")),
+            **forbidden_entries(owner["forbidden"]),
+        }
+    return combined
+
+
 def merge(base, overlay):
     """Deep-merge for config: dicts merge key by key, everything else replaces.
 
     A list replaces rather than appends on purpose: a repo pinning a band ladder
-    means "these candidates", not "these as well as whatever was there".
+    means "these candidates", not "these as well as whatever was there". The
+    model policy is the exception: repo exclusions can only add to owner policy.
     """
     if isinstance(base, dict) and isinstance(overlay, dict):
         out = dict(base)
         for key, value in overlay.items():
-            out[key] = merge(out.get(key), value) if key in out else value
+            if key == "model_policy" and key in out:
+                out[key] = merge_model_policy(out[key], value)
+            else:
+                out[key] = merge(out[key], value) if key in out else value
         return out
     return overlay
 
@@ -1615,7 +1641,72 @@ def parse_candidate(text: str) -> dict:
     return {"provider": provider, "model": model, "effort": effort}
 
 
-def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None = None,
+# The reason a candidate was passed over travels with the exclusion, so one
+# filter can explain itself. A bare set keeps the original retry meaning.
+EXCLUDED_BY_ATTEMPT = "it already had a go at this task"
+
+# A justification that only restates the request is not task-specific necessity.
+GENERIC_NECESSITY = {"needed", "required", "necessary", "it is required", "better",
+                     "faster", "cheaper", "the best model", "owner approved",
+                     "owner said so", "policy exception", "no alternative"}
+
+
+def candidate_key(text: str) -> str:
+    """`provider:model` for a ladder entry, with any effort suffix dropped."""
+    cand = parse_candidate(text)
+    return f"{cand['provider']}:{cand['model']}"
+
+
+def forbidden_models(config: dict) -> dict[str, str]:
+    """Models operator policy forbids, as candidate exclusions carrying the why.
+
+    An exclusion written into a spec is prose. The judge reads it and the
+    selector never does, which is how a brief that said "Astra must not be
+    selected for routine coding, building, retries or fallback" was routed
+    straight to Astra. Policy therefore lives in config and is applied where
+    candidates are filtered, so it holds for every band, every role and every
+    entry point no matter what the judgment decided.
+    """
+    policy = (config.get("model_policy") or {}).get("forbidden") or {}
+    if isinstance(policy, list):
+        policy = {key: "excluded by operator policy" for key in policy}
+    return {key: f"forbidden by model policy: {why}" for key, why in policy.items()}
+
+
+def policy_exception(config: dict, model: str, necessity: str | None,
+                     approved_by: str | None = None) -> dict:
+    """The only way a forbidden model becomes a candidate, and it is not quiet.
+
+    Three things have to hold. The model is genuinely under policy, or there is
+    nothing to except and the caller has misread the config. The necessity is
+    specific to this task rather than a restatement of the request, because a
+    reason nobody can review later is not a reason. And somebody named has
+    approved it: without that the exception is still recorded and still
+    escalated, but the decision is blocked. An exception that dispatches on the
+    strength of its own justification is not a contract, it is a flag.
+    """
+    forbidden = forbidden_models(config)
+    if model not in forbidden:
+        covered = ", ".join(sorted(forbidden)) or "nothing"
+        raise ValueError(f"{model} is not under model policy, so no exception is needed;"
+                         f" policy covers {covered}")
+    text = " ".join((necessity or "").split())
+    words = {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in FILLER}
+    if len(text) < 24 or len(words) < 4 or text.lower().strip(" .") in GENERIC_NECESSITY:
+        raise ValueError(f"--necessity must say what about THIS task requires {model},"
+                         " specifically enough for somebody to review the call later")
+    return {
+        "model": model,
+        "necessity": text,
+        "policy_reason": forbidden[model],
+        "approved_by": approved_by or None,
+        "approved": bool(approved_by),
+        "requested_at": now(),
+    }
+
+
+def pick(candidates: list[str], elig: dict, band: int,
+         exclude: set[str] | dict[str, str] | None = None,
          config: dict | None = None, relax_pace: bool = False) -> tuple[dict | None, list[str]]:
     """Among eligible candidates, spend the bucket that expires first, unless
     this dispatch is too expensive for what that bucket has left.
@@ -1627,14 +1718,19 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
     would otherwise sit idle. So the cheap bands still take the soonest reset,
     while an expensive one prefers the most headroom, and a bucket that cannot
     even afford the dispatch is passed over.
+
+    `exclude` is the one gate every candidate passes through, whichever ladder
+    and whichever role it came from. Pass a mapping to say why each entry is
+    out; a bare set means the model already had a go at this task.
     """
     notes = []
     usable = []
-    exclude = exclude or set()
+    exclude = exclude or {}
     for index, text in enumerate(candidates):
         cand = parse_candidate(text)
-        if f"{cand['provider']}:{cand['model']}" in exclude:
-            notes.append(f"{text} skipped: it already had a go at this task")
+        if (key := f"{cand['provider']}:{cand['model']}") in exclude:
+            reason = exclude.get(key) if isinstance(exclude, dict) else None
+            notes.append(f"{text} skipped: {reason or EXCLUDED_BY_ATTEMPT}")
             continue
         info = elig.get(cand["provider"])
         if not info:
@@ -1696,7 +1792,8 @@ def pick(candidates: list[str], elig: dict, band: int, exclude: set[str] | None 
 
 
 def route(spec: str, config: dict, probes: dict | None = None, max_age: float | None = None,
-          hold: bool = False, judgment: dict | None = None) -> dict:
+          hold: bool = False, judgment: dict | None = None,
+          exception: dict | None = None) -> dict:
     if probes is None:
         probes, fresh = probes_cached(config, max_age)
     else:
@@ -1704,7 +1801,7 @@ def route(spec: str, config: dict, probes: dict | None = None, max_age: float | 
         fresh = False
     elig = eligibility(config, probes, record=fresh)
     judgment = judge(spec) if judgment is None else judgment
-    decision = decide(judgment, config, elig)
+    decision = decide(judgment, config, elig, exception=exception)
     decision["worktree_name"] = worktree_name(spec)
     if hold:
         decision["reservation"] = hold_capacity(decision, config, spec)
@@ -1714,7 +1811,7 @@ def route(spec: str, config: dict, probes: dict | None = None, max_age: float | 
             taken = decision["pick"]["provider"]
             elig[taken] = {**elig[taken], "eligible": False,
                            "blocked": "its last slot was taken while this was being decided"}
-            decision = decide(judgment, config, elig)
+            decision = decide(judgment, config, elig, exception=exception)
             decision["worktree_name"] = worktree_name(spec)
             decision["reservation"] = hold_capacity(decision, config, spec)
             decision["reasons"].append(f"{taken} lost its last slot to another dispatch"
@@ -1791,13 +1888,17 @@ def start_wave(elig: dict, config: dict) -> None:
 
 def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = False,
          probes: dict | None = None, max_waves: int = 12,
-         names: list[str] | None = None) -> dict:
+         names: list[str] | None = None, exception: dict | None = None) -> dict:
     """Route a whole fan-out at once.
 
     Judgments are independent, so they go out in parallel; allocation is not,
     so each task is placed against headroom the earlier ones have already
     spent. That is what stops a hundred workers going to one provider on the
     strength of a single quota reading.
+
+    An `exception` here applies to every task in the batch, because a batch has
+    no single necessity of its own. A fan-out that needs a forbidden model for
+    one task should route that task on its own.
 
     A hold taken here is a claim on capacity for a dispatch that has not
     happened yet, so it expires on the short clock: a plan that is printed and
@@ -1831,7 +1932,8 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
             start_wave(elig, config)
         placed_this_wave, still_pending = [], []
         for task in pending:
-            decision = decide(task["judgment"], config, elig, fallback=False)
+            decision = decide(task["judgment"], config, elig, fallback=False,
+                              exception=exception)
             task["decision"] = decision
             if decision["blocked"]:
                 task["wave"] = None
@@ -1892,8 +1994,19 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
 
 def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
            floor_band: int = 0, exclude: set[str] | None = None, attempt: int = 0,
-           relax_pace: bool = False) -> dict:
-    """Choose task-qualified models, then allocate quota without lowering quality."""
+           relax_pace: bool = False, exception: dict | None = None) -> dict:
+    """Choose task-qualified models, then allocate quota without lowering quality.
+
+    Every role selects through one exclusion set, built here and handed to each
+    `pick` below: the implementer ladder, the pacing retry, every fallback band
+    and the review ladder. A role the set does not reach is a way back in for a
+    forbidden model, which is exactly how `rerun --previous codex:gpt-6-astra`
+    kept Astra out of the implementer slot and then put it in the review slot.
+
+    An `exception` from `policy_exception` lifts one model for the implementer
+    role of one task. It never lifts it for review, and until it carries an
+    approver the decision is blocked rather than dispatchable.
+    """
     band, reasons = band_for(judgment, config)
     requested_floor = (config.get("task_profiles", {}).get(judgment["tier"]) or {}).get(
         "minimum_band", band)
@@ -1909,11 +2022,24 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
             "tighten the brief before dispatching it to any worker"
         )
 
+    # Policy is a property of the fleet, not of the brief, so it is applied
+    # here rather than read out of the spec. The retry exclusion keeps its own
+    # wording; policy overwrites it, because "forbidden" is the truer reason.
+    barred_all = forbidden_models(config)
+    granted = (exception or {}).get("model")
+    barred = {key: why for key, why in barred_all.items() if key != granted}
+    attempted = {key: EXCLUDED_BY_ATTEMPT for key in (exclude or ())}
+    excluded = {**attempted, **barred}
+    # A model lifted for the implementer is still barred from reviewing it: the
+    # necessity was recorded for the work, not for the second opinion on it.
+    review_excluded = {**attempted, **barred_all}
+
     ladders, notes = {}, []
     for level, ladder in config["bands"].items():
-        ladders[level], excluded = qualified_candidates(ladder, config, judgment, minimum_band)
-        notes += excluded
-    chosen, selection_notes = pick(ladders[str(band)], elig, band, exclude, config,
+        ladders[level], unqualified = qualified_candidates(ladder, config, judgment, minimum_band)
+        notes += unqualified
+    tried = [str(band)]
+    chosen, selection_notes = pick(ladders[str(band)], elig, band, excluded, config,
                                   relax_pace=relax_pace)
     notes += selection_notes
     used_band = band
@@ -1922,18 +2048,35 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
     if fallback and chosen is None and band < 3:
         # Only relax the existing forecast-based pacing rule, never task fit,
         # measured burn, reserves or the task/retry quality floor.
-        chosen, more = pick(ladders[str(band)], elig, band, exclude, config, relax_pace=True)
+        chosen, more = pick(ladders[str(band)], elig, band, excluded, config, relax_pace=True)
         notes += more
         if chosen is not None:
             reasons.append(f"band {band} stays within its quality floor with forecast pacing relaxed")
     while fallback and chosen is None and used_band < 3:
         used_band += 1
         reasons.append(f"no qualified capacity in band {used_band - 1}; trying band {used_band}")
-        chosen, more = pick(ladders[str(used_band)], elig, used_band, exclude, config)
+        tried.append(str(used_band))
+        chosen, more = pick(ladders[str(used_band)], elig, used_band, excluded, config)
         notes += more
     if chosen is None:
         used_band = minimum_band
         reasons.append(f"no qualified capacity; quality floor {minimum_band} is preserved")
+        # The dangerous version of this branch is the silent one. If policy is
+        # what emptied the ladder, say so and block: a decision that reports
+        # only "nothing eligible" reads like a quota problem that will pass.
+        qualified_tried = [c for level in dict.fromkeys(tried)
+                           for c in ladders.get(level, [])]
+        removed = sorted({c for c in qualified_tried if candidate_key(c) in barred})
+        if (removed and all(candidate_key(c) in barred for c in qualified_tried)
+                and not blocked):
+            blocked = (
+                "model policy forbids every task-qualified candidate in the tried bands: "
+                + ", ".join(removed)
+                + ". Nothing was substituted, no band was lowered and no quality floor"
+                  " was relaxed: free capacity on a permitted model, add one to band"
+                  f" {minimum_band}, or record a task-specific necessity with"
+                  " --require-model and have it approved"
+            )
 
     if chosen:
         chosen = dict(chosen)
@@ -1946,6 +2089,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
             notes.append("model capability evidence: " + profile.get("evidence", "unspecified"))
 
     review = None
+    review_blocked_by_policy: list[str] = []
     review_band = minimum_band
     review_required = (judgment["tier"] == "high_stakes" or
                        judgment["second_opinion"] >= float(thresholds.get("second_opinion_min", 0.6)))
@@ -1964,13 +2108,46 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
                     and profile.get("family", parsed["model"]) != selected_family):
                 others.append(candidate)
         others, review_notes = qualified_candidates(others, config, judgment, minimum_band, review=True)
-        review, selection_notes = pick(others, elig, review_band, None, config)
+        review, selection_notes = pick(others, elig, review_band, review_excluded, config)
         notes += [f"review: {n}" for n in review_notes + selection_notes]
         if review:
             review = dict(review)
             review["effort"], _ = effort_for(config, review, review_band, judgment)
         else:
-            notes.append("review: no independent qualified capacity; review remains outstanding")
+            barred_reviewers = sorted(c for c in others if candidate_key(c) in barred_all)
+            if barred_reviewers:
+                review_blocked_by_policy = barred_reviewers
+                notes.append("review: no independent qualified capacity once model policy"
+                             f" excludes {', '.join(barred_reviewers)}; review remains"
+                             " outstanding and nothing was substituted for it")
+            else:
+                notes.append("review: no independent qualified capacity; review remains outstanding")
+
+    escalation = None
+    if exception:
+        used = bool(chosen) and f"{chosen['provider']}:{chosen['model']}" == exception["model"]
+        escalation = {
+            "model": exception["model"],
+            "necessity": exception["necessity"],
+            "policy_reason": exception.get("policy_reason"),
+            "approved_by": exception.get("approved_by"),
+            "status": ("approved" if exception.get("approved") else "pending") if used else "unused",
+        }
+        if not used:
+            reasons.append(f"model policy exception for {exception['model']} was not needed:"
+                           " a permitted model was selected")
+        elif exception.get("approved"):
+            reasons.append(f"model policy exception for {exception['model']} approved by"
+                           f" {exception['approved_by']}: {exception['necessity']}")
+        else:
+            reasons.append(f"model policy exception for {exception['model']} is recorded but"
+                           " not approved, so this decision is escalated, not dispatchable")
+            if not blocked:
+                blocked = (
+                    f"{exception['model']} is forbidden by model policy and its recorded"
+                    f" necessity ({exception['necessity']}) has no approver: escalate it and"
+                    " re-run with --exception-approved-by before anything is dispatched"
+                )
 
     confirm = judgment["destructive"] >= float(thresholds.get("destructive_min", 0.5))
     if confirm:
@@ -1990,6 +2167,12 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         "agent": config["agents"].get(chosen["provider"]) if chosen else None,
         "review": review,
         "review_required": review_required,
+        "policy": {
+            "forbidden": sorted(barred_all),
+            "enforced": sorted(barred),
+            "exception": escalation,
+            "review_forbidden": review_blocked_by_policy,
+        },
         "confirm_first": confirm,
         "reasons": reasons,
         "notes": notes,
@@ -2007,7 +2190,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
 
 
 def rerun(spec: str, because: str, previous: str | None, config: dict,
-          probes: dict | None = None) -> dict:
+          probes: dict | None = None, exception: dict | None = None) -> dict:
     """Route a task that has already been tried and did not work.
 
     The first judgment was made from the brief alone. This one gets to see what
@@ -2016,6 +2199,9 @@ def rerun(spec: str, because: str, previous: str | None, config: dict,
     model. The previous candidate is taken out of the running and the band
     starts one above where it was, so a retry cannot quietly land on the same
     rung that already failed.
+
+    A retry is also where a forbidden model is most likely to slip back in, as
+    fallback, so the policy exclusions apply here exactly as they do to `route`.
     """
     if probes is None:
         probes, fresh = probes_cached(config, max_age=None)
@@ -2027,12 +2213,12 @@ def rerun(spec: str, because: str, previous: str | None, config: dict,
     floor = 0
     if previous:
         for band_id, ladder in config["bands"].items():
-            if any(parse_candidate(c)["provider"] + ":" + parse_candidate(c)["model"] == previous
-                   for c in ladder):
+            if any(candidate_key(c) == previous for c in ladder):
                 floor = int(band_id) + 1
                 break
     decision = decide(judgment, config, elig, floor_band=floor,
-                      exclude={previous} if previous else None, attempt=1)
+                      exclude={previous} if previous else None, attempt=1,
+                      exception=exception)
     decision["reason_for_rerun"] = because
     decision["previous"] = previous
     decision["worktree_name"] = worktree_name(spec)
@@ -2355,6 +2541,27 @@ def cmd_deals(args, config):
     return 0
 
 
+def exception_from_args(args, config: dict) -> tuple[dict | None, str | None]:
+    """Read the exception flags off any entry point, or explain the refusal.
+
+    Refusing here rather than in `decide` keeps the failure where the operator
+    can fix it: a mistyped model or a justification nobody could review is a
+    command-line problem, not a routing outcome.
+    """
+    model = getattr(args, "require_model", None)
+    necessity = getattr(args, "necessity", None)
+    approved_by = getattr(args, "exception_approved_by", None)
+    if not model:
+        if necessity or approved_by:
+            return None, ("--necessity and --exception-approved-by only mean something"
+                          " alongside --require-model")
+        return None, None
+    try:
+        return policy_exception(config, model, necessity, approved_by), None
+    except ValueError as exc:
+        return None, str(exc)
+
+
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
     try:
@@ -2362,15 +2569,23 @@ def cmd_route(args, config):
     except (OSError, ValueError) as exc:
         print(f"judgment rejected: {exc}", file=sys.stderr)
         return 2
+    exception, refused = exception_from_args(args, config)
+    if refused:
+        print(f"model policy exception rejected: {refused}", file=sys.stderr)
+        return 2
     decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve,
-                     judgment=judgment)
+                     judgment=judgment, exception=exception)
     log_decision(decision, spec, dispatched=args.reserve, config=config)
     return print_decision(decision, args, config, spec)
 
 
 def cmd_rerun(args, config):
     spec = args.task or Path(args.spec).read_text()
-    decision = rerun(spec, args.because, args.previous, config)
+    exception, refused = exception_from_args(args, config)
+    if refused:
+        print(f"model policy exception rejected: {refused}", file=sys.stderr)
+        return 2
+    decision = rerun(spec, args.because, args.previous, config, exception=exception)
     log_decision(decision, spec, config=config)
     return print_decision(decision, args, config, spec)
 
@@ -2392,8 +2607,18 @@ def print_decision(args_decision, args, config, spec: str | None = None):
         f"spec_complete={judgment['spec_complete']:.2f} "
         f"destructive={judgment['destructive']:.2f}"
     )
+    policy = decision.get("policy") or {}
+    if policy.get("enforced"):
+        print(f"policy     not selectable in any role: {', '.join(policy['enforced'])}")
+    escalation = policy.get("exception")
+    if escalation:
+        approver = f" by {escalation['approved_by']}" if escalation.get("approved_by") else ""
+        print(f"exception  {escalation['model']} {escalation['status']}{approver}")
+        print(f"           necessity: {escalation['necessity']}")
     if decision["blocked"]:
         print(f"BLOCKED    {decision['blocked']}")
+    if escalation and escalation["status"] == "pending":
+        print("ESCALATE   take this exception to an owner; it is not dispatchable as it stands")
     cand = decision["pick"]
     if cand:
         effort = f" effort={cand['effort']}" if cand["effort"] else ""
@@ -2417,7 +2642,12 @@ def print_decision(args_decision, args, config, spec: str | None = None):
     launcher = "orca" if getattr(args, "orca", False) else args.launcher
     if launcher:
         print()
-        print(launch_command(decision, config, launcher, getattr(args, "spec", None), spec))
+        if escalation and escalation["status"] == "pending":
+            # Printing a runnable command is the silent dispatch this contract
+            # exists to prevent, whatever the surrounding text says.
+            print("# escalated model policy exception: no launch command until it is approved")
+        else:
+            print(launch_command(decision, config, launcher, getattr(args, "spec", None), spec))
     return 0 if cand and not decision["blocked"] else 1
 
 
@@ -2592,8 +2822,12 @@ def cmd_plan(args, config):
     if not specs:
         print("no tasks given", file=sys.stderr)
         return 2
+    exception, refused = exception_from_args(args, config)
+    if refused:
+        print(f"model policy exception rejected: {refused}", file=sys.stderr)
+        return 2
     result = plan(specs, config, concurrency=args.concurrency, hold=args.reserve,
-                  names=[p.stem for p in paths] if paths else None)
+                  names=[p.stem for p in paths] if paths else None, exception=exception)
     if args.json:
         print(json.dumps(result, indent=2))
         return 0
@@ -2622,6 +2856,11 @@ def cmd_plan(args, config):
         print(f"\nnot dispatchable ({len(result['blocked'])}): tasks "
               + ", ".join(str(i) for i in result["blocked"])
               + "\n  tighten those briefs; no provider fixes a spec a worker cannot execute alone")
+        # A brief nobody can execute and a model nobody may select are both
+        # undispatchable, and telling an operator to tighten the brief when the
+        # real answer is a policy exclusion sends them to the wrong file.
+        for index in result["blocked"]:
+            print(f"    task {index}: {result['tasks'][index]['decision']['blocked']}")
     if result["unplaced"]:
         print(f"\nno capacity for {len(result['unplaced'])} tasks, even across waves: "
               + ", ".join(str(i) for i in result["unplaced"][:20])
@@ -2677,6 +2916,40 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     for name in sorted(unverifiable):
         out.append(("warn", f"{name}: catalogue is empty, so its ladder entries are unverified;"
                             " run rightsize refresh with its key available"))
+
+    # A ladder whose only permitted entries are unusable is not a ladder. This
+    # is the check that would have caught band 3 having one live implementer and
+    # no reviewer at all once the forbidden model was removed. Its result
+    # depends on the current band and the last provider reading.
+    forbidden = forbidden_models(config)
+    if forbidden:
+        out.append(("ok", "model policy forbids " + ", ".join(sorted(forbidden))
+                    + " in every role; an exception needs a task-specific necessity"
+                      " and a named approver"))
+        # Read-only: the last cached reading, never a fresh probe. Preflight
+        # must not spend a network call to answer a question about config.
+        cached = ((load_json(STATE, {}) or {}).get("probe_cache") or {}).get("probes") or {}
+        for level, ladder in sorted(config["bands"].items()):
+            permitted = [c for c in ladder if candidate_key(c) not in forbidden]
+            live = [c for c in permitted
+                    if (cached.get(parse_candidate(c)["provider"]) or {}).get("status") == "ok"]
+            if not permitted:
+                out.append(("error", f"band {level} has no candidate permitted by model"
+                                     " policy, so every task at that floor blocks rather"
+                                     " than dispatching"))
+            elif cached and not live:
+                out.append(("error", f"band {level} permits {', '.join(permitted)} and none of"
+                                     " them had a usable provider at the last reading, so"
+                                     " every task at that floor blocks"))
+            elif cached and len(live) == 1:
+                out.append(("warn", f"band {level} has one permitted candidate with a usable"
+                                    f" provider at the last reading ({live[0]}), so a rerun at"
+                                    " that floor has nothing left to choose and there is no"
+                                    " independent reviewer"))
+            elif len(permitted) == 1:
+                out.append(("warn", f"band {level} has one permitted candidate"
+                                    f" ({permitted[0]}), so a rerun at that floor has"
+                                    " nothing left to choose and no independent reviewer"))
 
     fetched = registry.get("fetched_at")
     age = None
@@ -2937,6 +3210,9 @@ def log_decision(decision: dict, spec: str, dispatched: bool = False,
             "dispatched": dispatched,
             "judgment_source": (decision.get("judgment") or {}).get("source"),
             "task_sha256": hashlib.sha256(spec.encode("utf-8")).hexdigest(),
+            # A forbidden model that was dispatched anyway has to be answerable
+            # for later, so the necessity and the approver are kept with it.
+            "policy_exception": (decision.get("policy") or {}).get("exception"),
         })
         state["decisions"] = entries[-200:]
         save_json(STATE, state)
@@ -3377,6 +3653,17 @@ def main(argv=None):
     plan_cmd.add_argument("--launcher", help="also print a launch command per task")
     plan_cmd.add_argument("--json", action="store_true")
     plan_cmd.set_defaults(func=cmd_plan)
+
+    # The exception contract is identical on every entry point, because a model
+    # policy that holds for route and not for rerun is not a policy.
+    for entry in (route_cmd, rerun_cmd, plan_cmd):
+        entry.add_argument("--require-model", metavar="PROVIDER:MODEL",
+                           help="ask for a model model policy forbids; needs --necessity")
+        entry.add_argument("--necessity", metavar="TEXT",
+                           help="what about THIS task requires that model, specifically")
+        entry.add_argument("--exception-approved-by", metavar="WHO",
+                           help="who approved the exception; without it the decision is"
+                                " recorded and escalated rather than dispatched")
 
     audit_cmd = sub.add_parser("audit", help="did workers run the model that was picked for them")
     audit_cmd.add_argument("--days", type=float, default=7.0)

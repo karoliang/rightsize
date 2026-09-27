@@ -148,6 +148,12 @@
       "home": "~/.local/share"
     }
   },
+  "model_policy": {
+    "forbidden": {
+      "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role"
+    }
+  },
+  "_comment_model_policy": "Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",
   "task_profiles": {
     "mechanical": {
       "minimum_band": 1,

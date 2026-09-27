@@ -5,6 +5,27 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ## Unreleased
 
+### Added (2026-09-28, forbidden models)
+
+- `model_policy.forbidden` makes a model unselectable in code rather than in
+  prose. A spec is input to the judgment and never reaches selection, so a brief
+  saying "Astra must not be selected for routine coding, building, retries or
+  fallback" routed to Astra; the exclusion now extends the `exclude` argument
+  `pick()` already took, so it applies to `route`, `plan`, `rerun` and managed
+  admission, to every band including fallback, and to the review ladder as well
+  as the band ladders. `rerun --previous` used to exclude a model from the
+  implementer ladder and then select it for review.
+- An empty eligible set caused by policy blocks and names the forbidden models.
+  No band is descended, no quality floor is relaxed and nothing is substituted.
+  In `plan` such a task is `blocked`, not `unplaced`, and the reason is printed
+  per task, because another wave will not un-forbid a model.
+- `--require-model` with `--necessity` and `--exception-approved-by` on `route`,
+  `plan` and `rerun`: a task that genuinely needs a forbidden model records a
+  task-specific necessity and is escalated. Without an approver the decision is
+  blocked and no launch command is printed, and an exception never lifts the
+  review role. `doctor` counts permitted candidates per band, erroring when a
+  band has none and warning when it has one (#32).
+
 ### Added (2026-09-21, router planning)
 
 - First native adapter: Codex app-server execution with isolated worktrees,
