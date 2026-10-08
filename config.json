@@ -6,8 +6,10 @@
     "claude": 30,
     "openrouter": 10,
     "opencode_zen": 0,
-    "minimax": 15
+    "minimax": 15,
+    "zai_coding_plan": 0
   },
+  "_comment_reserves": "zai_coding_plan has no reserve because the GLM Coding Plan publishes no quota API: there is no reading to hold a reserve against, and the unmetered flag (not a number) is what policy gates on.",
   "claude": {
     "weekly_token_budget": 400000000,
     "rolling_token_budget": null,
@@ -20,7 +22,12 @@
   "bands": {
     "1": [
       "minimax:MiniMax-M2.7-highspeed",
+      "minimax:MiniMax-M2.5-highspeed",
+      "minimax:MiniMax-M3.1-Flash-Preview",
       "minimax:MiniMax-M3",
+      "zai_coding_plan:glm-5.3-flash",
+      "zai_coding_plan:glm-5-turbo",
+      "zai_coding_plan:glm-4.7",
       "opencode:deepseek-v4.1-flash",
       "opencode:qwen3.8-flash",
       "opencode:glm-5.3-flash",
@@ -28,6 +35,11 @@
     ],
     "2": [
       "minimax:MiniMax-M3",
+      "minimax:MiniMax-M2.7",
+      "minimax:MiniMax-M2.5",
+      "minimax:MiniMax-M2.1",
+      "minimax:MiniMax-M2",
+      "zai_coding_plan:glm-5.3-flash",
       "opencode:minimax-m3",
       "opencode:deepseek-v4-pro",
       "opencode:kimi-k2.7-code",
@@ -35,17 +47,25 @@
     ],
     "3": [
       "minimax:MiniMax-M3",
-      "codex:gpt-6-astra",
+      "codex:gpt-5.6-luna",
+      "codex:gpt-5.6-terra",
       "codex:gpt-6-sol",
+      "zai_coding_plan:glm-5.3",
+      "zai_coding_plan:glm-5.2",
+      "zai_coding_plan:glm-5.3-flash",
+      "codex:gpt-6-astra",
       "claude:claude-opus-5",
       "opencode:glm-5.3",
       "opencode:kimi-k3"
     ]
   },
+  "_comment_bands": "Owner policy 2026-10-08: routine work defaults to MiniMax, then cheap GLM (flash, turbo, 4.7); the GLM highspeed ids are plan-refused and stay off every ladder. Difficult work (design, diagnosis, high stakes) is Codex first in token-saving order luna, terra, then sol for the top profile only; premium GLM (glm-5.3, glm-5.2) is the last resort, off-peak only, priced higher per dispatch. min_task_band in model_profiles keeps the deep-tier models out of routine work even when a routine task escalates bands.",
   "review_ladder": [
     "codex:gpt-5.6-luna",
     "opencode:kimi-k2.6",
-    "claude:claude-haiku-4-5"
+    "claude:claude-haiku-4-5",
+    "minimax:MiniMax-M2.7-highspeed",
+    "zai_coding_plan:glm-5.3-flash"
   ],
   "agents": {
     "opencode": "opencode",
@@ -53,7 +73,8 @@
     "claude": "claude",
     "openrouter": "opencode",
     "opencode_zen": "opencode",
-    "minimax": "opencode"
+    "minimax": "opencode",
+    "zai_coding_plan": "opencode"
   },
   "thresholds": {
     "size_escalates_band": 1.5,
@@ -73,24 +94,25 @@
     "openrouter": "openrouter/",
     "codex": "",
     "claude": "",
-    "minimax": "minimax-coding-plan/"
+    "minimax": "minimax-coding-plan/",
+    "zai_coding_plan": "zai-coding-plan/"
   },
   "launchers": {
     "_doc": "How a decision becomes a command. Each launcher maps a provider to a template, with `default` covering the rest. Fields: {provider} {agent} {model} {model_ref} {effort} {band} {spec} {spec_path}. Adding a launcher is config, not code: see docs/ADAPTERS.md.",
     "orca": {
-      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours. For opencode the model is bound by creating the terminal with `opencode -m <model>` and attaching the worker to it, because `--agent opencode` takes no model flag and `OPENCODE_MODEL` is ignored: a worker launched without the binding silently runs the default in ~/.config/opencode/opencode.json, and `rightsize audit` exists to catch exactly that. Verified 2026-09-20 end to end. Use orca-current only when sharing the checkout is the point.",
-      "default": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca worktree create --name {name} --json > /dev/null\nHANDLE=$(orca terminal create --worktree name:{name} --command 'opencode -m {model_ref}' --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"result\"][\"terminal\"][\"handle\"])')\norca orchestration worker-start --spec {spec} --worktree name:{name} --terminal \"$HANDLE\" --json",
+      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours. For opencode the model is bound by creating the terminal with `opencode -m <model>` and attaching the worker to it, because `--agent opencode` takes no model flag and `OPENCODE_MODEL` is ignored: a worker launched without the binding silently runs the default in ~/.config/opencode/opencode.json, and `rightsize audit` exists to catch exactly that. The chosen effort travels as a project config file (.rightsize-opencode.json, loaded through OPENCODE_CONFIG) rather than a flag, because that is the only wire-verified path for per-model reasoning options in OpenCode 2.0.20; it is a separate file so a repo's own opencode.json is never clobbered. Verified 2026-09-20 end to end; options wiring verified on the wire 2026-10-08. Use orca-current only when sharing the checkout is the point.",
+      "default": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\nWT=$(orca worktree create --name {name} --json | python3 -c 'import json,sys\ndef walk(n):\n    if isinstance(n, dict):\n        for k, v in n.items():\n            if k == \"path\" and isinstance(v, str) and v.startswith(\"/\"):\n                return v\n        for v in n.values():\n            r = walk(v)\n            if r: return r\n    elif isinstance(n, list):\n        for v in n:\n            r = walk(v)\n            if r: return r\nprint(walk(json.load(sys.stdin)) or \"\")')\nif [ -n \"$WT\" ]; then printf '%s' '__RIGHTSIZE_MODEL_OPTIONS__' > \"$WT/.rightsize-opencode.json\"; fi\nHANDLE=$(orca terminal create --worktree name:{name} --command \"env OPENCODE_CONFIG=\\\"$WT/.rightsize-opencode.json\\\" opencode -m {model_ref}\" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"result\"][\"terminal\"][\"handle\"])')\norca orchestration worker-start --spec {spec} --worktree name:{name} --terminal \"$HANDLE\" --json",
       "codex": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent codex --json --model {model} --effort {effort}",
       "claude": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent claude --json --model {model} --effort {effort}"
     },
     "shell": {
-      "default": "opencode run -m {model_ref} {spec}",
+      "default": "env OPENCODE_CONFIG_CONTENT='__RIGHTSIZE_MODEL_OPTIONS__' opencode run -m {model_ref} {spec}",
       "codex": "codex exec --model {model} -c model_reasoning_effort={effort} {spec}",
       "claude": "claude -p --model {model} --effort {effort} {spec}"
     },
     "orca-current": {
-      "_doc": "Deliberately shares the coordinator's checkout. For a supervised leg you are watching, a quick review, or a task that must see uncommitted work in the current tree. Never for unsupervised work.",
-      "default": "orca orchestration worker-start --spec {spec} --worktree current --agent {agent} --json\n# then inside that terminal: opencode -m {model_ref}",
+      "_doc": "Deliberately shares the coordinator's checkout. For a supervised leg you are watching, a quick review, or a task that must see uncommitted work in the current tree. Never for unsupervised work. For opencode, export OPENCODE_CONFIG_CONTENT with the model options JSON from the route's launch line before starting `opencode -m <model_ref>`, so the chosen effort still reaches the model.",
+      "default": "orca orchestration worker-start --spec {spec} --worktree current --agent {agent} --json\n# then inside that terminal: env OPENCODE_CONFIG_CONTENT='__RIGHTSIZE_MODEL_OPTIONS__' opencode -m {model_ref}",
       "codex": "orca orchestration worker-start --spec {spec} --worktree current --agent codex --json --model {model} --effort {effort}",
       "claude": "orca orchestration worker-start --spec {spec} --worktree current --agent claude --json --model {model} --effort {effort}"
     }
@@ -102,8 +124,16 @@
     "claude": 2.0,
     "openrouter": 0.1,
     "opencode_zen": 0.0,
-    "minimax": 1.0
+    "minimax": 1.0,
+    "zai_coding_plan": 1.0
   },
+  "dispatch_cost_models": {
+    "zai_coding_plan:glm-5.3": 2.5,
+    "zai_coding_plan:glm-5.2": 2.5,
+    "zai_coding_plan:glm-5.3-highspeed": 2.5,
+    "zai_coding_plan:glm-5.2-highspeed": 2.5
+  },
+  "_comment_dispatch_cost_models": "Owner policy 2026-10-08: premium GLM models are spent sparingly, so one dispatch on them is estimated at a higher base than the provider default (then multiplied by the band, and halved off-peak). Cheap GLM flash/turbo/4.7 stay at the provider base.",
   "_comment_dispatch_cost": "Percentage points one dispatch is expected to burn, multiplied by the band. A coarse estimate on purpose: the exact number is unknowable before the worker runs, and being roughly right is what stops a fan-out from overcommitting a plan. Raise it if a batch of workers routinely takes a provider past its reserve.",
   "max_inflight": {
     "_default": 8,
@@ -112,7 +142,8 @@
     "claude": 3,
     "openrouter": 12,
     "opencode_zen": 8,
-    "minimax": 6
+    "minimax": 6,
+    "zai_coding_plan": 6
   },
   "_comment_max_inflight": "How many dispatches may be in flight on one provider at once. This is the spread lever for a large fan-out: when a provider is full the next task goes to the next eligible one instead of queueing behind it.",
   "reservation_ttl_seconds": 1800,
@@ -128,6 +159,40 @@
       "1": "low",
       "2": "medium",
       "3": "high"
+    },
+    "minimax": {
+      "1": "low"
+    },
+    "zai_coding_plan": {
+      "1": "low",
+      "2": "high",
+      "3": "max"
+    }
+  },
+  "effort_options": {
+    "_doc": "How a chosen effort level becomes OpenCode per-model options, verified on the wire 2026-10-08 against OpenCode 2.0.20: provider.<id>.models.<model>.options.reasoningEffort is sent as body reasoning_effort through the OpenAI-compatible protocol (zai-coding-plan), and options pass through unchanged on the anthropic protocol (minimax-coding-plan, where output_config.effort is the vendor-documented knob and only MiniMax-M3.1-Flash-Preview honours it). Models whose profile lists no efforts never emit options.",
+    "zai_coding_plan": {
+      "low": {"reasoningEffort": "low"},
+      "high": {"reasoningEffort": "high"},
+      "max": {"reasoningEffort": "max"}
+    },
+    "minimax": {
+      "low": {"output_config": {"effort": "low"}},
+      "medium": {"output_config": {"effort": "medium"}},
+      "high": {"output_config": {"effort": "high"}},
+      "xhigh": {"output_config": {"effort": "xhigh"}},
+      "max": {"output_config": {"effort": "max"}}
+    }
+  },
+  "peak_windows": {
+    "_doc": "Vendor pricing schedule for premium models, quoted from docs.z.ai/devpack/overview: 'During off-peak hours, model usage is charged at 50% of the standard credit rate' with 'Peak hours: Monday to Friday, 14:00-18:00 Singapore Standard Time (UTC+8)'. weekdays are Python weekday numbers with Monday=0. During peak (or an unresolvable timezone) premium models are not routed at all; off-peak their dispatch cost is multiplied by off_peak_multiplier.",
+    "zai_coding_plan": {
+      "tz": "Asia/Singapore",
+      "weekdays": [0, 1, 2, 3, 4],
+      "start": "14:00",
+      "end": "18:00",
+      "peak_models": ["glm-5.3", "glm-5.2", "glm-5.3-highspeed", "glm-5.2-highspeed"],
+      "off_peak_multiplier": 0.5
     }
   },
   "_comment_openrouter": "OpenRouter is probed but deliberately not on a worker ladder. Verified 2026-09-20: its free models answer a direct API call, but dispatching one through the opencode CLI fails with 413 Request too large, because an agent sends a system prompt and tool definitions that the free endpoint will not accept. Put it back on a ladder once either a paid model is laddered (the key here carries its own 0.01 USD spend limit, so raise that first at openrouter.ai/settings/keys) or a launcher exists that dispatches with a small payload.",
@@ -142,11 +207,20 @@
     "plan": "Ultra",
     "_note": "Direct global Token Plan, separate from OpenCode Go. Uses MINIMAX_API_KEY or native minimax-coding-plan auth. Dispatch cost is an uncalibrated estimate; live rolling and weekly percentages remain authoritative."
   },
+  "zai_coding_plan": {
+    "plan": "Max",
+    "_note": "Z.AI GLM Coding Plan (Max) through OpenCode's zai-coding-plan auth. The plan meters 5-hour and weekly credits but publishes no quota API (checked 2026-10-08 across docs.z.ai, the OpenAPI spec, models.dev and Z.AI's coding-helper package), so the probe reports unmetered and the plan is offered behind the metered ones. What the plan can serve is recorded by refresh from the plan's own model list; the highspeed ids are refused by this subscription."
+  },
   "accounts": {
-    "minimax": "minimax-local"
+    "minimax": "minimax-local",
+    "zai_coding_plan": "zai-local"
   },
   "account_bindings": {
     "minimax-local": {
+      "runtime": "opencode",
+      "home": "~/.local/share"
+    },
+    "zai-local": {
       "runtime": "opencode",
       "home": "~/.local/share"
     }
@@ -154,23 +228,20 @@
   "model_policy": {
     "forbidden": {
       "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role",
-      "claude:claude-haiku-4-5": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "claude:claude-opus-5": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "codex:gpt-5.6-luna": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "codex:gpt-5.6-terra": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "codex:gpt-6-sol": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:deepseek-v4-pro": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:deepseek-v4.1-flash": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:glm-5.3": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:glm-5.3-flash": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:kimi-k2.6": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:kimi-k2.7-code": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:kimi-k3": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:minimax-m3": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
-      "opencode:qwen3.8-flash": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role"
+      "claude:claude-haiku-4-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; no Claude workers in any role",
+      "claude:claude-opus-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; no Claude workers in any role",
+      "opencode:deepseek-v4-pro": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:deepseek-v4.1-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:glm-5.3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:glm-5.3-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:kimi-k2.6": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:kimi-k2.7-code": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:kimi-k3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:minimax-m3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "opencode:qwen3.8-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded"
     }
   },
-  "_comment_model_policy": "Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",
+  "_comment_model_policy": "Owner policy 2026-10-08 over the 2026-09-28 override: Codex gpt-5.6-luna, gpt-5.6-terra and gpt-6-sol are released for difficult work only (their model_profiles carry min_task_band 3 and sol is capped to high_stakes); astra stays forbidden (#32) and Claude stays forbidden in every role. Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",
   "task_profiles": {
     "mechanical": {
       "minimum_band": 1,
@@ -242,10 +313,14 @@
     },
     "codex:gpt-5.6-luna": {
       "family": "gpt-5.6-luna",
-      "max_band": 1,
+      "max_band": 3,
+      "min_task_band": 3,
       "capabilities": [
         "code",
-        "review"
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
       ],
       "efforts": [
         "low",
@@ -261,7 +336,7 @@
         "diagnosis": "high",
         "high_stakes": "high"
       },
-      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+      "evidence": "owner policy 2026-10-08: released from the 2026-09-28 override for difficult work only (min_task_band 3); first choice for design, diagnosis and high stakes because it is the token-saving Codex model. Capability placement unchanged from the existing ladder; not comparative task evaluation"
     },
     "minimax:MiniMax-M3": {
       "family": "minimax-m3",
@@ -309,10 +384,14 @@
     },
     "codex:gpt-5.6-terra": {
       "family": "gpt-5.6-terra",
-      "max_band": 2,
+      "max_band": 3,
+      "min_task_band": 3,
       "capabilities": [
         "code",
-        "review"
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
       ],
       "efforts": [
         "low",
@@ -329,7 +408,7 @@
         "diagnosis": "high",
         "high_stakes": "high"
       },
-      "evidence": "provisional: existing ladder placement; not comparative task evaluation"
+      "evidence": "owner policy 2026-10-08: released from the 2026-09-28 override for difficult work only (min_task_band 3); second token-saving Codex choice after luna. Capability placement unchanged from the existing ladder; not comparative task evaluation"
     },
     "codex:gpt-6-astra": {
       "family": "gpt-6-astra",
@@ -361,11 +440,10 @@
     "codex:gpt-6-sol": {
       "family": "gpt-6-sol",
       "max_band": 3,
+      "min_task_band": 3,
       "capabilities": [
         "code",
         "review",
-        "design",
-        "diagnosis",
         "high_stakes"
       ],
       "efforts": [
@@ -383,7 +461,7 @@
         "diagnosis": "high",
         "high_stakes": "high"
       },
-      "evidence": "qualified on LH 2026-09-28 with codex exec --model gpt-6-sol -c model_reasoning_effort=high: exit 0; 6/6 read-only policy-review fixtures, 3/3 seeded defects caught with correct rule attribution, 3/3 clean controls passed with no false positives, plus one unseeded real defect found where exception necessity truthiness was checked without approval verification"
+      "evidence": "owner policy 2026-10-08: released from the 2026-09-28 override but capped to the high_stakes profile only (design and diagnosis capabilities removed), because the owner prefers the token-saving luna/terra first and sol only when the task profile needs the top band. Capability evidence: qualified on LH 2026-09-28 with codex exec --model gpt-6-sol -c model_reasoning_effort=high: exit 0; 6/6 read-only policy-review fixtures, 3/3 seeded defects caught with correct rule attribution, 3/3 clean controls passed with no false positives, plus one unseeded real defect found where exception necessity truthiness was checked without approval verification"
     },
     "claude:claude-opus-5": {
       "family": "claude-opus-5",
@@ -479,7 +557,195 @@
       "efforts": [],
       "effort_by_task": {},
       "evidence": "provisional: band 1 placement by plan tier, not comparative task evaluation"
+    },
+    "minimax:MiniMax-M2.5-highspeed": {
+      "family": "minimax-m2.5-highspeed",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic (M2.5 highspeed listed; M2.x accept text and tool calls only). Band 1 highspeed placement by owner preference for mechanical work, not comparative task evaluation"
+    },
+    "minimax:MiniMax-M3.1-Flash-Preview": {
+      "family": "minimax-m3.1-flash-preview",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "effort_by_task": {},
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic: always thinks, thinking depth tunable via output_config.effort (low, medium, high, xhigh, max; default max), and that knob passes OpenCode's anthropic options on the wire (verified 2026-10-08). Multimodal. Band 1 flash tier by plan tier, not comparative task evaluation"
+    },
+    "minimax:MiniMax-M2.7": {
+      "family": "minimax-m2.7",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic (text and tool calls; thinking cannot be disabled, no depth knob on M2.x). Band 2 mid placement by generation, not comparative task evaluation"
+    },
+    "minimax:MiniMax-M2.5": {
+      "family": "minimax-m2.5",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic (text and tool calls only). Band 2 mid placement by generation, not comparative task evaluation"
+    },
+    "minimax:MiniMax-M2.1": {
+      "family": "minimax-m2.1",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic (text and tool calls only). Band 2 mid placement by generation, not comparative task evaluation"
+    },
+    "minimax:MiniMax-M2": {
+      "family": "minimax-m2",
+      "max_band": 2,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic (text and tool calls only). Band 2 mid placement by generation, not comparative task evaluation"
+    },
+    "zai_coding_plan:glm-5.3": {
+      "family": "glm-5.3",
+      "max_band": 3,
+      "min_task_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "effort_by_task": {},
+      "evidence": "docs.z.ai/devpack/overview: supported on every plan; docs.z.ai/openapi.json documents reasoning_effort with 'only the low/high/max levels' for GLM-5.3, and the reasoningEffort option reaches the wire as reasoning_effort through OpenCode 2.0.20 (verified 2026-10-08). Owner policy 2026-10-08: last resort for difficult work, off-peak only, at a higher dispatch cost"
+    },
+    "zai_coding_plan:glm-5.3-flash": {
+      "family": "glm-5.3-flash",
+      "max_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "effort_by_task": {},
+      "evidence": "docs.z.ai/devpack/overview: supported on every plan, low credit multipliers; reasoning_effort low/high/max per docs.z.ai/openapi.json, wire-verified through OpenCode 2026-10-08. Owner policy 2026-10-08: default GLM model for routine work and the band-3 fallback when premium GLM is peak-blocked; deep-tier capabilities are the fallback role, not a claim that flash matches glm-5.3"
+    },
+    "zai_coding_plan:glm-5-turbo": {
+      "family": "glm-5-turbo",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: served by the plan (live /models list 2026-10-08) but Z.AI publishes no model page for it; band 1 by owner preference for cheap routine work, not comparative task evaluation"
+    },
+    "zai_coding_plan:glm-4.7": {
+      "family": "glm-4.7",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "docs.z.ai/devpack/overview: requests for GLM-4.7 are automatically routed to GLM-5.3-Flash, so it is served as the flash tier; reasoning_effort is documented as GLM-5.2-and-above so no effort knob is claimed. Band 1, acceptable for mechanical work per owner policy 2026-10-08"
+    },
+    "zai_coding_plan:glm-5.2": {
+      "family": "glm-5.3",
+      "max_band": 3,
+      "min_task_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "effort_by_task": {},
+      "evidence": "docs.z.ai/devpack/overview: requests for GLM-5.2 are automatically routed to GLM-5.3, so it shares glm-5.3's family and flagship billing; reasoning_effort supported with medium mapped to high and xhigh to max, so only low/high/max are exposed. Owner policy 2026-10-08: last resort for difficult work, off-peak only"
+    },
+    "zai_coding_plan:glm-5.3-highspeed": {
+      "family": "glm-5.3",
+      "max_band": 3,
+      "min_task_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "effort_by_task": {},
+      "evidence": "catalogue entry (models.dev zai-coding-plan) only: REFUSED by this Max plan, 'your current subscription plan does not yet include access' (coordinator dispatch 2026-10-08; absent from the plan's live /models list). Kept off every ladder; refresh records it under plan_refused"
+    },
+    "zai_coding_plan:glm-5.2-highspeed": {
+      "family": "glm-5.3",
+      "max_band": 3,
+      "min_task_band": 3,
+      "capabilities": [
+        "code",
+        "review",
+        "design",
+        "diagnosis",
+        "high_stakes"
+      ],
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "effort_by_task": {},
+      "evidence": "catalogue entry (models.dev zai-coding-plan) only: REFUSED by this Max plan (absent from the plan's live /models list, 2026-10-08). Kept off every ladder; refresh records it under plan_refused"
     }
   },
-  "_comment_profiles": "Task capability assignments preserve the existing ladder as provisional policy, not measured superiority. Codex effort lists reflect the local native catalog on 2026-09-21; Claude uses a conservative configured subset. Empty effort lists mean no exposed runtime knob. Profile every added model; quota never relaxes capabilities or task/retry floors."
+  "_comment_profiles": "Task capability assignments preserve the existing ladder as provisional policy, not measured superiority. Codex effort lists reflect the local native catalog on 2026-09-21; Claude uses a conservative configured subset. Empty effort lists mean no exposed runtime knob. min_task_band (optional) reserves a model for task classes whose task_profiles floor is at least that band, so deep-tier models stay out of routine work even when a routine task escalates bands. Profile every added model; quota never relaxes capabilities or task/retry floors."
 }

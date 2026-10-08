@@ -4,9 +4,11 @@ import copy
 import hashlib
 import json
 import math
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import types
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import managed_router
 
@@ -15,7 +17,7 @@ BASELINE_SOURCE = "7d5fa7483fab5924f119fc35a4f253b634d70a3b623d1fef393da62ce6dd8
 PURE = ("headroom", "bucket_pace", "bucket_window", "denied_buckets", "probe_scope",
         "decide", "band_for", "pick", "parse_candidate", "effort_for", "dispatch_cost",
         "admission_block", "human_reset", "qualified_candidates", "candidate_key",
-        "forbidden_models")
+        "forbidden_models", "peak_window")
 
 
 class ReplayError(ValueError):
@@ -68,6 +70,11 @@ def policy(api, stamp):
     namespace = {"__builtins__": __builtins__, "now": lambda: stamp,
                  "STALE_READING": api.STALE_READING, "BUCKET_WINDOWS": api.BUCKET_WINDOWS,
                  "EFFORTS": api.EFFORTS, "re": re,
+                 # Pricing windows read the wall clock through `now` (frozen
+                 # above); timezone math needs these names in scope because the
+                 # bound functions see only this namespace as their globals.
+                 "datetime": datetime, "timezone": timezone,
+                 "ZoneInfo": ZoneInfo, "ZoneInfoNotFoundError": ZoneInfoNotFoundError,
                  # The pinned baseline module predates model policy, so its own
                  # decide() never reads this and the default is never used.
                  "EXCLUDED_BY_ATTEMPT": getattr(api, "EXCLUDED_BY_ATTEMPT",
@@ -99,7 +106,8 @@ def validate(case):
             raise ReplayError("invalid snapshot judgment score")
     config = case["config"]
     allowed = {"bands", "agents", "review_ladder", "thresholds", "reserves", "max_inflight",
-               "dispatch_cost", "effort", "expensive_band", "task_profiles", "model_profiles",
+               "dispatch_cost", "dispatch_cost_models", "peak_windows", "effort",
+               "effort_options", "expensive_band", "task_profiles", "model_profiles",
                "model_policy"}
     if not isinstance(config, dict) or set(config) - allowed or not {"bands", "agents", "review_ladder"} <= set(config):
         raise ReplayError("snapshot config must contain policy fields only")

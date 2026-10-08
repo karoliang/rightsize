@@ -33,6 +33,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from native_rpc import read_rate_limits
 import accounts
@@ -49,6 +50,10 @@ OPENCODE_USAGE = "https://opencode.ai/zen/go/v1/usage"
 OPENCODE_GO_MODELS = "https://opencode.ai/zen/go/v1/models"
 OPENCODE_ZEN_MODELS = "https://opencode.ai/zen/v1/models"
 MODELS_DEV = "https://models.opencode.ai/api.json"
+# What this GLM Coding Plan subscription can actually serve, per the plan's
+# own OpenAI-protocol model list. Catalogue entries missing from it are
+# refused by the plan even though the catalogue still advertises them.
+ZAI_PLAN_MODELS = "https://api.z.ai/api/coding/paas/v4/models"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
@@ -61,7 +66,7 @@ STALE_READING = 6 * 3600
 OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
 # Providers whose worker is launched by the opencode CLI, so its sessions land
 # in opencode's own database and can be checked after the fact.
-OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter", "minimax")
+OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter", "minimax", "zai_coding_plan")
 # Windows a bucket id implies, in seconds. Codex spells its own in the id.
 BUCKET_WINDOWS = {"rolling": 5 * 3600, "weekly": 7 * 86400, "monthly": 30 * 86400,
                   "credit": None, "key-credit": None, "account-credit": None,
@@ -260,7 +265,8 @@ def post(url: str, token: str, body: dict, timeout: int = 60):
 
 
 CREDENTIAL_NAMES = frozenset({"TYPESAFE_API_KEY", "OPENROUTER_API_KEY",
-                              "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "MINIMAX_API_KEY"})
+                              "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "MINIMAX_API_KEY",
+                              "ZAI_CODING_PLAN_API_KEY"})
 
 
 def vault_scope() -> tuple[str, str, str] | None:
@@ -287,7 +293,8 @@ def secret(name: str, config: dict | None = None) -> str | None:
     if name not in CREDENTIAL_NAMES:
         return None
     provider = {"OPENCODE_API_KEY": "opencode", "OPENCODE_ZEN_API_KEY": "opencode_zen",
-                "OPENROUTER_API_KEY": "openrouter", "MINIMAX_API_KEY": "minimax"}.get(name)
+                "OPENROUTER_API_KEY": "openrouter", "MINIMAX_API_KEY": "minimax",
+                "ZAI_CODING_PLAN_API_KEY": "zai_coding_plan"}.get(name)
     binding = accounts.select(provider, config) if provider and config is not None else None
     if binding and binding.status != "unverified":
         return None
@@ -313,14 +320,54 @@ def secret(name: str, config: dict | None = None) -> str | None:
         except (OSError, subprocess.SubprocessError):
             pass
         return None
-    if name in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "MINIMAX_API_KEY"):
+    if name in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "MINIMAX_API_KEY",
+                "ZAI_CODING_PLAN_API_KEY"):
         auth_path = binding.home / "opencode/auth.json" if binding else OPENCODE_AUTH
         auth = load_json(auth_path, {}) or {}
         provider = {"OPENCODE_API_KEY": "opencode-go", "OPENCODE_ZEN_API_KEY": "opencode",
-                    "MINIMAX_API_KEY": "minimax-coding-plan"}[name]
+                    "MINIMAX_API_KEY": "minimax-coding-plan",
+                    "ZAI_CODING_PLAN_API_KEY": "zai-coding-plan"}[name]
         entry = auth.get(provider) if isinstance(auth, dict) else None
-        return entry.get("key") if isinstance(entry, dict) else None
+        if isinstance(entry, dict) and isinstance(entry.get("key"), str):
+            return entry["key"]
+        if name == "ZAI_CODING_PLAN_API_KEY":
+            # OpenCode 2.x keeps `opencode auth login` credentials in its own
+            # sqlite store, not auth.json. The value is read here and never
+            # leaves this function except as the return value.
+            db = binding.home / "opencode/opencode.db" if binding else OPENCODE_DB
+            key = opencode_stored_credential(db, provider)
+            if key:
+                return key
+        return None
     return None
+
+
+def opencode_stored_credential(db_path: Path, integration_id: str) -> str | None:
+    """One credential value from OpenCode's own store, read-only.
+
+    Returns the API key or None; never raises past a missing/corrupt store,
+    and never puts the value into an exception or log line.
+    """
+    if not db_path.is_file():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+        try:
+            row = con.execute(
+                "SELECT value FROM credential WHERE integration_id = ? AND active = 1",
+                (integration_id,)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    if not row or not isinstance(row[0], str):
+        return None
+    try:
+        entry = json.loads(row[0])
+    except ValueError:
+        return None
+    key = entry.get("key") if isinstance(entry, dict) else None
+    return key if isinstance(key, str) and key and not any(c in key for c in "\r\n\x00") else None
 
 
 def iso_to_epoch(text: str) -> float | None:
@@ -434,6 +481,27 @@ def probe_minimax(config=None, key=None) -> dict:
                             "source": "live", "raw_status": "exhausted" if status == 2 else "ok"})
     return {**base, "status": "denied" if any(b["percent"] == 100 for b in buckets)
             else "ok", "buckets": buckets}
+
+
+def probe_zai_coding_plan(config=None, key=None) -> dict:
+    """GLM Coding Plan headroom. The plan meters 5-hour and weekly credits but
+    publishes no quota API, so this probe reports what is actually known.
+
+    Checked 2026-10-08 and none of them expose one: docs.z.ai (overview,
+    quick-start, FAQ point at the web console only), docs.z.ai/openapi.json
+    (model APIs only), the models.dev entry, and Z.AI's own
+    @z_ai/coding-helper npm package. Live GETs to every monitor/quota/usage
+    path shape under api.z.ai answered 404 or an internal NOT_FOUND. No
+    endpoint is invented here: the probe verifies the credential and reports
+    `unmetered`, which the policy offers in every band behind the metered
+    plans rather than as a fabricated percentage.
+    """
+    key = secret("ZAI_CODING_PLAN_API_KEY", config) if key is None else key
+    base = {"name": "zai_coding_plan", "buckets": []}
+    if not isinstance(key, str) or not key or any(c in key for c in "\r\n\x00"):
+        return {**base, "status": "no-credential"}
+    return {**base, "status": "ok", "unmetered": True,
+            "quota_account_ref": accounts.digest("zai-coding-plan:" + key)}
 
 
 def newest_codex_rollout() -> Path | None:
@@ -770,6 +838,7 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
         "claude": lambda: probe_claude(config, count_tokens),
         "openrouter": lambda: probe_openrouter(config),
         "minimax": lambda: probe_minimax(config),
+        "zai_coding_plan": lambda: probe_zai_coding_plan(config),
     }
     def bound_probe(name, fn):
         if name == "codex":
@@ -779,7 +848,8 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
         if binding.status != "unverified":
             return {**base, "status": binding.status, "buckets": []}
         variable = {"opencode": "OPENCODE_API_KEY", "openrouter": "OPENROUTER_API_KEY",
-                    "minimax": "MINIMAX_API_KEY"}.get(name)
+                    "minimax": "MINIMAX_API_KEY",
+                    "zai_coding_plan": "ZAI_CODING_PLAN_API_KEY"}.get(name)
         if (variable and binding.source == "native" and (ROOT / ".infisical.json").exists()):
             key = secret(variable, config)
             scope = vault_scope()
@@ -791,7 +861,8 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
             if not key:
                 return {**base, "status": "no-credential", "buckets": []}
             result = {"opencode": probe_opencode, "openrouter": probe_openrouter,
-                      "minimax": probe_minimax}[name](config, key)
+                      "minimax": probe_minimax,
+                      "zai_coding_plan": probe_zai_coding_plan}[name](config, key)
             return {**result, **base}
         result = fn()
         if accounts.select(name, config).fingerprint != binding.fingerprint:
@@ -1223,15 +1294,59 @@ def release_settled(run: str | None = None) -> dict:
             "briefs": len(finished_briefs), "error": None}
 
 
-def dispatch_cost(config: dict, provider: str, band: int) -> float:
+def peak_window(config: dict, provider: str, model: str | None, at: float | None = None) -> str | None:
+    """Which pricing window a premium model sits in right now, or None.
+
+    The schedule is vendor pricing policy, not a property of this host, so it
+    lives in config (`peak_windows.<provider>`: tz, weekdays with Monday=0,
+    start, end, the premium models it applies to, and the off-peak credit
+    multiplier). Z.AI, quoted from docs.z.ai/devpack/overview: "During
+    off-peak hours, model usage is charged at 50% of the standard credit
+    rate" and "Peak hours: Monday to Friday, 14:00-18:00 Singapore Standard
+    Time (UTC+8)". An unresolvable timezone is reported as "unknown" and the
+    caller treats it like peak: never spend premium credits on a guess.
+    """
+    spec = (config.get("peak_windows") or {}).get(provider)
+    if not isinstance(spec, dict) or model not in (spec.get("peak_models") or []):
+        return None
+    moment = datetime.fromtimestamp(now() if at is None else at, timezone.utc)
+    try:
+        zone = ZoneInfo(str(spec.get("tz") or "UTC"))
+    except (ValueError, KeyError, ZoneInfoNotFoundError):
+        return "unknown"
+
+    def clock(value, default):
+        try:
+            hour, minute = str(value).split(":")
+            return int(hour) * 60 + int(minute)
+        except (ValueError, AttributeError):
+            return default
+
+    start, end = clock(spec.get("start"), 0), clock(spec.get("end"), 24 * 60)
+    weekdays = spec.get("weekdays")
+    weekdays = weekdays if isinstance(weekdays, list) else list(range(5))
+    local = moment.astimezone(zone)
+    minute = local.hour * 60 + local.minute
+    return "peak" if (local.weekday() in weekdays and start <= minute < end) else "off-peak"
+
+
+def dispatch_cost(config: dict, provider: str, band: int, model: str | None = None) -> float:
     """What one dispatch is expected to cost, in percentage points.
 
     An estimate, and deliberately a coarse one: the exact number is unknowable
     before the worker runs, and being roughly right stops a fan-out from
-    overcommitting a plan, which is the whole job.
+    overcommitting a plan, which is the whole job. A per-model override
+    (`dispatch_cost_models`, keyed "provider:model`) raises the price of
+    models the owner wants spent sparingly without taxing the whole provider.
     """
     costs = config.get("dispatch_cost") or {}
     base = float(costs.get(provider, costs.get("_default", 1.0)))
+    if model is not None:
+        per_model = config.get("dispatch_cost_models") or {}
+        base = float(per_model.get(f"{provider}:{model}", base))
+        if peak_window(config, provider, model) == "off-peak":
+            spec = (config.get("peak_windows") or {}).get(provider) or {}
+            base *= float(spec.get("off_peak_multiplier", 1))
     return base * band
 
 
@@ -1248,7 +1363,7 @@ def denied_buckets(probe: dict) -> list[dict]:
 
 
 def admission_block(info: dict, config: dict, provider: str, band: int | None,
-                    reserve_suffix: str = "") -> str | None:
+                    reserve_suffix: str = "", model: str | None = None) -> str | None:
     """Return the quota admission veto, including the reserve floor.
 
     ``band`` is absent while eligibility is being built because that is a
@@ -1261,7 +1376,7 @@ def admission_block(info: dict, config: dict, provider: str, band: int | None,
     if info["usable"] <= 0:
         return (f"below reserve on {info['bucket']}" + reserve_suffix)
     if band is not None:
-        cost = dispatch_cost(config, provider, band)
+        cost = dispatch_cost(config, provider, band, model)
         if info["usable"] < cost:
             return (f"{info['usable']:.1f} points left cannot cover a band {band}"
                     f" dispatch costing about {cost:.2f}")
@@ -1309,6 +1424,7 @@ def eligibility(config: dict, probes: dict, record: bool = True) -> dict:
         info = headroom(probe, float(reserves.get(name, 10)), previous, probe_scope(name, probe))
         info["provider"] = name
         info["free"] = bool(probe.get("free"))
+        info["unmetered"] = bool(probe.get("unmetered"))
         reserved, inflight = reservation_load(name)
         info["reserved"], info["inflight"] = reserved, inflight
         if info["usable"] is not None:
@@ -1569,6 +1685,9 @@ def qualified_candidates(candidates: list[str], config: dict, judgment: dict,
     if task_profile is None:
         return [], [f"no capability requirements configured for task class {judgment['tier']}"]
     requirements = set(task_profile.get("requires", []))
+    # The tier's own floor, not the size-escalated one: a model reserved for
+    # hard classes stays out of routine work even when that work escalates.
+    tier_floor = int(task_profile.get("minimum_band", 1))
     if review:
         requirements.add("review")
     accepted, notes = [], []
@@ -1580,6 +1699,9 @@ def qualified_candidates(candidates: list[str], config: dict, judgment: dict,
             notes.append(f"{text} skipped: no model capability profile")
         elif profile.get("max_band", 0) < minimum_band:
             notes.append(f"{text} skipped: below task quality floor {minimum_band}")
+        elif int(profile.get("min_task_band", 0)) > tier_floor:
+            notes.append(f"{text} skipped: reserved for task classes at band"
+                         f" {profile['min_task_band']} and above (owner policy)")
         elif not requirements <= set(profile.get("capabilities", [])):
             missing = sorted(requirements - set(profile.get("capabilities", [])))
             notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
@@ -1738,7 +1860,15 @@ def pick(candidates: list[str], elig: dict, band: int,
         if not info["eligible"]:
             notes.append(f"{text} skipped: {info['blocked']}")
             continue
-        if (info["usable"] is None or info.get("unknown")) and band < 3 and not info.get("free"):
+        window = peak_window(config or {}, cand["provider"], cand["model"])
+        if window in ("peak", "unknown"):
+            why = ("inside the peak pricing window" if window == "peak"
+                   else "its pricing window could not be resolved")
+            notes.append(f"{text} skipped: {why}, so premium credits are not spent;"
+                         " off-peak the same dispatch costs half")
+            continue
+        if (info["usable"] is None or info.get("unknown")) and band < 3 \
+                and not info.get("free") and not info.get("unmetered"):
             why = ("headroom unknown" if info["usable"] is None
                    else "one of its windows could not be read, so the rest cannot be trusted")
             notes.append(f"{text} skipped: {why}, escalation only")
@@ -1758,7 +1888,8 @@ def pick(candidates: list[str], elig: dict, band: int,
             continue
         resets = info["resets_at"] or float("inf")
         room = info["usable"]
-        if (admission := admission_block(info, config or {}, cand["provider"], band)):
+        if (admission := admission_block(info, config or {}, cand["provider"], band,
+                                         model=cand["model"])):
             notes.append(f"{text} skipped: {admission}")
             continue
         expensive = band >= int((config or {}).get("expensive_band", 3))
@@ -1784,6 +1915,9 @@ def pick(candidates: list[str], elig: dict, band: int,
             f"{text} chosen: its {info['bucket']} bucket resets in {human_reset(resets)} "
             f"with {info['usable']:.0f} points usable, so spend it before it expires"
         )
+    elif info.get("unmetered"):
+        notes.append(f"{text} chosen: its plan publishes no quota API, so it takes the"
+                     " work the metered plans cannot admit right now")
     elif info.get("free"):
         notes.append(f"{text} chosen: costs no quota at all, so nothing metered is spent")
     else:
@@ -1830,16 +1964,17 @@ def hold_capacity(decision: dict, config: dict, spec: str) -> str | None:
         return None
     provider = decision["pick"]["provider"]
     ttl = float(config.get("reservation_ttl_seconds", 1800))
-    points = dispatch_cost(config, provider, decision["band"])
+    points = dispatch_cost(config, provider, decision["band"], decision["pick"].get("model"))
     limits = config.get("max_inflight") or {}
     limit = int(limits.get(provider, limits.get("_default", 8)))
     return reserve(provider, points, decision["band"], spec, ttl,
                    decision.get("worktree_name"), limit)
 
 
-def debit(elig: dict, config: dict, provider: str, band: int) -> float:
+def debit(elig: dict, config: dict, provider: str, band: int,
+          model: str | None = None) -> float:
     """Spend the estimate in this process, so the next task in a batch sees it."""
-    points = dispatch_cost(config, provider, band)
+    points = dispatch_cost(config, provider, band, model)
     info = elig.get(provider)
     if not info:
         return points
@@ -1942,11 +2077,13 @@ def plan(specs: list[str], config: dict, concurrency: int = 8, hold: bool = Fals
                 still_pending.append(task)
                 continue
             provider = decision["pick"]["provider"]
-            task["points"] = debit(elig, config, provider, decision["band"])
+            task["points"] = debit(elig, config, provider, decision["band"],
+                                    decision["pick"].get("model"))
             # A review leg is a second dispatch and costs like one.
             if decision.get("review"):
                 task["points"] += debit(elig, config, decision["review"]["provider"],
-                                         decision.get("review_band", 1))
+                                         decision.get("review_band", 1),
+                                         decision["review"].get("model"))
             task["wave"] = wave
             decision["worktree_name"] = task["name"]
             log_decision(decision, task["spec"], dispatched=hold, config=config)
@@ -2078,6 +2215,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
                   " --require-model and have it approved"
             )
 
+    pricing_window = None
     if chosen:
         chosen = dict(chosen)
         chosen["effort"], effort_reason = effort_for(config, chosen, used_band, judgment, attempt)
@@ -2087,7 +2225,10 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
             f"{chosen['provider']}:{chosen['model']}")
         if profile:
             notes.append("model capability evidence: " + profile.get("evidence", "unspecified"))
-
+        pricing_window = peak_window(config, chosen["provider"], chosen["model"])
+        if pricing_window == "off-peak":
+            reasons.append(f"{chosen['provider']}:{chosen['model']} runs in the off-peak"
+                           " pricing window, so the dispatch is estimated at half credits")
     review = None
     review_blocked_by_policy: list[str] = []
     review_band = minimum_band
@@ -2163,6 +2304,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
         "review_band": review_band,
         "judgment": judgment,
         "pick": chosen,
+        "pricing_window": pricing_window,
         "account": elig[chosen["provider"]].get("account") if chosen else None,
         "agent": config["agents"].get(chosen["provider"]) if chosen else None,
         "review": review,
@@ -2252,7 +2394,27 @@ def launch_fields(decision: dict, config: dict, spec_path: str | None,
         "band": decision["band"],
         "spec": quoted,
         "spec_path": spec_path or "<task file>",
+        # A whole OpenCode config document, so a chosen reasoning effort
+        # reaches the model no matter which runtime loads it. Wire-verified
+        # 2026-10-08: options.reasoningEffort is sent as body reasoning_effort
+        # (openai-compatible plans) and options.thinking / output_config pass
+        # through unchanged on the anthropic protocol. "{}" means the model
+        # exposes no effort knob and nothing is overridden.
+        "model_options_config": model_options_config(cand, config, prefix),
     }
+
+
+def model_options_config(cand: dict, config: dict, prefix: str) -> str:
+    """The per-model OpenCode options for this decision, as one JSON document."""
+    level = cand.get("effort")
+    options = ((config.get("effort_options") or {}).get(cand["provider"]) or {}).get(level) \
+        if level else None
+    catalogue = prefix.rstrip("/")
+    if not isinstance(options, dict) or not options or not catalogue:
+        return "{}"
+    return json.dumps({"provider": {catalogue: {"models": {cand["model"]:
+                                                          {"options": options}}}}},
+                      separators=(",", ":"))
 
 
 def launch_command(decision: dict, config: dict, launcher: str, spec_path: str | None,
@@ -2272,6 +2434,8 @@ def launch_command(decision: dict, config: dict, launcher: str, spec_path: str |
         command = template.format(**fields)
     except KeyError as exc:
         return f"# launcher {launcher!r} template uses unknown field {exc}"
+    command = command.replace("__RIGHTSIZE_MODEL_OPTIONS__",
+                              fields["model_options_config"])
     bound = decision.get("account")
     if bound:
         if bound.get("source") == "scoped-vault":
@@ -2371,6 +2535,27 @@ def refresh() -> dict:
         "billing": "MiniMax Token Plan (Ultra), rolling and weekly subscription quota",
         "models": priced("minimax-coding-plan"),
     }
+
+    registry["providers"]["zai_coding_plan"] = {
+        "billing": "GLM Coding Plan (Max), 5-hour and weekly credits; no quota API published",
+        "models": priced("zai-coding-plan"),
+    }
+    zai_key = secret("ZAI_CODING_PLAN_API_KEY")
+    if zai_key:
+        # The catalogue advertises models the plan may refuse ("your current
+        # subscription plan does not yet include access"), and a refused id is
+        # invisible until a worker fails on it. The plan's own model list is
+        # the live record of what this subscription can serve.
+        try:
+            served = {m.get("id") for m in get(ZAI_PLAN_MODELS, zai_key)["data"]}
+        except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as exc:
+            registry["zai_plan_error"] = str(exc)
+        else:
+            catalogue_ids = set(registry["providers"]["zai_coding_plan"]["models"])
+            registry["providers"]["zai_coding_plan"]["plan_available"] = sorted(
+                catalogue_ids & served)
+            registry["providers"]["zai_coding_plan"]["plan_refused"] = sorted(
+                catalogue_ids - served)
 
     zen_key = secret("OPENCODE_ZEN_API_KEY")
     zen_available = []
@@ -2501,6 +2686,9 @@ def cmd_probe(args, config):
         if info.get("inflight"):
             print(f"    in flight            {info['inflight']} dispatches holding "
                   f"{info['reserved']:.1f} points")
+        if info.get("unmetered"):
+            print("    -> unmetered plan: no quota API is published, so it is offered"
+                  " in every band behind the metered plans")
         if info["blocked"]:
             print(f"    -> {info['blocked']}")
     return 0
@@ -2562,6 +2750,29 @@ def exception_from_args(args, config: dict) -> tuple[dict | None, str | None]:
         return None, str(exc)
 
 
+def recorded_probes(path: str) -> dict:
+    """A recorded probe snapshot for offline routing: {provider: probe}.
+
+    The same policy code runs on recorded evidence instead of live reads, so
+    a plan can be compared against a reading that no longer exists. The file
+    is trusted exactly as far as its shape: every entry is normalized to the
+    probe contract and nothing here can widen credentials or spend quota.
+    """
+    document = load_json(Path(path).expanduser(), None)
+    if not isinstance(document, dict) or not document:
+        raise ValueError("probe snapshot must be a non-empty object keyed by provider")
+    probes = {}
+    for name, probe in document.items():
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z_]{1,32}", name) \
+                or not isinstance(probe, dict) \
+                or not isinstance(probe.get("status"), str) \
+                or not isinstance(probe.get("buckets", []), list):
+            raise ValueError(f"invalid probe entry {name!r}: need a status string"
+                             " and a buckets list")
+        probes[name] = {**probe, "name": name}
+    return probes
+
+
 def cmd_route(args, config):
     spec = args.task or Path(args.spec).read_text()
     try:
@@ -2573,8 +2784,17 @@ def cmd_route(args, config):
     if refused:
         print(f"model policy exception rejected: {refused}", file=sys.stderr)
         return 2
-    decision = route(spec, config, max_age=0 if args.fresh else None, hold=args.reserve,
-                     judgment=judgment, exception=exception)
+    probes = None
+    if args.probes:
+        try:
+            probes = recorded_probes(args.probes)
+        except (OSError, ValueError) as exc:
+            print(f"probe snapshot rejected: {exc}", file=sys.stderr)
+            return 2
+        print(f"# routing against recorded probes from {args.probes}; no live reads",
+              file=sys.stderr)
+    decision = route(spec, config, probes=probes, max_age=0 if args.fresh else None,
+                     hold=args.reserve, judgment=judgment, exception=exception)
     log_decision(decision, spec, dispatched=args.reserve, config=config)
     return print_decision(decision, args, config, spec)
 
@@ -2625,6 +2845,10 @@ def print_decision(args_decision, args, config, spec: str | None = None):
         print(f"dispatch   band {decision['band']} -> agent {decision['agent']}, model {cand['model']}{effort}")
     else:
         print("dispatch   nothing eligible, every provider is blocked")
+    window = decision.get("pricing_window")
+    if window and cand:
+        suffix = " (half credits)" if window == "off-peak" else " (premium credits skipped here)"
+        print(f"pricing    {cand['provider']}:{cand['model']} {window} window{suffix}")
     if decision["review"]:
         review = decision["review"]
         print(f"review     {review['provider']} {review['model']}")
@@ -2826,7 +3050,17 @@ def cmd_plan(args, config):
     if refused:
         print(f"model policy exception rejected: {refused}", file=sys.stderr)
         return 2
+    probes = None
+    if args.probes:
+        try:
+            probes = recorded_probes(args.probes)
+        except (OSError, ValueError) as exc:
+            print(f"probe snapshot rejected: {exc}", file=sys.stderr)
+            return 2
+        print(f"# planning against recorded probes from {args.probes}; no live reads",
+              file=sys.stderr)
     result = plan(specs, config, concurrency=args.concurrency, hold=args.reserve,
+                  probes=probes,
                   names=[p.stem for p in paths] if paths else None, exception=exception)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -2900,7 +3134,7 @@ def doctor(config: dict) -> list[tuple[str, str]]:
 
     candidates = {c for ladder in config["bands"].values() for c in ladder}
     candidates |= set(config.get("review_ladder", []))
-    missing, unverifiable = [], set()
+    missing, unverifiable, refused = [], set(), []
     for text in sorted(candidates):
         cand = parse_candidate(text)
         known = (providers.get(cand["provider"]) or {}).get("models") or {}
@@ -2908,10 +3142,16 @@ def doctor(config: dict) -> list[tuple[str, str]]:
             unverifiable.add(cand["provider"])
         elif cand["model"] not in known:
             missing.append(text)
+        elif cand["model"] in ((providers.get(cand["provider"]) or {}).get("plan_refused") or []):
+            refused.append(text)
     if missing:
         out.append(("error", "ladder models not in the catalogue: " + ", ".join(missing)
                     + " (a retired id fails only when a worker tries it)"))
-    else:
+    if refused:
+        out.append(("error", "ladder models refused by the plan: " + ", ".join(refused)
+                    + " (the subscription answers 'does not yet include access';"
+                      " verified live by refresh)"))
+    if not missing and not refused:
         out.append(("ok", f"{len(candidates)} ladder candidates all exist in the catalogue"))
     for name in sorted(unverifiable):
         out.append(("warn", f"{name}: catalogue is empty, so its ladder entries are unverified;"
@@ -2987,7 +3227,9 @@ def doctor(config: dict) -> list[tuple[str, str]]:
     for variable, why in (("TYPESAFE_API_KEY", "the judgment falls back to a keyword heuristic"),
                           ("OPENROUTER_API_KEY", "OpenRouter is unavailable"),
                           ("OPENCODE_API_KEY", "OpenCode quota cannot be read"),
-                          ("MINIMAX_API_KEY", "MiniMax subscription quota cannot be read")):
+                          ("MINIMAX_API_KEY", "MiniMax subscription quota cannot be read"),
+                          ("ZAI_CODING_PLAN_API_KEY",
+                           "GLM Coding Plan workers cannot launch without it")):
         if os.environ.get(variable):
             out.append(("ok", f"{variable}: environment selected; unverified"))
         elif (ROOT / ".infisical.json").exists():
@@ -2996,7 +3238,8 @@ def doctor(config: dict) -> list[tuple[str, str]]:
             else:
                 out.append(("warn", f"{variable}: vault binding incomplete; explicit project,"
                                     " environment and rightsizePath required"))
-        elif variable in ("OPENCODE_API_KEY", "MINIMAX_API_KEY") and OPENCODE_AUTH.is_file():
+        elif variable in ("OPENCODE_API_KEY", "MINIMAX_API_KEY",
+                          "ZAI_CODING_PLAN_API_KEY") and OPENCODE_AUTH.is_file():
             out.append(("ok", f"{variable}: native auth store present; unverified"))
         else:
             out.append(("warn", f"{variable} missing: {why}"))
@@ -3647,6 +3890,7 @@ def main(argv=None):
     route_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
     route_cmd.add_argument("--launcher", help="also print the launch command for this launcher (see config.json)")
     route_cmd.add_argument("--fresh", action="store_true", help="re-probe instead of using the cached reading")
+    route_cmd.add_argument("--probes", help="route against a recorded probe snapshot JSON; no live reads (shadow mode)")
     route_cmd.add_argument("--judgment", help="versioned task-bound judgment JSON from the active coding agent; skips the judge call")
     route_cmd.add_argument("--reserve", action="store_true",
                            help="hold this dispatch's estimated cost until it is reported done")
@@ -3671,6 +3915,7 @@ def main(argv=None):
     plan_cmd.add_argument("--concurrency", type=int, default=8, help="judgments in flight at once")
     plan_cmd.add_argument("--reserve", action="store_true",
                           help="hold each dispatch's estimated cost until it is reported done")
+    plan_cmd.add_argument("--probes", help="plan against a recorded probe snapshot JSON; no live reads (shadow mode)")
     plan_cmd.add_argument("--launcher", help="also print a launch command per task")
     plan_cmd.add_argument("--json", action="store_true")
     plan_cmd.set_defaults(func=cmd_plan)
