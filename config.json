@@ -100,8 +100,8 @@
   "launchers": {
     "_doc": "How a decision becomes a command. Each launcher maps a provider to a template, with `default` covering the rest. Fields: {provider} {agent} {model} {model_ref} {effort} {band} {spec} {spec_path}. Adding a launcher is config, not code: see docs/ADAPTERS.md.",
     "orca": {
-      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours. For opencode the model is bound by creating the terminal with `opencode -m <model>` and attaching the worker to it, because `--agent opencode` takes no model flag and `OPENCODE_MODEL` is ignored: a worker launched without the binding silently runs the default in ~/.config/opencode/opencode.json, and `rightsize audit` exists to catch exactly that. The chosen effort travels as a project config file (.rightsize-opencode.json, loaded through OPENCODE_CONFIG) rather than a flag, because that is the only wire-verified path for per-model reasoning options in OpenCode 2.0.20; it is a separate file so a repo's own opencode.json is never clobbered. Verified 2026-09-20 end to end; options wiring verified on the wire 2026-10-08. Use orca-current only when sharing the checkout is the point.",
-      "default": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\nWT=$(orca worktree create --name {name} --json | python3 -c 'import json,sys\ndef walk(n):\n    if isinstance(n, dict):\n        for k, v in n.items():\n            if k == \"path\" and isinstance(v, str) and v.startswith(\"/\"):\n                return v\n        for v in n.values():\n            r = walk(v)\n            if r: return r\n    elif isinstance(n, list):\n        for v in n:\n            r = walk(v)\n            if r: return r\nprint(walk(json.load(sys.stdin)) or \"\")')\nif [ -n \"$WT\" ]; then printf '%s' '__RIGHTSIZE_MODEL_OPTIONS__' > \"$WT/.rightsize-opencode.json\"; fi\nHANDLE=$(orca terminal create --worktree name:{name} --command \"env OPENCODE_CONFIG=\\\"$WT/.rightsize-opencode.json\\\" opencode -m {model_ref}\" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"result\"][\"terminal\"][\"handle\"])')\norca orchestration worker-start --spec {spec} --worktree name:{name} --terminal \"$HANDLE\" --json",
+      "_doc": "A worker-start launches a worker, which is by definition not the coordinator, so it gets its own worktree. `--worktree current` reuses the main checkout: the worker shares the coordinator's tree and branch, can write to main mid-merge, and cleanup can never find it because there is no worktree to remove. One such worker ran in a main checkout for 29 hours. For opencode the model is bound by creating the terminal with `opencode -m <model>` and attaching the worker to it, because `--agent opencode` takes no model flag and `OPENCODE_MODEL` is ignored: a worker launched without the binding silently runs the default in ~/.config/opencode/opencode.json, and `rightsize audit` exists to catch exactly that. The chosen effort is optionally written to a state file outside the worker worktree and loaded through OPENCODE_CONFIG; generic provider paths were wire-tested, but built-in coding-plan paths remain unverified. Evaluate OpenCode's native `-m provider/model#variant` form separately. Use orca-current only when sharing the checkout is the point.",
+      "default": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\nWT=$(orca worktree create --name {name} --json | python3 -c 'import json,sys\ndef walk(n):\n    if isinstance(n, dict):\n        for k, v in n.items():\n            if k == \"path\" and isinstance(v, str) and v.startswith(\"/\"):\n                return v\n        for v in n.values():\n            r = walk(v)\n            if r: return r\n    elif isinstance(n, list):\n        for v in n:\n            r = walk(v)\n            if r: return r\nprint(walk(json.load(sys.stdin)) or \"\")')\nSTATE_DIR=\"${{XDG_STATE_HOME:-$HOME/.local/state}}/rightsize/launch\"\nOPTIONS_FILE=\"$STATE_DIR/{name}.rightsize-opencode.json\"\nOPENCODE_COMMAND=\"opencode -m {model_ref}\"\nif [ -n \"$WT\" ] && [ '__RIGHTSIZE_MODEL_OPTIONS__' != '{{}}' ]; then mkdir -p \"$STATE_DIR\"; printf '%s' '__RIGHTSIZE_MODEL_OPTIONS__' > \"$OPTIONS_FILE\"; OPENCODE_COMMAND=\"env OPENCODE_CONFIG=\\\"$OPTIONS_FILE\\\" $OPENCODE_COMMAND\"; fi\nHANDLE=$(orca terminal create --worktree name:{name} --command \"$OPENCODE_COMMAND\" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"result\"][\"terminal\"][\"handle\"])')\norca orchestration worker-start --spec {spec} --worktree name:{name} --terminal \"$HANDLE\" --json",
       "codex": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent codex --json --model {model} --effort {effort}",
       "claude": "# once per coordinator terminal, if `orca orchestration run-current` shows none:\n#   orca orchestration run-create --objective \"<what this batch is for>\" --json\norca orchestration worker-start --spec {spec} --worktree new-child --name {name} --agent claude --json --model {model} --effort {effort}"
     },
@@ -170,19 +170,13 @@
     }
   },
   "effort_options": {
-    "_doc": "How a chosen effort level becomes OpenCode per-model options, verified on the wire 2026-10-08 against OpenCode 2.0.20: provider.<id>.models.<model>.options.reasoningEffort is sent as body reasoning_effort through the OpenAI-compatible protocol (zai-coding-plan), and options pass through unchanged on the anthropic protocol (minimax-coding-plan, where output_config.effort is the vendor-documented knob and only MiniMax-M3.1-Flash-Preview honours it). Models whose profile lists no efforts never emit options.",
+    "_doc": "How a chosen effort level becomes OpenCode per-model options. Generic OpenAI-compatible and Anthropic provider paths were wire-tested on 2026-10-08; the built-in zai-coding-plan and minimax-coding-plan paths remain unverified. Evaluate OpenCode's native `-m provider/model#variant` form separately. MiniMax emits no effort options until its built-in path is verified. Models whose profile lists no efforts never emit options.",
     "zai_coding_plan": {
       "low": {"reasoningEffort": "low"},
       "high": {"reasoningEffort": "high"},
       "max": {"reasoningEffort": "max"}
     },
-    "minimax": {
-      "low": {"output_config": {"effort": "low"}},
-      "medium": {"output_config": {"effort": "medium"}},
-      "high": {"output_config": {"effort": "high"}},
-      "xhigh": {"output_config": {"effort": "xhigh"}},
-      "max": {"output_config": {"effort": "max"}}
-    }
+    "minimax": {}
   },
   "peak_windows": {
     "_doc": "Vendor pricing schedule for premium models, quoted from docs.z.ai/devpack/overview: 'During off-peak hours, model usage is charged at 50% of the standard credit rate' with 'Peak hours: Monday to Friday, 14:00-18:00 Singapore Standard Time (UTC+8)'. weekdays are Python weekday numbers with Monday=0. During peak (or an unresolvable timezone) premium models are not routed at all; off-peak their dispatch cost is multiplied by off_peak_multiplier.",
@@ -228,17 +222,17 @@
   "model_policy": {
     "forbidden": {
       "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role",
-      "claude:claude-haiku-4-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; no Claude workers in any role",
-      "claude:claude-opus-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; no Claude workers in any role",
-      "opencode:deepseek-v4-pro": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:deepseek-v4.1-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:glm-5.3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:glm-5.3-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:kimi-k2.6": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:kimi-k2.7-code": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:kimi-k3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:minimax-m3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:qwen3.8-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "claude:claude-haiku-4-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; no Claude workers in any role",
+      "claude:claude-opus-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; no Claude workers in any role",
+      "opencode:deepseek-v4-pro": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:deepseek-v4.1-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:glm-5.3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:glm-5.3-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:kimi-k2.6": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:kimi-k2.7-code": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:kimi-k3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:minimax-m3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
+      "opencode:qwen3.8-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
       "zai_coding_plan:glm-5.3": "owner 2026-10-08: GLM limited to glm-5.3-flash",
       "zai_coding_plan:glm-5.2": "owner 2026-10-08: GLM limited to glm-5.3-flash",
       "zai_coding_plan:glm-5-turbo": "owner 2026-10-08: GLM limited to glm-5.3-flash",
@@ -590,7 +584,7 @@
         "max"
       ],
       "effort_by_task": {},
-      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic: always thinks, thinking depth tunable via output_config.effort (low, medium, high, xhigh, max; default max), and that knob passes OpenCode's anthropic options on the wire (verified 2026-10-08). Multimodal. Band 1 flash tier by plan tier, not comparative task evaluation"
+      "evidence": "platform.minimax.io/docs/api-reference/text-chat-anthropic: always thinks, thinking depth is documented as tunable via output_config.effort (low, medium, high, xhigh, max; default max). Generic Anthropic options passed on the wire, but the built-in minimax-coding-plan path is unverified 2026-10-08. Multimodal. Band 1 flash tier by plan tier, not comparative task evaluation"
     },
     "minimax:MiniMax-M2.7": {
       "family": "minimax-m2.7",
@@ -653,7 +647,7 @@
         "max"
       ],
       "effort_by_task": {},
-      "evidence": "docs.z.ai/devpack/overview: supported on every plan; docs.z.ai/openapi.json documents reasoning_effort with 'only the low/high/max levels' for GLM-5.3, and the reasoningEffort option reaches the wire as reasoning_effort through OpenCode 2.0.20 (verified 2026-10-08). Owner policy 2026-10-08: last resort for difficult work, off-peak only, at a higher dispatch cost"
+      "evidence": "docs.z.ai/devpack/overview: supported on every plan; docs.z.ai/openapi.json documents reasoning_effort with 'only the low/high/max levels' for GLM-5.3. Generic OpenCode provider wiring was wire-tested 2026-10-08, but the built-in coding-plan path and native -m provider/model#variant form remain unverified. Owner policy 2026-10-08: last resort for difficult work, off-peak only, at a higher dispatch cost"
     },
     "zai_coding_plan:glm-5.3-flash": {
       "family": "glm-5.3-flash",
@@ -671,7 +665,7 @@
         "max"
       ],
       "effort_by_task": {},
-      "evidence": "docs.z.ai/devpack/overview: supported on every plan, low credit multipliers; reasoning_effort low/high/max per docs.z.ai/openapi.json, wire-verified through OpenCode 2026-10-08. Owner policy 2026-10-08: default GLM model for routine work and the band-3 fallback when premium GLM is peak-blocked; deep-tier capabilities are the fallback role, not a claim that flash matches glm-5.3"
+      "evidence": "docs.z.ai/devpack/overview: supported on every plan, low credit multipliers; reasoning_effort low/high/max per docs.z.ai/openapi.json. Generic OpenCode provider wiring was wire-tested 2026-10-08, but the built-in coding-plan path and native -m provider/model#variant form remain unverified. Owner policy 2026-10-08: default GLM model for routine work and band-3 fallback when Codex has no eligible capacity; deep-tier capabilities are the fallback role, not a claim that flash matches glm-5.3"
     },
     "zai_coding_plan:glm-5-turbo": {
       "family": "glm-5-turbo",

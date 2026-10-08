@@ -492,7 +492,7 @@ def probe_zai_coding_plan(config=None, key=None) -> dict:
     (model APIs only), the models.dev entry, and Z.AI's own
     @z_ai/coding-helper npm package. Live GETs to every monitor/quota/usage
     path shape under api.z.ai answered 404 or an internal NOT_FOUND. No
-    endpoint is invented here: the probe verifies the credential and reports
+    endpoint is invented here: the probe confirms credential presence only and reports
     `unmetered`, which the policy offers in every band behind the metered
     plans rather than as a fabricated percentage.
     """
@@ -2394,12 +2394,10 @@ def launch_fields(decision: dict, config: dict, spec_path: str | None,
         "band": decision["band"],
         "spec": quoted,
         "spec_path": spec_path or "<task file>",
-        # A whole OpenCode config document, so a chosen reasoning effort
-        # reaches the model no matter which runtime loads it. Wire-verified
-        # 2026-10-08: options.reasoningEffort is sent as body reasoning_effort
-        # (openai-compatible plans) and options.thinking / output_config pass
-        # through unchanged on the anthropic protocol. "{}" means the model
-        # exposes no effort knob and nothing is overridden.
+        # A whole OpenCode config document, so a chosen reasoning effort can
+        # reach the model no matter which runtime loads it. Generic provider
+        # paths were wire-tested; the built-in coding-plan paths remain
+        # unverified. "{}" means no effort override is emitted.
         "model_options_config": model_options_config(cand, config, prefix),
     }
 
@@ -3240,7 +3238,7 @@ def doctor(config: dict) -> list[tuple[str, str]]:
                                     " environment and rightsizePath required"))
         elif variable in ("OPENCODE_API_KEY", "MINIMAX_API_KEY",
                           "ZAI_CODING_PLAN_API_KEY") and OPENCODE_AUTH.is_file():
-            out.append(("ok", f"{variable}: native auth store present; unverified"))
+            out.append(("ok", f"{variable}: native OpenCode credential present; unverified"))
         else:
             out.append(("warn", f"{variable} missing: {why}"))
 

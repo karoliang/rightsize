@@ -44,7 +44,8 @@ API. Checked on 2026-10-08, none of these expose one:
 - live GETs against every monitor/quota/usage path shape under api.z.ai
   (404 or an internal `404 NOT_FOUND`).
 
-So `probe_zai_coding_plan` verifies the credential and returns
+So `probe_zai_coding_plan` confirms credential presence, but does not verify
+that the credential is accepted by a live endpoint, and returns
 `{"status": "ok", "unmetered": true}` with no buckets and no invented
 numbers. Policy treats an unmetered plan as eligible in every band, sorted
 behind the metered plans, which is exactly the owner's spreading rule: when
@@ -66,25 +67,27 @@ access", verified live by dispatch and by the plan's own `/models` list).
 `plan_available` / `plan_refused` per provider, and `doctor` errors on any
 ladder entry the plan refuses.
 
-## Effort reaches the model through OpenCode config, verified on the wire
+## Effort wiring is partly verified, but built-in coding-plan paths are not
 
-OpenCode 2.0.20 has no effort flag for these providers, but per-model
-options pass through: with a local echo endpoint standing in for the
-provider, `provider.<id>.models.<model>.options.reasoningEffort` was observed
-on the wire as body `reasoning_effort` (OpenAI-compatible path, which is what
-`zai-coding-plan` uses), and `options.thinking` / `options.output_config`
-pass through unchanged on the anthropic path (which is what
-`minimax-coding-plan` uses). Z.AI documents `reasoning_effort` with only
+OpenCode 2.0.20 has no generic effort flag for these providers, but per-model
+options passed through on generic providers in a local echo test:
+`provider.<id>.models.<model>.options.reasoningEffort` was observed as body
+`reasoning_effort` on an OpenAI-compatible provider, and
+`options.thinking` / `options.output_config` passed through on an Anthropic
+provider. The built-in `zai-coding-plan` and `minimax-coding-plan` providers
+were not wire-verified, so these options remain unverified there. Evaluate
+OpenCode's native `-m provider/model#variant` form separately. Z.AI documents `reasoning_effort` with only
 `low`/`high`/`max` for GLM-5.3 family models; MiniMax's anthropic-compatible
 Messages API documents `output_config.effort` (low..max) honoured by
 `MiniMax-M3.1-Flash-Preview` only.
 
 `effort_options` in config.json maps levels to those options; the launcher
 templates carry the rendered document (`__RIGHTSIZE_MODEL_OPTIONS__` replaced
-post-format by `launch_command`): the orca launcher writes
-`.rightsize-opencode.json` into the new worktree and starts opencode with
-`OPENCODE_CONFIG` pointing at it; the shell launcher inlines
-`OPENCODE_CONFIG_CONTENT`. A repo's own `opencode.json` is never clobbered.
+post-format by `launch_command`): the orca launcher writes any non-empty
+options file under RightSize's state directory, outside the new worktree, and
+starts opencode with `OPENCODE_CONFIG` pointing at it; the shell launcher
+inlines `OPENCODE_CONFIG_CONTENT`. A repo's own `opencode.json` is never
+clobbered. MiniMax emits no effort options until its built-in path is verified.
 
 ## Sources
 

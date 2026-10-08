@@ -4,8 +4,8 @@
     "status": "ok",
     "quota_account_ref": "recorded-snapshot-minimax",
     "buckets": [
-      {"id": "rolling", "percent": 18.0, "resets_at": 1789900000, "source": "live"},
-      {"id": "weekly", "percent": 34.0, "resets_at": 1790400000, "source": "live"}
+      {"id": "rolling", "percent": 18.0, "resets_at": 1893456000, "source": "live"},
+      {"id": "weekly", "percent": 34.0, "resets_at": 1893888000, "source": "live"}
     ]
   },
   "zai_coding_plan": {
@@ -13,5 +13,13 @@
     "status": "ok",
     "unmetered": true,
     "quota_account_ref": "recorded-snapshot-zai"
+  },
+  "codex": {
+    "name": "codex",
+    "status": "ok",
+    "quota_account_ref": "recorded-snapshot-codex",
+    "buckets": [
+      {"id": "primary-10080m", "percent": 20.0, "resets_at": 1893888000, "source": "live"}
+    ]
   }
 }

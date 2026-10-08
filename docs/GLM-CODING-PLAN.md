@@ -49,9 +49,9 @@ ladder, and `doctor` errors if a refused id is laddered.
 
 ## Effort
 
-`glm-5.3-flash` accepts `low`/`high`/`max` (Z.AI's documented levels), sent
-as OpenCode per-model options (`reasoningEffort`), which the launcher
-templates deliver into the worktree as `.rightsize-opencode.json` loaded
-through `OPENCODE_CONFIG`. Wire-verified 2026-10-08. `MiniMax-M3.1-Flash-Preview`
-similarly takes `output_config.effort`; other MiniMax models expose no knob
-through OpenCode and get none.
+`glm-5.3-flash` documents `low`/`high`/`max` (Z.AI's documented levels), and
+generic OpenCode provider wiring was observed with per-model options. The
+built-in `zai-coding-plan` path is not wire-verified, so the launcher claim is
+unverified. Evaluate OpenCode's native `-m zai-coding-plan/glm-5.3-flash#<variant>`
+form separately. The built-in MiniMax path is also unverified, so MiniMax
+effort options are emitted as nothing until that path is tested.
