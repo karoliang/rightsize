@@ -184,6 +184,9 @@ class ZaiCodingPlanTests(unittest.TestCase):
                 "buckets": [{"id": "primary-300m", "percent": percent,
                              "resets_at": 2000, "source": "live"}]}
 
+    def recorded_probes(self, name):
+        return r.recorded_probes(r.Path(__file__).with_name("fixtures") / f"{name}.json")
+
     def test_codex_serves_deep_tiers_only(self):
         elig = r.eligibility(self.config, {"zai_coding_plan": self.probe(),
                                            "codex": self.codex_probe()}, record=False)
@@ -197,6 +200,65 @@ class ZaiCodingPlanTests(unittest.TestCase):
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
             self.assertEqual(decision["pick"]["provider"], "codex", tier)
+
+    def test_routine_never_reaches_codex_or_claude(self):
+        """The shipped profiles must still hold if a later ladder edit is wrong."""
+        probes = {"minimax": {"status": "no-credential", "buckets": []},
+                  "zai_coding_plan": {"status": "no-credential", "buckets": []},
+                  "codex": self.codex_probe(percent=5),
+                  "claude": {"status": "ok", "buckets": [{"id": "weekly",
+                              "percent": 5, "resets_at": 2000, "source": "live"}]}}
+        elig = r.eligibility(self.config, probes, record=False)
+        for tier in ("mechanical", "implementation"):
+            decision = r.decide({"tier": tier, "size": 0.4, "second_opinion": 0.2,
+                                 "spec_complete": 0.9, "destructive": 0.0},
+                                self.config, elig)
+            self.assertIsNone(decision["pick"], tier)
+
+    def test_difficult_order_ignores_later_claude_headroom(self):
+        probes = self.recorded_probes("healthy-claude-high")
+        for tier in ("design", "diagnosis", "high_stakes"):
+            judgment = {"tier": tier, "size": 0.4, "second_opinion": 0.2,
+                        "spec_complete": 0.9, "destructive": 0.0}
+            elig = r.eligibility(self.config, probes, record=False)
+            self.assertEqual(r.decide(judgment, self.config, elig)["pick"]["model"],
+                             "gpt-5.6-luna", tier)
+        judgment = {"tier": "design", "size": 0.4, "second_opinion": 0.2,
+                    "spec_complete": 0.9, "destructive": 0.0}
+        for previous, expected in (({"codex:gpt-5.6-luna"}, "gpt-5.6-terra"),
+                                   ({"codex:gpt-5.6-luna", "codex:gpt-5.6-terra"},
+                                    "gpt-6-sol")):
+            decision = r.decide(judgment, self.config,
+                                r.eligibility(self.config, probes, record=False),
+                                exclude=previous, attempt=1)
+            self.assertEqual(decision["pick"]["model"], expected)
+
+    def test_claude_reserve_blocks_difficult_work_at_and_below_readings(self):
+        for name in ("codex-blocked-claude-at-reserve", "codex-blocked-claude-below-reserve"):
+            with self.subTest(snapshot=name):
+                for tier in ("design", "diagnosis", "high_stakes"):
+                    judgment = {"tier": tier, "size": 0.4, "second_opinion": 0.2,
+                                "spec_complete": 0.9, "destructive": 0.0}
+                    decision = r.decide(judgment, self.config,
+                                        r.eligibility(self.config,
+                                                      self.recorded_probes(name), record=False))
+                    self.assertIsNone(decision["pick"])
+                    self.assertTrue(any("below reserve" in note for note in decision["notes"]))
+
+    def test_flash_reviews_difficult_work_but_never_works_it(self):
+        probes = self.recorded_probes("codex-blocked-claude-at-reserve")
+        probes["codex"]["buckets"][0]["percent"] = 20
+        probes["minimax"] = {"status": "no-credential", "buckets": []}
+        judgment = {"tier": "high_stakes", "size": 0.4, "second_opinion": 0.9,
+                    "spec_complete": 0.9, "destructive": 0.0}
+        decision = r.decide(judgment, self.config,
+                            r.eligibility(self.config, probes, record=False))
+        self.assertEqual(decision["pick"]["model"], "gpt-5.6-luna")
+        self.assertEqual((decision["review"] or {}).get("model"), "glm-5.3-flash")
+        for tier in ("design", "diagnosis", "high_stakes"):
+            worker = r.decide({**judgment, "tier": tier}, self.config,
+                              r.eligibility(self.config, probes, record=False))["pick"]
+            self.assertNotEqual((worker or {}).get("model"), "glm-5.3-flash", tier)
 
     def test_codex_token_saving_order_and_sol_only_for_top_profile(self):
         elig = r.eligibility(self.config, {"zai_coding_plan": self.probe(),
@@ -246,6 +308,16 @@ class ZaiCodingPlanTests(unittest.TestCase):
                          exclude={"claude:claude-sonnet-5-5"}, attempt=1)
         self.assertEqual((retry["pick"]["provider"], retry["pick"]["model"]),
                          ("claude", "claude-opus-5-5"))
+
+    def test_opus_is_never_a_first_attempt_worker(self):
+        judgment = {"tier": "high_stakes", "size": 0.4, "second_opinion": 0.2,
+                    "spec_complete": 0.9, "destructive": 0.0}
+        probes = {"codex": self.codex_probe(percent=99.5),
+                  "claude": {"status": "ok", "buckets": [{"id": "weekly",
+                              "percent": 20, "resets_at": 2000, "source": "live"}]}}
+        decision = r.decide(judgment, self.config, r.eligibility(self.config, probes, record=False),
+                            exclude={"claude:claude-sonnet-5-5"})
+        self.assertIsNone(decision["pick"])
 
     def test_rerun_previous_is_repeatable_and_reaches_sol(self):
         probes = {"codex": self.codex_probe(), "claude": {"status": "no-credential",
@@ -468,6 +540,21 @@ class ZaiCodingPlanTests(unittest.TestCase):
             rows = r.doctor(config)
         refused = [m for _, m in rows if "refused by the plan" in m]
         self.assertTrue(refused and "zai_coding_plan:glm-5.3-highspeed" in refused[0])
+
+    def test_doctor_catalogue_includes_current_claude_ladder_models(self):
+        current_models = ("claude-sonnet-5-5", "claude-opus-5-5")
+        self.assertTrue(set(current_models) <= set(r.CLAUDE_MODELS))
+        registry = {"providers": {"claude": {"models": {model: {} for model in current_models}}}}
+        root = Path(self.temp.name)
+        registry_path = root / "registry.json"
+        registry_path.write_text(json.dumps(registry))
+        with patch.object(r, "REGISTRY", registry_path), \
+                patch.object(r, "probe_codex", return_value={"status": "unknown",
+                                                             "buckets": [], "account": {}}), \
+                patch.object(accounts, "runtime_version", return_value="test"):
+            rows = r.doctor(self.config)
+        missing = [message for _, message in rows if "ladder models not in the catalogue" in message]
+        self.assertFalse(any(model in " ".join(missing) for model in current_models), missing)
 
     # -------------------------------------------------------------- fan-out
 

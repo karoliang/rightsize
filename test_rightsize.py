@@ -560,18 +560,17 @@ def main():
 
     # money.financial, 2026-09-20: opencode's weekly had 8 usable points and
     # reset in 19 hours while codex sat at 0 per cent with a week of room, and a
-    # design task was banded onto the emptying bucket at its most expensive
-    # rung. Expiring-first is right while a bucket has slack, and wrong when it
-    # does not.
+    # design task stayed on the Codex rung. Difficult-work owner order now
+    # takes precedence over cross-provider headroom.
     thin = {"opencode": time.time() + 19 * HOUR, "codex": time.time() + 7 * 86400}
     decision = route_with(judged("design"), probes(opencode=77, codex=0, resets=thin),
                           config=UNRESTRICTED)
     assert decision["band"] == 3, decision["band"]
     assert decision["pick"]["provider"] == "codex", decision["pick"]
-    assert any("roomiest plan" in note for note in decision["notes"]), decision["notes"]
+    assert any("strict owner ladder order" in note for note in decision["notes"]), decision["notes"]
 
     # The cheap rung still spends the expiring bucket, which is the whole point
-    # of rule 3: it is the expensive rung that must not land there.
+    # of rule 3, while the difficult rung follows the explicit owner chain.
     # Cleared first: a snapshot left by an earlier case would now be read as
     # this provider's burn rate, since every bucket is paced against one.
     ar.save_json(ar.STATE, {})

@@ -1,0 +1,6 @@
+{
+ "minimax": {"name": "minimax", "status": "ok", "quota_account_ref": "syn-mm", "buckets": [{"id": "rolling", "percent": 18, "resets_at": 1893456000, "source": "live"}, {"id": "weekly", "percent": 18, "resets_at": 1893888000, "source": "live"}]},
+ "zai_coding_plan": {"name": "zai_coding_plan", "status": "ok", "unmetered": true, "quota_account_ref": "syn-zai"},
+ "codex": {"name": "codex", "status": "ok", "quota_account_ref": "syn-cx", "buckets": [{"id": "primary-10080m", "percent": 99.5, "resets_at": 1893888000, "source": "live"}]},
+ "claude": {"name": "claude", "status": "ok", "quota_account_ref": "syn-cl", "buckets": [{"id": "rolling-300m", "percent": 20, "resets_at": 1893456000, "source": "live"}, {"id": "weekly-10080m", "percent": 20, "resets_at": 1893888000, "source": "live"}]}
+}

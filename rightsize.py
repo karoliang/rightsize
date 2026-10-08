@@ -96,7 +96,8 @@ CODEX_MODELS = HOME / ".codex/models_cache.json"
 CLAUDE_PROJECTS = HOME / ".claude/projects"
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
 
-CLAUDE_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5-1"]
+CLAUDE_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5-1",
+                 "claude-sonnet-5-5", "claude-opus-5-5"]
 
 
 # --------------------------------------------------------------------------
@@ -1703,23 +1704,27 @@ def qualified_candidates(candidates: list[str], config: dict, judgment: dict,
         elif int(profile.get("min_task_band", 0)) > tier_floor:
             notes.append(f"{text} skipped: reserved for task classes at band"
                          f" {profile['min_task_band']} and above (owner policy)")
-        elif profile.get("retry_capabilities") and attempt:
-            capabilities = set(profile.get("capabilities", [])) | set(profile["retry_capabilities"])
-            if not requirements <= capabilities:
-                missing = sorted(requirements - capabilities)
-                notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
-                continue
-            accepted.append(text)
-        elif not requirements <= set(profile.get("capabilities", [])):
-            missing = sorted(requirements - set(profile.get("capabilities", [])))
-            notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
-        elif cand.get("effort") and cand["effort"] not in profile.get("efforts", []):
-            notes.append(f"{text} skipped: unsupported model effort {cand['effort']}")
-        elif (profile.get("effort_by_task", {}).get(judgment["tier"])
-              and profile["effort_by_task"][judgment["tier"]] not in profile.get("efforts", [])):
-            notes.append(f"{text} skipped: unsupported configured task effort")
         else:
-            accepted.append(text)
+            # Only profiles explicitly marked review-only may review a harder
+            # task without also being qualified to implement it.
+            required = {"review"} if review and profile.get("review_only") else requirements
+            if profile.get("retry_capabilities") and attempt:
+                capabilities = set(profile.get("capabilities", [])) | set(profile["retry_capabilities"])
+                if not required <= capabilities:
+                    missing = sorted(required - capabilities)
+                    notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
+                    continue
+                accepted.append(text)
+            elif not required <= set(profile.get("capabilities", [])):
+                missing = sorted(required - set(profile.get("capabilities", [])))
+                notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
+            elif cand.get("effort") and cand["effort"] not in profile.get("efforts", []):
+                notes.append(f"{text} skipped: unsupported model effort {cand['effort']}")
+            elif (profile.get("effort_by_task", {}).get(judgment["tier"])
+                  and profile["effort_by_task"][judgment["tier"]] not in profile.get("efforts", [])):
+                notes.append(f"{text} skipped: unsupported configured task effort")
+            else:
+                accepted.append(text)
     return accepted, notes
 
 
@@ -1838,16 +1843,15 @@ def policy_exception(config: dict, model: str, necessity: str | None,
 def pick(candidates: list[str], elig: dict, band: int,
          exclude: set[str] | dict[str, str] | None = None,
          config: dict | None = None, relax_pace: bool = False) -> tuple[dict | None, list[str]]:
-    """Among eligible candidates, spend the bucket that expires first, unless
-    this dispatch is too expensive for what that bucket has left.
+    """Among eligible candidates, spend the bucket that expires first, except
+    that difficult-work owner order is strict.
 
     Rule 3 is about not wasting capacity that is about to vanish, and the way to
     waste it is to spend it on the most expensive rung. A bucket with a handful
     of points and a reset in the morning should absorb as much cheap work as it
-    can; an expensive dispatch belongs on the plan with a week of room, which
-    would otherwise sit idle. So the cheap bands still take the soonest reset,
-    while an expensive one prefers the most headroom, and a bucket that cannot
-    even afford the dispatch is passed over.
+    can. Cheap bands therefore take the soonest reset. The difficult-work
+    ladder is an owner-mandated escalation chain, so it follows its declared
+    order after eligibility filtering, rather than comparing provider room.
 
     `exclude` is the one gate every candidate passes through, whichever ladder
     and whichever role it came from. Pass a mapping to say why each entry is
@@ -1902,9 +1906,9 @@ def pick(candidates: list[str], elig: dict, band: int,
             continue
         expensive = band >= int((config or {}).get("expensive_band", 3))
         if expensive:
-            # Most room first: expiring capacity is worth more spent on cheap
-            # work, and this rung has somewhere roomier to go.
-            order = (-(room if room is not None else 0), resets)
+            # Difficult work follows the owner chain (luna -> terra -> sol ->
+            # Claude), regardless of how much room a later provider has.
+            order = (index,)
         else:
             order = (resets, 0)
         usable.append((order, index, cand, text, info))
@@ -1913,10 +1917,9 @@ def pick(candidates: list[str], elig: dict, band: int,
     usable.sort(key=lambda row: (row[0], row[1]))
     order, _, cand, text, info = usable[0]
     resets = info["resets_at"] or float("inf")
-    if band >= int((config or {}).get("expensive_band", 3)) and info["usable"] is not None:
-        notes.append(f"{text} chosen: band {band} is the expensive rung, so it goes to the"
-                     f" roomiest plan ({info['usable']:.0f} points) rather than the one expiring"
-                     " soonest, which is worth more spent on cheap work")
+    if band >= int((config or {}).get("expensive_band", 3)):
+        notes.append(f"{text} chosen: band {band} follows the strict owner ladder order"
+                     " after policy and quota eligibility filtering")
         return cand, notes
     if resets != float("inf"):
         notes.append(
@@ -2246,7 +2249,11 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
     if judgment["tier"] == "high_stakes":
         reasons.append("high-stakes work requires independent review before acceptance")
     if review_required and chosen:
-        candidates = config["review_ladder"] if review_band == 1 else ladders[str(review_band)]
+        # Difficult reviewers may be review-only qualified. Start from the raw
+        # ladder here, rather than the worker-qualified list, so a model such
+        # as GLM flash can review a difficult task without becoming its worker.
+        candidates = (config["review_ladder"] if review_band == 1
+                      else config["bands"][str(review_band)])
         profiles = config.get("model_profiles") or {}
         selected_profile = profiles.get(f"{chosen['provider']}:{chosen['model']}", {})
         selected_family = selected_profile.get("family", chosen["model"])

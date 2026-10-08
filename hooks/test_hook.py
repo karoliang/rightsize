@@ -78,7 +78,7 @@ def main():
     # including the empty-options MiniMax path. Post-launch booking must still
     # identify the provider from that rendered command.
     for provider, model, effort, band, has_options in (
-            ("zai_coding_plan", "glm-5.3", "max", 3, True),
+            ("zai_coding_plan", "glm-5.3-flash", "max", 1, True),
             ("minimax", "MiniMax-M2.7-highspeed", None, 1, False)):
         decision = {"pick": {"provider": provider, "model": model, "effort": effort},
                     "agent": "opencode", "band": band, "worktree_name": "hook-test"}
