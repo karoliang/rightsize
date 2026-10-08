@@ -2769,7 +2769,7 @@ def recorded_probes(path: str) -> dict:
                 or not isinstance(probe.get("buckets", []), list):
             raise ValueError(f"invalid probe entry {name!r}: need a status string"
                              " and a buckets list")
-        probes[name] = {**probe, "name": name}
+        probes[name] = {**probe, "name": name, "buckets": probe.get("buckets", [])}
     return probes
 
 
