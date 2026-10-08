@@ -337,7 +337,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                 effort, _ = r.effort_for(self.config, cand, band, {"tier": tier})
                 self.assertEqual(effort, expected)
 
-    def test_launch_fields_emit_wire_verified_model_options(self):
+    def test_launch_fields_emit_only_verified_model_options(self):
         decision = {"pick": {"provider": "zai_coding_plan", "model": "glm-5.3",
                              "effort": "max"},
                     "agent": "opencode", "band": 3,
@@ -350,9 +350,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                           "effort": "low"}, "agent": "opencode", "band": 1}
         fields = r.launch_fields(flash, self.config, None, "do the task")
         options = json.loads(fields["model_options_config"])
-        self.assertEqual(options["provider"]["minimax-coding-plan"]["models"]
-                         ["MiniMax-M3.1-Flash-Preview"]["options"],
-                         {"output_config": {"effort": "low"}})
+        self.assertEqual(options, {})
         no_knob = {"pick": {"provider": "minimax", "model": "MiniMax-M3", "effort": None},
                    "agent": "opencode", "band": 2}
         fields = r.launch_fields(no_knob, self.config, None, "do the task")

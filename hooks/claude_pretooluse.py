@@ -195,6 +195,16 @@ def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
     if not model:
         for setup in command_segments(command):
             tokens = shlex.split(setup)
+            if tokens and tokens[0].startswith("OPENCODE_COMMAND="):
+                nested = tokens[0].split("=", 1)[1]
+                inner = shlex.split(nested)
+                while inner and (inner[0] == "env"
+                                 or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", inner[0])):
+                    inner = inner[1:]
+                if inner and Path(inner[0]).name == "opencode":
+                    agent, model = "opencode", flag_value(inner, "--model", "-m")
+                    if model:
+                        break
             # Assignment prefix is present in the shipped HANDLE=$(orca ...) form.
             if not tokens or not re.fullmatch(r"(?:\w+=\$\()?orca", tokens[0]):
                 continue
