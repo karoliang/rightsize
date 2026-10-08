@@ -22,7 +22,7 @@ emphasis in prose changes which list `pick()` walks.
 
 The second half was narrower and worse. Before Sol joined band 3,
 `rerun --previous codex:gpt-6-astra` correctly kept Astra out of the
-implementer ladder, re-decided to `claude:claude-opus-5-5` without lowering the
+implementer ladder, re-decided to `claude:claude-opus-5` without lowering the
 quality floor, and then selected `codex:gpt-6-astra` as the reviewer. An
 exclusion that covers one role is not an exclusion; a forbidden model simply
 arrives through the other door.

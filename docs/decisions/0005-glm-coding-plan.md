@@ -9,7 +9,7 @@ is built end to end (accounts, credential resolution, probe, catalogue,
 bands, profiles, doctor, docs). OpenCode serves it through the
 `zai-coding-plan/` model prefix on the GLM Coding Plan (Max).
 
-Three owner decisions made during implementation, in order:
+Four owner decisions made during implementation, in order:
 
 1. Economical GLM (2026-10-08): routine work defaults to the cheap models
    (`glm-5.3-flash` first), and premium models (`glm-5.3`, `glm-5.2`) carry a
@@ -27,12 +27,12 @@ Three owner decisions made during implementation, in order:
    only and never qualifies for difficult tasks.
 4. Claude fallback above reserve (2026-10-08): difficult work falls back to
    `claude:claude-sonnet-5-5`, then `claude:claude-opus-5-5` after a Sonnet
-   retry fails, then blocks with nothing eligible. Opus is direct-eligible for
-   high-stakes work and retry-eligible for design and diagnosis. Claude's
+   retry fails, then blocks with nothing eligible. Opus is retry-eligible only
+   after Sonnet for design, diagnosis and high-stakes work. Claude's
    30-percent reserve remains enforced, and `claude:claude-haiku-4-5` remains
    forbidden.
 
-Decision 3 is what config.json currently enforces. The peak-window and
+Decisions 3 and 4 are what config.json currently enforce. The peak-window and
 premium-cost machinery from decisions 1 and 2 remains in place and dormant:
 removing the premium GLM entries from `model_policy.forbidden` re-activates
 premium routing with the peak gate and the off-peak half-cost estimate,

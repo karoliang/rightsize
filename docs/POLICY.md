@@ -384,7 +384,7 @@ task. Sending ordinary implementation work to a band 3 model because the cheap
 plans are momentarily busy is the expensive mistake this tool exists to
 prevent, and at a hundred tasks it is expensive a hundred times over. Before
 this rule existed, a 100-task fan-out put three band 1 tasks on
-`claude-opus-5-5`.
+`claude-opus-5`.
 
 Tasks blocked for a low `spec_complete` are not a capacity problem and never
 enter a wave. They are listed separately, because the fix is to the brief.
