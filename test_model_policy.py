@@ -25,7 +25,7 @@ import rightsize as r
 ASTRA = "codex:gpt-6-astra"
 SOL = "codex:gpt-6-sol"
 LUNA = "codex:gpt-5.6-luna"
-OPUS = "claude:claude-opus-5"
+OPUS = "claude:claude-sonnet-5-5"
 GLM_FORBIDDEN = tuple(f"zai_coding_plan:{model}" for model in (
     "glm-5.3", "glm-5.2", "glm-5-turbo", "glm-4.7",
     "glm-5.3-highspeed", "glm-5.2-highspeed"))
@@ -174,7 +174,7 @@ class ModelPolicyTests(unittest.TestCase):
                 "zai_coding_plan:glm-5.3-flash"]
         d = r.decide(self.judgment("design"), c, self.eligibility({
             "zai_coding_plan": 999, "codex": 999}))
-        self.assertEqual(self.picked(d), "zai_coding_plan:glm-5.3-flash")
+        self.assertIsNone(self.picked(d))
 
     def test_every_tier_and_band_is_covered(self):
         for tier in ('mechanical', 'implementation', 'design', 'diagnosis', 'high_stakes'):
@@ -216,9 +216,9 @@ class ModelPolicyTests(unittest.TestCase):
                                                            'unmetered': True}})
         self.assertEqual(self.picked(decision), LUNA)
         self.assertNotEqual(self.reviewer(decision), ASTRA)
-        self.assertEqual(self.reviewer(decision), 'zai_coding_plan:glm-5.3-flash')
+        self.assertEqual(self.reviewer(decision), 'claude:claude-sonnet-5-5')
         self.assertNotEqual(self.picked(decision), self.reviewer(decision))
-        self.assertTrue(any(n.startswith("review:") and "glm-5.3-flash" in n and "chosen" in n
+        self.assertTrue(any(n.startswith("review:") and "claude-sonnet-5-5" in n and "chosen" in n
                             for n in decision["notes"]))
         self.assertIn(ASTRA, decision["policy"]["enforced"])
         self.assertTrue(decision["review_required"])
@@ -228,8 +228,8 @@ class ModelPolicyTests(unittest.TestCase):
         c['bands']['3'] = [ASTRA, LUNA, OPUS]
         d = r.decide(self.judgment('high_stakes'), c,
                      self.eligibility({'claude': 90, 'codex': 10}))
-        self.assertEqual(self.picked(d), LUNA)
-        self.assertIsNone(self.reviewer(d))
+        self.assertEqual(self.picked(d), OPUS)
+        self.assertEqual(self.reviewer(d), LUNA)
         loose = r.decide(self.judgment('high_stakes'), self.without_policy(c),
                          self.eligibility({'claude': 90, 'codex': 10}))
         # Same shape without the policy: the reviewer slot is exactly the hole.
@@ -305,7 +305,7 @@ class ModelPolicyTests(unittest.TestCase):
                                                            'unmetered': True}})
         self.assertEqual(self.picked(decision), LUNA)
         self.assertNotEqual(self.reviewer(decision), ASTRA)
-        self.assertEqual(self.reviewer(decision), 'zai_coding_plan:glm-5.3-flash')
+        self.assertEqual(self.reviewer(decision), 'claude:claude-sonnet-5-5')
         self.assertNotEqual(self.picked(decision), self.reviewer(decision))
 
     # -- the exception contract ------------------------------------------
@@ -360,10 +360,10 @@ class ModelPolicyTests(unittest.TestCase):
         granted = r.policy_exception(c, ASTRA, NECESSITY, "karoliang")
         d = r.decide(self.judgment('high_stakes'), c,
                      self.eligibility({'zai_coding_plan': 90, 'codex': 10}), exception=granted)
-        self.assertEqual(self.picked(d), flash)
+        self.assertEqual(self.picked(d), ASTRA)
         self.assertIsNone(self.reviewer(d))
-        self.assertEqual(d['policy']['exception']['status'], 'unused')
-        self.assertEqual(d['policy']['review_forbidden'], [ASTRA])
+        self.assertEqual(d['policy']['exception']['status'], 'approved')
+        self.assertEqual(d['policy']['review_forbidden'], [])
 
     def test_the_exception_is_kept_in_the_decision_log(self):
         """An excluded model that ran anyway has to be answerable for later."""
@@ -475,8 +475,8 @@ class ModelPolicyTests(unittest.TestCase):
         r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
 
         messages = [text for level, text in r.doctor(c) if level == 'warn']
-        self.assertFalse(any(text.startswith('band 1 has one permitted candidate')
-                             and 'reviewer' in text for text in messages), messages)
+        self.assertTrue(any(text.startswith('band 1 has one permitted candidate')
+                            and 'reviewer' in text for text in messages), messages)
         self.assertTrue(any(text.startswith('band 2 has one permitted candidate')
                             and 'reviewer' in text for text in messages), messages)
         self.assertTrue(any(text.startswith('band 3 has one permitted candidate')

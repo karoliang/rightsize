@@ -229,7 +229,8 @@ def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
     if agent == "opencode":
         prefix, separator, model = model.partition("/")
         provider = {"opencode-go": "opencode", "opencode": "opencode_zen",
-                    "openrouter": "openrouter"}.get(prefix)
+                    "openrouter": "openrouter", "minimax-coding-plan": "minimax",
+                    "zai-coding-plan": "zai_coding_plan"}.get(prefix)
         if not separator or not provider:
             return None
     result = (payload.get("result") or {}) if isinstance(payload, dict) else {}

@@ -8,10 +8,12 @@ model prefix through OpenCode. See [decision and sources](decisions/0005-glm-cod
 
 - Routine work: MiniMax first; GLM `glm-5.3-flash` when MiniMax is below
   reserve (unmetered, offered in every band behind the metered plans).
-- Difficult work (design, diagnosis, high stakes): Codex first in
-  token-saving order (`gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-6-sol` for the
-  top profile only), then GLM. Astra stays forbidden (#32); Claude stays
-  forbidden in every role.
+- Difficult work (design, diagnosis, high stakes): `gpt-5.6-luna`, then
+  `gpt-5.6-terra`; `gpt-6-sol` is eligible for the top band or after luna and
+  terra fail. The Claude fallback is `claude-sonnet-5-5`, then
+  `claude-opus-5-5` for a retry after Sonnet, then nothing eligible. GLM
+  `glm-5.3-flash` is routine-only and never qualifies for difficult work.
+  Astra stays forbidden (#32).
 - Every GLM model except `glm-5.3-flash` is on the forbidden list ("GLM
   limited to glm-5.3-flash"). The premium models keep their profiles, the
   higher `dispatch_cost_models` estimate and the `peak_windows` pricing gate,

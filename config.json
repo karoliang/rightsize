@@ -50,16 +50,17 @@
       "codex:gpt-5.6-luna",
       "codex:gpt-5.6-terra",
       "codex:gpt-6-sol",
-      "zai_coding_plan:glm-5.3",
-      "zai_coding_plan:glm-5.2",
+      "claude:claude-sonnet-5-5",
+      "claude:claude-opus-5-5",
       "zai_coding_plan:glm-5.3-flash",
       "codex:gpt-6-astra",
-      "claude:claude-opus-5",
+      "zai_coding_plan:glm-5.3",
+      "zai_coding_plan:glm-5.2",
       "opencode:glm-5.3",
       "opencode:kimi-k3"
     ]
   },
-  "_comment_bands": "Owner policy 2026-10-08: routine work defaults to MiniMax, then the only permitted GLM model, glm-5.3-flash. The peak-window machinery remains configured for premium GLM accounting, but model_policy makes every other GLM ID unselectable. Difficult work (design, diagnosis, high stakes) is Codex first in token-saving order luna, terra, then sol for the top profile only. min_task_band in model_profiles keeps the deep-tier models out of routine work even when a routine task escalates bands.",
+  "_comment_bands": "Owner policy 2026-10-08: routine work defaults to MiniMax, then glm-5.3-flash. Difficult work is luna, terra, sol on the top band or a retry after luna and terra, sonnet-5-5, opus-5-5 on high_stakes or after sonnet, then nothing eligible. Claude remains above its 30% reserve and never serves routine work.",
   "review_ladder": [
     "codex:gpt-5.6-luna",
     "opencode:kimi-k2.6",
@@ -222,8 +223,7 @@
   "model_policy": {
     "forbidden": {
       "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role",
-      "claude:claude-haiku-4-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; no Claude workers in any role",
-      "claude:claude-opus-5": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; no Claude workers in any role",
+      "claude:claude-haiku-4-5": "owner policy 2026-10-08: haiku is not eligible for this routing policy",
       "opencode:deepseek-v4-pro": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
       "opencode:deepseek-v4.1-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
       "opencode:glm-5.3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex; Go-hosted OpenCode models stay excluded",
@@ -241,7 +241,7 @@
       "zai_coding_plan:glm-5.2-highspeed": "owner 2026-10-08: GLM limited to glm-5.3-flash"
     }
   },
-  "_comment_model_policy": "Owner policy 2026-10-08 over the 2026-09-28 override: Codex gpt-5.6-luna, gpt-5.6-terra and gpt-6-sol are released for difficult work only (their model_profiles carry min_task_band 3 and sol is capped to high_stakes); astra stays forbidden (#32) and Claude stays forbidden in every role. Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",
+  "_comment_model_policy": "Owner policy 2026-10-08: routine work is MiniMax then GLM flash; difficult work is luna -> terra -> sol (top band or retry) -> Claude sonnet-5-5 -> opus-5-5 -> nothing eligible. Claude is eligible only above its 30% reserve and never for routine work; haiku and Astra remain forbidden. Code-enforced candidate exclusion applies to every band, fallback, review role, route, plan and rerun. An empty eligible set blocks with no substitution, band descent or quality-floor relaxation.",
   "task_profiles": {
     "mechanical": {
       "minimum_band": 1,
@@ -444,6 +444,8 @@
       "capabilities": [
         "code",
         "review",
+        "design",
+        "diagnosis",
         "high_stakes"
       ],
       "efforts": [
@@ -461,11 +463,12 @@
         "diagnosis": "high",
         "high_stakes": "high"
       },
-      "evidence": "owner policy 2026-10-08: released from the 2026-09-28 override but capped to the high_stakes profile only (design and diagnosis capabilities removed), because the owner prefers the token-saving luna/terra first and sol only when the task profile needs the top band. Capability evidence: qualified on LH 2026-09-28 with codex exec --model gpt-6-sol -c model_reasoning_effort=high: exit 0; 6/6 read-only policy-review fixtures, 3/3 seeded defects caught with correct rule attribution, 3/3 clean controls passed with no false positives, plus one unseeded real defect found where exception necessity truthiness was checked without approval verification"
+      "evidence": "owner policy 2026-10-08: released after luna and terra on difficult retries, and for top-band first attempts. Capability evidence: qualified on LH 2026-09-28 with codex exec --model gpt-6-sol -c model_reasoning_effort=high: exit 0; 6/6 read-only policy-review fixtures, 3/3 seeded defects caught with correct rule attribution, 3/3 clean controls passed with no false positives, plus one unseeded real defect found where exception necessity truthiness was checked without approval verification"
     },
-    "claude:claude-opus-5": {
-      "family": "claude-opus-5",
+    "claude:claude-sonnet-5-5": {
+      "family": "claude-sonnet-5-5",
       "max_band": 3,
+      "min_task_band": 3,
       "capabilities": [
         "code",
         "review",
@@ -487,16 +490,20 @@
       },
       "evidence": "provisional: existing ladder placement; not comparative task evaluation"
     },
+    "claude:claude-opus-5-5": {
+      "family": "claude-opus-5-5",
+      "max_band": 3,
+      "min_task_band": 3,
+      "retry_capabilities": ["design", "diagnosis"],
+      "capabilities": ["code", "review", "high_stakes"],
+      "efforts": ["low", "medium", "high"],
+      "effort_by_task": {"design": "high", "diagnosis": "high", "high_stakes": "high"},
+      "evidence": "owner policy 2026-10-08: retry-only fallback after sonnet for design and diagnosis; direct high-stakes fallback remains eligible"
+    },
     "opencode:glm-5.3": {
       "family": "glm-5.3",
       "max_band": 3,
-      "capabilities": [
-        "code",
-        "review",
-        "design",
-        "diagnosis",
-        "high_stakes"
-      ],
+      "capabilities": ["code", "review"],
       "efforts": [],
       "effort_by_task": {},
       "evidence": "provisional: existing ladder placement; not comparative task evaluation"
@@ -652,20 +659,14 @@
     "zai_coding_plan:glm-5.3-flash": {
       "family": "glm-5.3-flash",
       "max_band": 3,
-      "capabilities": [
-        "code",
-        "review",
-        "design",
-        "diagnosis",
-        "high_stakes"
-      ],
+      "capabilities": ["code", "review"],
       "efforts": [
         "low",
         "high",
         "max"
       ],
       "effort_by_task": {},
-      "evidence": "docs.z.ai/devpack/overview: supported on every plan, low credit multipliers; reasoning_effort low/high/max per docs.z.ai/openapi.json. Generic OpenCode provider wiring was wire-tested 2026-10-08, but the built-in coding-plan path and native -m provider/model#variant form remain unverified. Owner policy 2026-10-08: default GLM model for routine work and band-3 fallback when Codex has no eligible capacity; deep-tier capabilities are the fallback role, not a claim that flash matches glm-5.3"
+      "evidence": "docs.z.ai/devpack/overview: supported on every plan, low credit multipliers; reasoning_effort low/high/max per docs.z.ai/openapi.json. Generic OpenCode provider wiring was wire-tested 2026-10-08, but the built-in coding-plan path and native -m provider/model#variant form remain unverified. Owner policy 2026-10-08: routine-only GLM model; it never qualifies for design, diagnosis or high_stakes."
     },
     "zai_coding_plan:glm-5-turbo": {
       "family": "glm-5-turbo",

@@ -1672,7 +1672,8 @@ def worktree_name(spec: str, taken: set[str] | None = None) -> str:
 
 
 def qualified_candidates(candidates: list[str], config: dict, judgment: dict,
-                         minimum_band: int, review: bool = False) -> tuple[list[str], list[str]]:
+                         minimum_band: int, review: bool = False,
+                         attempt: int = 0) -> tuple[list[str], list[str]]:
     """Apply declared task requirements before any quota preference.
 
     Profiles are provisional operator policy, not benchmark-proven ability.
@@ -1702,6 +1703,13 @@ def qualified_candidates(candidates: list[str], config: dict, judgment: dict,
         elif int(profile.get("min_task_band", 0)) > tier_floor:
             notes.append(f"{text} skipped: reserved for task classes at band"
                          f" {profile['min_task_band']} and above (owner policy)")
+        elif profile.get("retry_capabilities") and attempt:
+            capabilities = set(profile.get("capabilities", [])) | set(profile["retry_capabilities"])
+            if not requirements <= capabilities:
+                missing = sorted(requirements - capabilities)
+                notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
+                continue
+            accepted.append(text)
         elif not requirements <= set(profile.get("capabilities", [])):
             missing = sorted(requirements - set(profile.get("capabilities", [])))
             notes.append(f"{text} skipped: missing task capabilities {', '.join(missing)}")
@@ -2173,7 +2181,8 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
 
     ladders, notes = {}, []
     for level, ladder in config["bands"].items():
-        ladders[level], unqualified = qualified_candidates(ladder, config, judgment, minimum_band)
+        ladders[level], unqualified = qualified_candidates(
+            ladder, config, judgment, minimum_band, attempt=attempt)
         notes += unqualified
     tried = [str(band)]
     chosen, selection_notes = pick(ladders[str(band)], elig, band, excluded, config,
@@ -2248,7 +2257,8 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
             if (parsed["provider"] != chosen["provider"]
                     and profile.get("family", parsed["model"]) != selected_family):
                 others.append(candidate)
-        others, review_notes = qualified_candidates(others, config, judgment, minimum_band, review=True)
+        others, review_notes = qualified_candidates(
+            others, config, judgment, minimum_band, review=True, attempt=attempt)
         review, selection_notes = pick(others, elig, review_band, review_excluded, config)
         notes += [f"review: {n}" for n in review_notes + selection_notes]
         if review:
@@ -2331,7 +2341,7 @@ def decide(judgment: dict, config: dict, elig: dict, fallback: bool = True,
     }
 
 
-def rerun(spec: str, because: str, previous: str | None, config: dict,
+def rerun(spec: str, because: str, previous: str | list[str] | None, config: dict,
           probes: dict | None = None, exception: dict | None = None) -> dict:
     """Route a task that has already been tried and did not work.
 
@@ -2350,16 +2360,18 @@ def rerun(spec: str, because: str, previous: str | None, config: dict,
     else:
         fresh = False
     elig = eligibility(config, probes, record=fresh)
-    state = f"{spec}\n\n[Previous attempt]\nmodel: {previous or 'unknown'}\noutcome: {because}"
+    previous_models = ([previous] if isinstance(previous, str) else list(previous or []))
+    state = (f"{spec}\n\n[Previous attempts]\nmodel: "
+             f"{', '.join(previous_models) or 'unknown'}\noutcome: {because}")
     judgment = judge(state)
     floor = 0
-    if previous:
+    if previous_models:
         for band_id, ladder in config["bands"].items():
-            if any(candidate_key(c) == previous for c in ladder):
-                floor = int(band_id) + 1
-                break
+            if any(candidate_key(c) in previous_models for c in ladder):
+                floor = max(floor, int(band_id) + 1)
     decision = decide(judgment, config, elig, floor_band=floor,
-                      exclude={previous} if previous else None, attempt=1,
+                      exclude=set(previous_models) if previous_models else None,
+                      attempt=len(previous_models),
                       exception=exception)
     decision["reason_for_rerun"] = because
     decision["previous"] = previous
@@ -3900,7 +3912,8 @@ def main(argv=None):
     rerun_group.add_argument("--spec", help="the same spec file")
     rerun_cmd.add_argument("--because", required=True,
                            help="what happened: the failure, the review finding, what it got stuck on")
-    rerun_cmd.add_argument("--previous", help="provider:model that already tried, so it is not picked again")
+    rerun_cmd.add_argument("--previous", action="append",
+                           help="provider:model that already tried; repeat for each failed attempt")
     rerun_cmd.add_argument("--json", action="store_true")
     rerun_cmd.add_argument("--orca", action="store_true", help="shorthand for --launcher orca")
     rerun_cmd.add_argument("--launcher", help="also print the launch command")

@@ -18,13 +18,19 @@ Three owner decisions made during implementation, in order:
    off-peak, with peak being Monday to Friday 14:00-18:00 Singapore time. A
    config-driven `peak_windows` table blocks premium GLM during peak and
    halves their estimated cost off-peak.
-3. Codex for difficult work and GLM limited to flash (2026-10-08, final
-   config state): `codex:gpt-5.6-luna`, `codex:gpt-5.6-terra` and
-   `codex:gpt-6-sol` were released from the 2026-09-28 override for design,
-   diagnosis and high stakes only (token-saving order luna, terra, then sol
-   for the top profile; astra stays forbidden per #32), and every GLM model
-   except `glm-5.3-flash` is now on the forbidden list with the reason
-   "GLM limited to glm-5.3-flash".
+3. Codex for difficult work and GLM limited to routine work (2026-10-08,
+   final config state): `codex:gpt-5.6-luna`, `codex:gpt-5.6-terra` and
+   `codex:gpt-6-sol` are released from the 2026-09-28 override for design,
+   diagnosis and high stakes. The order is luna, terra, then sol for a
+   top-band first attempt or after luna and terra fail; astra stays forbidden
+   per #32. `zai_coding_plan:glm-5.3-flash` remains available for routine work
+   only and never qualifies for difficult tasks.
+4. Claude fallback above reserve (2026-10-08): difficult work falls back to
+   `claude:claude-sonnet-5-5`, then `claude:claude-opus-5-5` after a Sonnet
+   retry fails, then blocks with nothing eligible. Opus is direct-eligible for
+   high-stakes work and retry-eligible for design and diagnosis. Claude's
+   30-percent reserve remains enforced, and `claude:claude-haiku-4-5` remains
+   forbidden.
 
 Decision 3 is what config.json currently enforces. The peak-window and
 premium-cost machinery from decisions 1 and 2 remains in place and dormant:

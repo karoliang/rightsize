@@ -157,10 +157,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
     def test_profile_driven_model_choice_per_tier(self):
         elig = r.eligibility(self.config, {"zai_coding_plan": self.probe()}, record=False)
         tiers = {"mechanical": ("glm-5.3-flash", 1),
-                 "implementation": ("glm-5.3-flash", 1),
-                 "design": ("glm-5.3-flash", 3),
-                 "diagnosis": ("glm-5.3-flash", 3),
-                 "high_stakes": ("glm-5.3-flash", 3)}
+                 "implementation": ("glm-5.3-flash", 1)}
         for tier, (model, band) in tiers.items():
             judgment = {"tier": tier, "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
@@ -171,7 +168,8 @@ class ZaiCodingPlanTests(unittest.TestCase):
 
     def test_design_task_gets_independent_reviewer_across_plans(self):
         elig = r.eligibility(self.config, {"zai_coding_plan": self.probe(),
-                                           "codex": self.codex_probe()}, record=False)
+                                           "codex": self.codex_probe(),
+                                           "claude": {"status": "ok", "buckets": []}}, record=False)
         judgment = {"tier": "high_stakes", "size": 0.4, "second_opinion": 0.9,
                     "spec_complete": 0.9, "destructive": 0.0}
         decision = r.decide(judgment, self.config, elig)
@@ -211,8 +209,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                                           "codex": self.codex_probe(percent=99.5)},
                             record=False)
         pick = r.decide(judgment, self.config, dry)["pick"]
-        self.assertEqual((pick["provider"], pick["model"]),
-                         ("zai_coding_plan", "glm-5.3-flash"))  # codex dry: only permitted GLM
+        self.assertIsNone(pick)  # difficult work waits; GLM is routine-only
         stakes = {"tier": "high_stakes", "size": 0.4, "second_opinion": 0.2,
                   "spec_complete": 0.9, "destructive": 0.0}
         healthy = r.eligibility(self.config, {"codex": self.codex_probe()}, record=False)
@@ -224,24 +221,78 @@ class ZaiCodingPlanTests(unittest.TestCase):
                                                 record=False))["pick"]["model"],
                          "gpt-5.6-luna")
 
-    def test_sol_is_capped_to_the_high_stakes_profile(self):
+    def test_owner_difficult_fallback_chain_and_reserve(self):
+        def judgment(tier):
+            return {"tier": tier, "size": 0.4, "second_opinion": 0.2,
+                    "spec_complete": 0.9, "destructive": 0.0}
+
+        blocked_codex = r.eligibility(self.config,
+                                      {"codex": self.codex_probe(percent=99.5),
+                                       "claude": {"status": "ok", "buckets": []}},
+                                      record=False)
+        for tier in ("design", "diagnosis", "high_stakes"):
+            decision = r.decide(judgment(tier), self.config, blocked_codex)
+            self.assertEqual((decision["pick"]["provider"], decision["pick"]["model"]),
+                             ("claude", "claude-sonnet-5-5"), tier)
+
+        no_claude = r.eligibility(self.config,
+                                  {"codex": self.codex_probe(percent=99.5),
+                                   "claude": {"status": "no-credential", "buckets": []}},
+                                  record=False)
+        for tier in ("design", "diagnosis", "high_stakes"):
+            self.assertIsNone(r.decide(judgment(tier), self.config, no_claude)["pick"], tier)
+
+        retry = r.decide(judgment("design"), self.config, blocked_codex,
+                         exclude={"claude:claude-sonnet-5-5"}, attempt=1)
+        self.assertEqual((retry["pick"]["provider"], retry["pick"]["model"]),
+                         ("claude", "claude-opus-5-5"))
+
+    def test_rerun_previous_is_repeatable_and_reaches_sol(self):
+        probes = {"codex": self.codex_probe(), "claude": {"status": "no-credential",
+                 "buckets": []}, "zai_coding_plan": {"status": "ok", "unmetered": True,
+                 "buckets": []}}
+        judgment = {"tier": "design", "size": 0.4, "second_opinion": 0.2,
+                    "spec_complete": 0.9, "destructive": 0.0}
+        elig = r.eligibility(self.config, probes, record=False)
+        decision = r.decide(judgment, self.config, elig,
+                            exclude={"codex:gpt-5.6-luna", "codex:gpt-5.6-terra"}, attempt=1)
+        self.assertEqual((decision["pick"]["provider"], decision["pick"]["model"]),
+                         ("codex", "gpt-6-sol"))
+
+    def test_rerun_accepts_repeated_previous_models(self):
+        probes = {"codex": self.codex_probe(),
+                  "claude": {"status": "no-credential", "buckets": []},
+                  "zai_coding_plan": {"status": "ok", "unmetered": True, "buckets": []}}
+        with patch.object(r, "judge", return_value={"tier": "design", "size": 0.4,
+                       "second_opinion": 0.2, "spec_complete": 0.9, "destructive": 0.0,
+                       "source": "test"}):
+            decision = r.rerun("design the retry ladder", "luna and terra failed",
+                               ["codex:gpt-5.6-luna", "codex:gpt-5.6-terra"],
+                               self.config, probes=probes)
+        self.assertEqual((decision["pick"]["provider"], decision["pick"]["model"]),
+                         ("codex", "gpt-6-sol"))
+
+    def test_sol_is_available_for_design_and_diagnosis_only_on_retry(self):
         elig = r.eligibility(self.config, {"codex": self.codex_probe()}, record=False)
-        # design/diagnosis cannot take sol: luna and terra are preferred and sol
-        # lacks the design/diagnosis capabilities.
+        # A first attempt never skips over healthy luna/terra to sol.
         profiles = self.config["model_profiles"]["codex:gpt-6-sol"]["capabilities"]
-        self.assertNotIn("design", profiles)
-        self.assertNotIn("diagnosis", profiles)
-        self.assertIn("high_stakes", profiles)
+        self.assertIn("design", profiles)
+        self.assertIn("diagnosis", profiles)
         for tier in ("design", "diagnosis"):
             judgment = {"tier": tier, "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
             self.assertNotEqual(decision["pick"]["model"], "gpt-6-sol", tier)
+            retry = r.decide(judgment, self.config, elig,
+                             exclude={"codex:gpt-5.6-luna", "codex:gpt-5.6-terra"},
+                             attempt=1)
+            self.assertEqual(retry["pick"]["model"], "gpt-6-sol", tier)
 
     def test_forbidden_list_matches_owner_policy(self):
         forbidden = r.forbidden_models(self.config)
         self.assertIn("codex:gpt-6-astra", forbidden)
-        self.assertIn("claude:claude-opus-5", forbidden)
+        self.assertNotIn("claude:claude-sonnet-5-5", forbidden)
+        self.assertNotIn("claude:claude-opus-5-5", forbidden)
         for model in ("codex:gpt-6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"):
             self.assertNotIn(model, forbidden)
         for model in ("zai_coding_plan:glm-5.3", "zai_coding_plan:glm-5.2",
@@ -268,10 +319,9 @@ class ZaiCodingPlanTests(unittest.TestCase):
                              "peak")
             elig = r.eligibility(self.config, {"zai_coding_plan": self.probe()},
                                  record=False)
-            judgment = {"tier": "design", "size": 0.4, "second_opinion": 0.2,
+            judgment = {"tier": "mechanical", "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
-            self.assertNotIn(decision["pick"]["model"], ("glm-5.3", "glm-5.2"))
             self.assertEqual(decision["pick"]["model"], "glm-5.3-flash")
 
     def test_off_peak_allows_premium_glm_at_half_cost(self):
@@ -283,7 +333,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                                              "glm-5.3"), 3.75)
             elig = r.eligibility(self.config, {"zai_coding_plan": self.probe()},
                                  record=False)
-            judgment = {"tier": "design", "size": 0.4, "second_opinion": 0.2,
+            judgment = {"tier": "mechanical", "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
             self.assertEqual(decision["pick"]["model"], "glm-5.3-flash")
@@ -300,7 +350,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                              "off-peak")
             elig = r.eligibility(self.config, {"zai_coding_plan": self.probe()},
                                  record=False)
-            judgment = {"tier": "diagnosis", "size": 0.4, "second_opinion": 0.2,
+            judgment = {"tier": "mechanical", "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
             self.assertEqual(decision["pick"]["model"], "glm-5.3-flash")
@@ -314,7 +364,8 @@ class ZaiCodingPlanTests(unittest.TestCase):
 
     def test_premium_glm_is_last_resort_behind_codex(self):
         elig = r.eligibility(self.config, {"zai_coding_plan": self.probe(),
-                                           "codex": self.codex_probe()}, record=False)
+                                           "codex": self.codex_probe(),
+                                           "claude": {"status": "ok", "buckets": []}}, record=False)
         judgment = {"tier": "diagnosis", "size": 0.4, "second_opinion": 0.2,
                     "spec_complete": 0.9, "destructive": 0.0}
         decision = r.decide(judgment, self.config, elig)
@@ -432,7 +483,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                   "zai_coding_plan": self.probe()}
         result = r.plan(self.specs(), self.config, concurrency=2, probes=probes)
         picked = [t["decision"]["pick"] for t in result["tasks"] if t["decision"]["pick"]]
-        self.assertEqual(len(picked), 5)
+        self.assertEqual(len(picked), 3)
         self.assertEqual({p["provider"] for p in picked}, {"zai_coding_plan"})
         models = {p["model"] for p in picked}
         self.assertEqual(models, {"glm-5.3-flash"})
@@ -444,7 +495,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
         picked = [t["decision"]["pick"] for t in result["tasks"] if t["decision"]["pick"]]
         providers = {p["provider"] for p in picked}
         self.assertIn("minimax", providers)
-        self.assertIn("zai_coding_plan", providers)
+        self.assertNotIn("zai_coding_plan", providers)
 
     # ------------------------------------------------------ recorded probes
 

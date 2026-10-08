@@ -42,9 +42,10 @@ class TaskFitTests(unittest.TestCase):
         self.assertEqual(
             [candidate for candidate in band_three if candidate != 'codex:gpt-6-sol'],
             ['minimax:MiniMax-M3', 'codex:gpt-5.6-luna', 'codex:gpt-5.6-terra',
-             'zai_coding_plan:glm-5.3', 'zai_coding_plan:glm-5.2',
-             'zai_coding_plan:glm-5.3-flash', 'codex:gpt-6-astra',
-             'claude:claude-opus-5', 'opencode:glm-5.3', 'opencode:kimi-k3'])
+         'claude:claude-sonnet-5-5', 'claude:claude-opus-5-5',
+         'zai_coding_plan:glm-5.3-flash', 'codex:gpt-6-astra',
+         'zai_coding_plan:glm-5.3', 'zai_coding_plan:glm-5.2',
+         'opencode:glm-5.3', 'opencode:kimi-k3'])
         profile = self.config['model_profiles']['codex:gpt-6-sol']
         self.assertNotEqual(
             profile['evidence'],
