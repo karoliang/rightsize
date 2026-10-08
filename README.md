@@ -533,6 +533,18 @@ MiniMax Ultra is supported as a separate band-2 Token Plan provider using
 MiniMax-M3. See [MiniMax and Orca setup](docs/MINIMAX.md) for credentials,
 native CLI installation and current verification limits.
 
+The Z.AI GLM Coding Plan (Max) is supported as a second subscription provider,
+`zai_coding_plan`, currently limited to `glm-5.3-flash` by owner policy. The
+plan publishes no quota API, so the probe reports it as unmetered and it takes
+work the metered plans cannot admit. See
+[GLM Coding Plan setup](docs/GLM-CODING-PLAN.md) and
+[ADR0005](docs/decisions/0005-glm-coding-plan.md) for the pricing-window and
+effort wiring, all verified on the wire.
+
+`route --probes FILE` and `plan --probes FILE` route against a recorded probe
+snapshot (see `fixtures/probes-minimax-healthy.json` for the shape) instead of
+live reads: the same policy over recorded evidence, for comparison.
+
 Task/model capability profiles now filter candidates before quota ordering.
 Effort follows the selected model’s supported levels and task defaults.
 See [task-fit policy](docs/TASK-FIT.md) for provisional assignments and limits.

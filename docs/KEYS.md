@@ -242,3 +242,12 @@ bound decisions. This is an intentional migration boundary, not a successful lau
 `MINIMAX_API_KEY` must be a Token Plan subscription key. Native fallback reads
 only OpenCode’s `minimax-coding-plan` entry. MCode browser OAuth remains owned
 by MCode and is not reused as an API key. See [setup](MINIMAX.md).
+
+## Z.AI GLM Coding Plan
+
+`ZAI_CODING_PLAN_API_KEY` is optional; the native path reads OpenCode’s
+`zai-coding-plan` credential, which OpenCode 2.x keeps in its own sqlite store
+(`opencode.db`, `credential` table) rather than `auth.json`, and rightsize
+reads it read-only from there. The plan meters 5-hour and weekly credits but
+publishes no quota API, so the probe reports `unmetered` rather than a number.
+See [setup](GLM-CODING-PLAN.md).

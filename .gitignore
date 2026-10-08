@@ -14,3 +14,7 @@ __pycache__/
 
 # Orca child worktrees land inside this repo (--worktree new-child), so a
 # blanket `git add -A` picks them up as gitlinks. They are checkouts, not content.
+
+# Worker scratch space (wire-verification logs, fan-out lists, red-run
+# evidence). Harness lives in the commit; its logs do not.
+.scratch/
