@@ -9,11 +9,19 @@ launch line, both read as launches.
 """
 
 import importlib.util
+import json
+import sys
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("hook", Path(__file__).with_name("claude_pretooluse.py"))
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+router_spec = importlib.util.spec_from_file_location("rightsize", ROOT / "rightsize.py")
+router = importlib.util.module_from_spec(router_spec)
+router_spec.loader.exec_module(router)
+CONFIG = json.loads((ROOT / "config.json").read_text())
 
 LAUNCHES = [
     'orca orchestration worker-start --spec "add a rate limit to POST /api/signup" --agent opencode --json',
@@ -65,6 +73,26 @@ def main():
 
     # A launch with no readable brief stays silent rather than judging nothing.
     assert hook.spec_text('orca orchestration worker-start --spec "{spec}" --agent opencode') is None
+
+    # The shipped Orca launcher binds coding-plan models in OPENCODE_COMMAND,
+    # including the empty-options MiniMax path. Post-launch booking must still
+    # identify the provider from that rendered command.
+    for provider, model, effort, band, has_options in (
+            ("zai_coding_plan", "glm-5.3-flash", "max", 1, True),
+            ("minimax", "MiniMax-M2.7-highspeed", None, 1, False)):
+        decision = {"pick": {"provider": provider, "model": model, "effort": effort},
+                    "agent": "opencode", "band": band, "worktree_name": "hook-test"}
+        command = router.launch_command(
+            decision, CONFIG, "orca", None,
+            "Review calculator input validation and preserve boundary behavior")
+        assert ("reasoningEffort" in command) is has_options, command
+        response = {"stdout": json.dumps({"ok": True, "result": {"worker": {
+            "dispatchId": "hook-test-" + provider,
+            "resource": {"worktreeId": "repo::/repo/hook-test"}}}})}
+        receipt = hook.launch_receipt(command, hook.launch_segment(command),
+                                      {"tool_response": response})
+        assert receipt and receipt["provider"] == provider, receipt
+        assert receipt["model"] == model, receipt
 
     print("hook checks passed")
 

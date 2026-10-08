@@ -18,12 +18,19 @@ class TaskFitTests(unittest.TestCase):
         p = patch.object(r, 'STATE', Path(self.temp.name) / 'state.json')
         p.start()
         self.addCleanup(p.stop)
+        # Premium GLM eligibility depends on the vendor pricing window, so the
+        # clock is frozen on a past Saturday (deterministic off-peak).
+        from datetime import datetime, timezone
+        saturday = datetime(2026, 9, 26, 7, tzinfo=timezone.utc).timestamp()
+        clock = patch.object(r, 'now', lambda: saturday)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def judgment(self, tier='implementation', **changes):
         return {'tier':tier, 'size':0.5, 'second_opinion':0,
                 'spec_complete':1, 'destructive':0, **changes}
 
-    def eligibility(self, providers=('opencode', 'codex', 'claude', 'minimax')):
+    def eligibility(self, providers=('opencode', 'codex', 'claude', 'minimax', 'zai_coding_plan')):
         return {p:{'eligible':True, 'blocked':None, 'usable':80, 'unknown':False,
                    'overrun':False, 'resets_at':r.now()+3600,
                    'bucket':'rolling', 'inflight':0, 'reserved':0,
@@ -34,8 +41,11 @@ class TaskFitTests(unittest.TestCase):
         self.assertIn('codex:gpt-6-sol', band_three)
         self.assertEqual(
             [candidate for candidate in band_three if candidate != 'codex:gpt-6-sol'],
-            ['codex:gpt-6-astra', 'claude:claude-opus-5', 'opencode:glm-5.3',
-             'opencode:kimi-k3'])
+            ['minimax:MiniMax-M3', 'codex:gpt-5.6-luna', 'codex:gpt-5.6-terra',
+         'claude:claude-sonnet-5-5', 'claude:claude-opus-5-5',
+         'zai_coding_plan:glm-5.3-flash', 'codex:gpt-6-astra',
+         'zai_coding_plan:glm-5.3', 'zai_coding_plan:glm-5.2',
+         'opencode:glm-5.3', 'opencode:kimi-k3'])
         profile = self.config['model_profiles']['codex:gpt-6-sol']
         self.assertNotEqual(
             profile['evidence'],
@@ -60,17 +70,17 @@ class TaskFitTests(unittest.TestCase):
     def test_wrong_capability_and_unprofiled_models_cannot_win(self):
         c=copy.deepcopy(self.config)
         c['bands']['3']=['opencode:deepseek-v4.1-flash','opencode:unknown',
-                         'claude:claude-opus-5']
+                         'codex:gpt-5.6-luna']
         # Even relabelling a cheap model as band 3 does not grant task skills.
         c['model_profiles']['opencode:deepseek-v4.1-flash']['max_band']=3
         d=r.decide(self.judgment('high_stakes'),c,self.eligibility())
-        self.assertEqual(d['pick']['provider'],'claude')
+        self.assertEqual(d['pick']['provider'],'codex')
         self.assertTrue(any('missing task capabilities' in n for n in d['notes']))
         self.assertTrue(any('no model capability profile' in n for n in d['notes']))
 
     def test_explicit_unsupported_effort_disqualifies_candidate(self):
         c=copy.deepcopy(self.config)
-        c['bands']['1']=['codex:gpt-5.6-luna:ultra']
+        c['bands']['1']=['zai_coding_plan:glm-5.3-flash:ultra']
         d=r.decide(self.judgment('mechanical'),c,self.eligibility(),fallback=False)
         self.assertIsNone(d['pick'])
         self.assertTrue(any('unsupported model effort' in n for n in d['notes']))

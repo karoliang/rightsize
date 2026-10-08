@@ -197,6 +197,16 @@ def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
     if not model:
         for setup in command_segments(command):
             tokens = shlex.split(setup)
+            if tokens and tokens[0].startswith("OPENCODE_COMMAND="):
+                nested = tokens[0].split("=", 1)[1]
+                inner = shlex.split(nested)
+                while inner and (inner[0] == "env"
+                                 or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", inner[0])):
+                    inner = inner[1:]
+                if inner and Path(inner[0]).name == "opencode":
+                    agent, model = "opencode", flag_value(inner, "--model", "-m")
+                    if model:
+                        break
             # Assignment prefix is present in the shipped HANDLE=$(orca ...) form.
             if not tokens or not re.fullmatch(r"(?:\w+=\$\()?orca", tokens[0]):
                 continue
@@ -205,6 +215,12 @@ def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
             nested = flag_value(tokens, "--command")
             if nested:
                 inner = shlex.split(nested)
+                # The shipped launcher wraps opencode in `env OPENCODE_CONFIG=...`
+                # (and coordinators may export other assignments), so the binary
+                # is not necessarily the first token of the terminal command.
+                while inner and (inner[0] == "env"
+                                 or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", inner[0])):
+                    inner = inner[1:]
                 if inner and Path(inner[0]).name == "opencode":
                     agent, model = "opencode", flag_value(inner, "--model", "-m")
     if not agent or not model:
@@ -213,7 +229,8 @@ def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
     if agent == "opencode":
         prefix, separator, model = model.partition("/")
         provider = {"opencode-go": "opencode", "opencode": "opencode_zen",
-                    "openrouter": "openrouter"}.get(prefix)
+                    "openrouter": "openrouter", "minimax-coding-plan": "minimax",
+                    "zai-coding-plan": "zai_coding_plan"}.get(prefix)
         if not separator or not provider:
             return None
     result = (payload.get("result") or {}) if isinstance(payload, dict) else {}

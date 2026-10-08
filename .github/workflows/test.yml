@@ -43,6 +43,7 @@ jobs:
           python test_native_rpc.py
           python test_accounts.py
           python test_minimax.py
+          python test_zai_coding_plan.py
           python test_task_fit.py
       - name: consumer classification and acceptance evidence
         run: |

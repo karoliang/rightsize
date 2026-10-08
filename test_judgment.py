@@ -29,7 +29,12 @@ class CallerJudgment(unittest.TestCase):
             'judgment': {'tier': 'mechanical', 'size': 0.2,
                          'second_opinion': 0.1, 'spec_complete': 0.9, 'destructive': 0.0}}
         self.probes = {'opencode': {'name': 'opencode', 'status': 'ok', 'buckets': [
-            {'id': 'weekly', 'percent': 10, 'source': 'live', 'resets_at': r.now() + 3600}]}}
+            {'id': 'weekly', 'percent': 10, 'source': 'live', 'resets_at': r.now() + 3600}]},
+            # The shipped policy routes routine work to the MiniMax plan, so the
+            # caller-judgment path needs a permitted provider with headroom.
+            'minimax': {'name': 'minimax', 'status': 'ok', 'buckets': [
+                {'id': 'rolling', 'percent': 10, 'source': 'live', 'resets_at': r.now() + 3600},
+                {'id': 'weekly', 'percent': 20, 'source': 'live', 'resets_at': r.now() + 7200}]}}
 
     def invoke(self, document=None):
         self.file.write_text(json.dumps(document or self.document))
@@ -46,7 +51,7 @@ class CallerJudgment(unittest.TestCase):
         self.assertEqual(code, 0)
         decision = json.loads(output)
         self.assertEqual(decision['judgment']['source'], 'caller (active-agent)')
-        self.assertEqual(decision['pick']['provider'], 'opencode')
+        self.assertEqual(decision['pick']['provider'], 'minimax')
         entry = r.load_json(self.state)['decisions'][0]
         self.assertEqual(entry['judgment_source'], 'caller (active-agent)')
         self.assertEqual(entry['task_sha256'], self.document['task_sha256'])
@@ -72,12 +77,13 @@ class CallerJudgment(unittest.TestCase):
                 self.assertFalse(self.state.exists())
 
     def test_quota_denial_still_vetoes_caller_request(self):
-        self.probes['opencode']['buckets'][0].update(percent=None, raw_status='rate-limited')
+        for bucket in self.probes['minimax']['buckets']:
+            bucket.update(percent=None, raw_status='rate-limited')
         code, output, _, _ = self.invoke()
         self.assertEqual(code, 0)  # Preserve the existing JSON-output exit contract.
         decision = json.loads(output)
         self.assertIsNone(decision['pick'])
-        self.assertFalse(decision['quota']['opencode']['eligible'])
+        self.assertFalse(decision['quota']['minimax']['eligible'])
 
     def test_legacy_route_still_uses_its_judge(self):
         judgment = {**self.document['judgment'], 'source': 'legacy', 'tier_confidence': None}

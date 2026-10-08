@@ -26,6 +26,7 @@ unknown; it is never rounded into "probably fine".
 | Claude Code | Native stream-json `get_usage` under verified login; explicitly labelled transcript/declared-budget fallback only when native control is unavailable |
 | OpenRouter | Live key limits or account credits; published free-request counter when present, otherwise the local reported-request counter |
 | MiniMax Token Plan | Native Token Plan remains endpoint, explicit rolling/weekly remaining percentages; ambiguous count fields are ignored |
+| Z.AI GLM Coding Plan | Plan publishes no quota API (checked 2026-10-08, see decisions/0005): probe reports `unmetered`, offered in every band behind the metered plans; premium models additionally carry a config-driven peak-pricing window |
 | OpenCode Zen free | No measurable subscription quota; labelled free |
 
 Native identity and freshness are separate from numeric headroom. Missing native

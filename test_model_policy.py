@@ -24,7 +24,12 @@ import rightsize as r
 
 ASTRA = "codex:gpt-6-astra"
 SOL = "codex:gpt-6-sol"
-OPUS = "claude:claude-opus-5"
+LUNA = "codex:gpt-5.6-luna"
+OPUS = "claude:claude-sonnet-5-5"
+GLM_FORBIDDEN = tuple(f"zai_coding_plan:{model}" for model in (
+    "glm-5.3", "glm-5.2", "glm-5-turbo", "glm-4.7",
+    "glm-5.3-highspeed", "glm-5.2-highspeed"))
+GLM_REASON = "owner 2026-10-08: GLM limited to glm-5.3-flash"
 NECESSITY = ("the failing transport handshake only reproduces under Astra's ultra"
              " effort level, which no other profiled model exposes")
 
@@ -43,6 +48,13 @@ class ModelPolicyTests(unittest.TestCase):
         state = patch.object(r, 'STATE', Path(self.temp()) / 'state.json')
         state.start()
         self.addCleanup(state.stop)
+        # Premium GLM eligibility depends on the vendor pricing window, so the
+        # clock is frozen on a past Saturday (deterministic off-peak).
+        from datetime import datetime, timezone
+        saturday = datetime(2026, 9, 26, 7, tzinfo=timezone.utc).timestamp()
+        clock = patch.object(r, 'now', lambda: saturday)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def temp(self):
         import tempfile
@@ -59,7 +71,7 @@ class ModelPolicyTests(unittest.TestCase):
         """Synthetic headroom. `usable` sets per-provider room in points."""
         usable = usable or {}
         out = {}
-        for name in ('opencode', 'codex', 'claude', 'minimax'):
+        for name in ('opencode', 'codex', 'claude', 'minimax', 'zai_coding_plan'):
             out[name] = {'eligible': name not in blocked,
                          'blocked': 'no-credential' if name in blocked else None,
                          'usable': usable.get(name, 80), 'unknown': False,
@@ -134,16 +146,35 @@ class ModelPolicyTests(unittest.TestCase):
         judgment and the same headroom pick the permitted model instead.
         """
         room = {'codex': 999, 'claude': 90, 'opencode': 10, 'minimax': 10}
-        loose = r.decide(self.judgment(), self.without_policy(), self.eligibility(room))
+        first = copy.deepcopy(self.config)
+        first['bands']['3'] = [ASTRA, LUNA]
+        loose = r.decide(self.judgment(), self.without_policy(first), self.eligibility(room))
         self.assertEqual(self.picked(loose), ASTRA)
 
-        strict = r.decide(self.judgment(), self.config, self.eligibility(room))
-        self.assertEqual(self.picked(strict), SOL)
+        strict = r.decide(self.judgment(), first, self.eligibility(room))
+        self.assertEqual(self.picked(strict), LUNA)
         self.assertEqual(strict["band"], 3)
         self.assertEqual(strict["quality_floor"], 3)
         self.assertIn(ASTRA, strict["policy"]["enforced"])
         self.assertTrue(any("forbidden by model policy" in n and ASTRA in n
                             for n in strict["notes"]))
+
+    def test_every_non_flash_glm_is_forbidden_with_owner_reason(self):
+        forbidden = r.forbidden_models(self.config)
+        for model in GLM_FORBIDDEN:
+            with self.subTest(model=model):
+                self.assertEqual(self.config["model_policy"]["forbidden"][model],
+                                 GLM_REASON)
+                self.assertIn(GLM_REASON, forbidden[model])
+
+    def test_forbidden_glm_ids_never_route(self):
+        c = copy.deepcopy(self.config)
+        for band in ("1", "2", "3"):
+            c["bands"][band] = list(GLM_FORBIDDEN) + [
+                "zai_coding_plan:glm-5.3-flash"]
+        d = r.decide(self.judgment("design"), c, self.eligibility({
+            "zai_coding_plan": 999, "codex": 999}))
+        self.assertIsNone(self.picked(d))
 
     def test_every_tier_and_band_is_covered(self):
         for tier in ('mechanical', 'implementation', 'design', 'diagnosis', 'high_stakes'):
@@ -180,27 +211,30 @@ class ModelPolicyTests(unittest.TestCase):
                                ASTRA, self.config,
                                probes={'codex': probe(5), 'claude': probe(40),
                                        'opencode': {'status': 'no-credential', 'buckets': []},
-                                       'minimax': {'status': 'no-credential', 'buckets': []}})
-        self.assertEqual(self.picked(decision), SOL)
+                                       'minimax': {'status': 'no-credential', 'buckets': []},
+                                       'zai_coding_plan': {'status': 'ok', 'buckets': [],
+                                                           'unmetered': True}})
+        self.assertEqual(self.picked(decision), LUNA)
         self.assertNotEqual(self.reviewer(decision), ASTRA)
-        self.assertEqual(self.reviewer(decision), OPUS)
+        self.assertEqual(self.reviewer(decision), 'claude:claude-sonnet-5-5')
         self.assertNotEqual(self.picked(decision), self.reviewer(decision))
-        self.assertTrue(any(n.startswith("review:") and OPUS in n and "chosen" in n
+        self.assertTrue(any(n.startswith("review:") and "claude-sonnet-5-5" in n and "chosen" in n
                             for n in decision["notes"]))
         self.assertIn(ASTRA, decision["policy"]["enforced"])
         self.assertTrue(decision["review_required"])
 
     def test_review_ladder_refuses_a_forbidden_model_even_with_room(self):
         c = copy.deepcopy(self.config)
-        c['bands']['3'] = [OPUS, ASTRA]
+        c['bands']['3'] = [ASTRA, LUNA, OPUS]
         d = r.decide(self.judgment('high_stakes'), c,
                      self.eligibility({'claude': 90, 'codex': 10}))
-        self.assertEqual(self.picked(d), OPUS)
-        self.assertIsNone(self.reviewer(d))
+        self.assertEqual(self.picked(d), LUNA)
+        self.assertEqual(self.reviewer(d), OPUS)
         loose = r.decide(self.judgment('high_stakes'), self.without_policy(c),
                          self.eligibility({'claude': 90, 'codex': 10}))
-        # Same shape without the policy: the reviewer slot is exactly the hole.
-        self.assertEqual(self.reviewer(loose), ASTRA)
+        # Without policy, the strict ladder makes Astra the worker.
+        self.assertEqual(self.picked(loose), ASTRA)
+        self.assertEqual(self.reviewer(loose), OPUS)
 
     # -- the empty eligible set ------------------------------------------
     def test_all_candidates_excluded_blocks_and_reports(self):
@@ -223,8 +257,8 @@ class ModelPolicyTests(unittest.TestCase):
     def test_capacity_shortage_is_still_not_a_policy_block(self):
         """A forbidden ladder entry does not turn a permitted model's quota into policy."""
         c = copy.deepcopy(self.config)
-        c['bands']['3'] = [ASTRA, OPUS]
-        d = r.decide(self.judgment('design'), c, self.eligibility(blocked=('claude',)))
+        c['bands']['3'] = [ASTRA, LUNA]
+        d = r.decide(self.judgment('design'), c, self.eligibility(blocked=('codex',)))
         self.assertIsNone(d['pick'])
         self.assertIsNone(d['blocked'])
 
@@ -244,19 +278,21 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_plan_waits_for_permitted_capacity_instead_of_reporting_policy_block(self):
         c = copy.deepcopy(self.config)
-        c['bands']['3'] = [ASTRA, OPUS]
-        c['max_inflight']['claude'] = 1
+        c['bands']['3'] = [ASTRA, LUNA]
+        c['max_inflight']['codex'] = 1
         with patch.object(r, 'judge', return_value=self.judgment('design')):
             result = r.plan(['first design task', 'second design task'], c, max_waves=2,
-                            probes={'codex': {'status': 'no-credential', 'buckets': []},
-                                    'claude': probe(5),
+                            probes={'codex': probe(5),
+                                    'claude': {'status': 'no-credential', 'buckets': []},
                                     'opencode': {'status': 'no-credential', 'buckets': []},
-                                    'minimax': {'status': 'no-credential', 'buckets': []}})
+                                    'minimax': {'status': 'no-credential', 'buckets': []},
+                                    'zai_coding_plan': {'status': 'no-credential',
+                                                        'buckets': []}})
         self.assertEqual(result['blocked'], [])
         self.assertEqual(result['unplaced'], [])
         self.assertEqual([task['wave'] for task in result['tasks']], [1, 2])
         self.assertEqual([self.picked(task['decision']) for task in result['tasks']],
-                         [OPUS, OPUS])
+                         [LUNA, LUNA])
 
     def test_route_enforces_the_policy_end_to_end(self):
         judgment = self.judgment('design', second_opinion=0.7)
@@ -264,10 +300,12 @@ class ModelPolicyTests(unittest.TestCase):
             decision = r.route("design the exclusion contract", self.config,
                                probes={'codex': probe(5), 'claude': probe(40),
                                        'opencode': {'status': 'no-credential', 'buckets': []},
-                                       'minimax': {'status': 'no-credential', 'buckets': []}})
-        self.assertEqual(self.picked(decision), SOL)
+                                       'minimax': {'status': 'no-credential', 'buckets': []},
+                                       'zai_coding_plan': {'status': 'ok', 'buckets': [],
+                                                           'unmetered': True}})
+        self.assertEqual(self.picked(decision), LUNA)
         self.assertNotEqual(self.reviewer(decision), ASTRA)
-        self.assertEqual(self.reviewer(decision), OPUS)
+        self.assertEqual(self.reviewer(decision), 'claude:claude-sonnet-5-5')
         self.assertNotEqual(self.picked(decision), self.reviewer(decision))
 
     # -- the exception contract ------------------------------------------
@@ -278,7 +316,7 @@ class ModelPolicyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     r.policy_exception(self.config, ASTRA, necessity)
         with self.assertRaises(ValueError):
-            r.policy_exception(self.config, OPUS, NECESSITY)
+            r.policy_exception(self.config, LUNA, NECESSITY)
         granted = r.policy_exception(self.config, ASTRA, NECESSITY, "karoliang")
         self.assertEqual(granted['model'], ASTRA)
         self.assertEqual(granted['necessity'], NECESSITY)
@@ -286,10 +324,14 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertIn("owner policy", granted['policy_reason'])
 
     def test_unapproved_exception_is_recorded_escalated_and_blocked(self):
+        c = copy.deepcopy(self.config)
+        c['bands']['3'] = [ASTRA]
         pending = r.policy_exception(self.config, ASTRA, NECESSITY)
         self.assertFalse(pending['approved'])
-        d = r.decide(self.judgment('design'), self.config,
-                     self.eligibility({'codex': 999}), exception=pending)
+        d = r.decide(self.judgment('design'), c,
+                     self.eligibility({'codex': 999},
+                                      blocked=('opencode', 'claude', 'minimax',
+                                               'zai_coding_plan')), exception=pending)
         self.assertEqual(self.picked(d), ASTRA)
         self.assertIsNotNone(d['blocked'], "an unapproved exception must not be dispatchable")
         self.assertEqual(d['policy']['exception']['status'], 'pending')
@@ -297,9 +339,13 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertTrue(any("escalated" in reason for reason in d['reasons']))
 
     def test_approved_exception_dispatches_and_records_its_necessity(self):
+        c = copy.deepcopy(self.config)
+        c['bands']['3'] = [ASTRA]
         granted = r.policy_exception(self.config, ASTRA, NECESSITY, "karoliang")
-        d = r.decide(self.judgment('design'), self.config,
-                     self.eligibility({'codex': 999}), exception=granted)
+        d = r.decide(self.judgment('design'), c,
+                     self.eligibility({'codex': 999},
+                                      blocked=('opencode', 'claude', 'minimax',
+                                               'zai_coding_plan')), exception=granted)
         self.assertEqual(self.picked(d), ASTRA)
         self.assertIsNone(d['blocked'])
         self.assertEqual(d['policy']['exception']['status'], 'approved')
@@ -312,7 +358,7 @@ class ModelPolicyTests(unittest.TestCase):
         c['bands']['3'] = [OPUS, ASTRA]
         granted = r.policy_exception(c, ASTRA, NECESSITY, "karoliang")
         d = r.decide(self.judgment('high_stakes'), c,
-                     self.eligibility({'claude': 90, 'codex': 10}), exception=granted)
+                     self.eligibility({'claude': 90, 'codex': 90}), exception=granted)
         self.assertEqual(self.picked(d), OPUS)
         self.assertIsNone(self.reviewer(d))
         self.assertEqual(d['policy']['exception']['status'], 'unused')
@@ -320,9 +366,13 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_the_exception_is_kept_in_the_decision_log(self):
         """An excluded model that ran anyway has to be answerable for later."""
+        c = copy.deepcopy(self.config)
+        c['bands']['3'] = [ASTRA]
         granted = r.policy_exception(self.config, ASTRA, NECESSITY, "karoliang")
-        d = r.decide(self.judgment('design'), self.config,
-                     self.eligibility({'codex': 999}), exception=granted)
+        d = r.decide(self.judgment('design'), c,
+                     self.eligibility({'codex': 999},
+                                      blocked=('opencode', 'claude', 'minimax',
+                                               'zai_coding_plan')), exception=granted)
         r.log_decision(d, "a task that genuinely needs the excluded model",
                        config=self.config)
         entry = (r.load_json(r.STATE, {}) or {})["decisions"][-1]
@@ -351,7 +401,7 @@ class ModelPolicyTests(unittest.TestCase):
     # -- preflight --------------------------------------------------------
     def test_doctor_counts_permitted_candidates_per_band(self):
         c = copy.deepcopy(self.config)
-        c['bands']['3'] = [ASTRA, OPUS]
+        c['bands']['3'] = [ASTRA, LUNA]
         messages = [f"{level}: {text}" for level, text in r.doctor(c)]
         self.assertTrue(any("band 3 has one permitted candidate" in m for m in messages), messages)
         c['bands']['3'] = [ASTRA]
@@ -424,8 +474,8 @@ class ModelPolicyTests(unittest.TestCase):
         r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
 
         messages = [text for level, text in r.doctor(c) if level == 'warn']
-        self.assertFalse(any(text.startswith('band 1 has one permitted candidate')
-                             and 'reviewer' in text for text in messages), messages)
+        self.assertTrue(any(text.startswith('band 1 has one permitted candidate')
+                            and 'reviewer' in text for text in messages), messages)
         self.assertTrue(any(text.startswith('band 2 has one permitted candidate')
                             and 'reviewer' in text for text in messages), messages)
         self.assertTrue(any(text.startswith('band 3 has one permitted candidate')
@@ -446,9 +496,9 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_doctor_reviewer_warns_when_only_reviewer_is_the_implementer(self):
         c = copy.deepcopy(self.config)
-        c['bands'] = {'1': [OPUS]}
-        c['review_ladder'] = [OPUS]
-        cached = {'claude': {'status': 'ok'}}
+        c['bands'] = {'1': ['minimax:MiniMax-M3']}
+        c['review_ladder'] = ['minimax:MiniMax-M3']
+        cached = {'minimax': {'status': 'ok'}}
         r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
 
         messages = [text for level, text in r.doctor(c) if level == 'warn']
@@ -457,9 +507,9 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_doctor_reviewer_accepts_one_distinct_reviewer(self):
         c = copy.deepcopy(self.config)
-        c['bands'] = {'1': [SOL]}
-        c['review_ladder'] = [OPUS]
-        cached = {'claude': {'status': 'ok'}, 'codex': {'status': 'ok'}}
+        c['bands'] = {'1': ['minimax:MiniMax-M3']}
+        c['review_ladder'] = ['zai_coding_plan:glm-5.3-flash']
+        cached = {'minimax': {'status': 'ok'}, 'zai_coding_plan': {'status': 'ok'}}
         r.save_json(r.STATE, {'probe_cache': {'at': r.now(), 'probes': cached}})
 
         messages = [text for level, text in r.doctor(c) if level == 'warn']
