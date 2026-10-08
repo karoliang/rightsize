@@ -720,8 +720,8 @@ def adversarial():
     state["opencode"]["buckets"].append(
         {"id": "monthly", "percent": None, "resets_at": time.time() + 27 * 86400,
          "source": "expired-reading"})
-    decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] != "opencode", decision["pick"]
+    decision = route_with(judged("implementation"), state, config=UNRESTRICTED)
+    assert decision["pick"]["provider"] == "minimax", decision["pick"]
 
     # When every metered plan is over pace, cheap work should wait or stay cheap because buying band 3 on those same plans accelerates exhaustion.
     ar.save_json(ar.STATE, {})
@@ -769,31 +769,24 @@ def adversarial():
     assert result["tasks"][0]["decision"]["pick"]["provider"] == "minimax", result["spread"]
     assert result["tasks"][1]["decision"]["pick"]["provider"] == "zai_coding_plan", result["spread"]
 
-    # Review legs stay independent and honest: with the unmetered plan up,
-    # both reviewed tasks get a reviewer from another provider; with it down,
-    # the review is outstanding rather than weakened.
+    # Review legs spend committed capacity too: the first task spends the only
+    # affordable dispatch of the qualifying reviewer, leaving task two without one.
     ar.save_json(ar.STATE, {})
-    state = probes(opencode=20, codex=88.5, claude_percent=99,
+    review_config = json.loads(json.dumps(UNRESTRICTED))
+    review_config["review_ladder"] = ["minimax:MiniMax-M2.7-highspeed"]
+    state = probes(opencode=20, codex=99, claude_percent=99, minimax=83.5,
                    resets={"opencode": time.time() + 2 * HOUR,
-                           "codex": time.time() + 10 * HOUR})
+                           "minimax": time.time() + 10 * HOUR})
     original = ar.judge
     ar.judge = lambda spec: judged("implementation", second=0.9)
     try:
-        result = ar.plan(["first reviewed task", "second reviewed task"], CONFIG, probes=state)
+        result = ar.plan(["first reviewed task", "second reviewed task"],
+                         review_config, probes=state)
     finally:
         ar.judge = original
-    for task in result["tasks"]:
-        review = task["decision"]["review"]
-        assert review and review["provider"] != task["decision"]["pick"]["provider"], task
-    ar.save_json(ar.STATE, {})
-    dry = json.loads(json.dumps(state))
-    dry["zai_coding_plan"] = {"name": "zai_coding_plan", "status": "no-credential",
-                              "buckets": []}
-    try:
-        result = ar.plan(["first reviewed task", "second reviewed task"], CONFIG, probes=dry)
-    finally:
-        ar.judge = original
-    assert all(task["decision"]["review"] is None for task in result["tasks"]), result
+    assert result["tasks"][0]["decision"]["review"], result
+    assert result["tasks"][1]["decision"]["review"] is None, \
+        (result["tasks"][1]["decision"]["review"], result["quota_after"]["minimax"])
 
 
 def adversarial_two():
@@ -804,8 +797,8 @@ def adversarial_two():
     state["opencode"]["buckets"].append(
         {"id": "monthly", "percent": None, "resets_at": time.time() + 27 * 86400,
          "source": "unavailable"})
-    decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] != "opencode", decision["pick"]
+    decision = route_with(judged("implementation"), state, config=UNRESTRICTED)
+    assert decision["pick"]["provider"] == "minimax", decision["pick"]
 
     # An accelerating monthly burn should send cheap work elsewhere because its 115% projection matters even while the weekly bucket binds and whole-window pace is safe.
     ar.save_json(ar.STATE, {"snapshots": {
@@ -815,35 +808,38 @@ def adversarial_two():
     state["opencode"]["buckets"].append(
         {"id": "monthly", "percent": 40, "resets_at": time.time() + 15 * 86400,
          "source": "live"})
-    decision = route_with(judged("implementation"), state)
+    decision = route_with(judged("implementation"), state, config=UNRESTRICTED)
     assert decision["pick"]["provider"] == "zai_coding_plan", decision["pick"]
 
-    # A measured burn overrun should fall back to funded Claude because relaxing average pacing must not erase a 135% recent-burn projection on another plan.
+    # A measured burn overrun should use the unmetered plan because relaxing
+    # average pacing must not erase a 135% recent-burn projection.
     ar.save_json(ar.STATE, {"snapshots": {
         "opencode:weekly": {"at": time.time() - 9 * HOUR, "percent": 40},
     }})
     state = probes(opencode=60, codex=99, claude_percent=20, minimax=99,
                    resets={"opencode": time.time() + 33.6 * HOUR})
-    decision = route_with(judged("implementation"), state)
+    decision = route_with(judged("implementation"), state, config=UNRESTRICTED)
     assert decision["pick"]["provider"] == "zai_coding_plan", decision["pick"]
 
     # Batch commitments count toward pace: as a barely-on-pace weekly fills
     # with commitments, later tasks move to the unmetered plan instead of
     # buying more of the window that is about to overrun.
     ar.save_json(ar.STATE, {})
-    state = probes(opencode=99, codex=0, minimax=3.0,
-                   resets={"minimax": time.time() + 0.949 * 7 * 86400})
+    state = probes(opencode=1.9, codex=0, minimax=0,
+                   resets={"opencode": time.time() + 0.949 * 7 * 86400,
+                           "minimax": time.time() + 0.97 * 7 * 86400,
+                           "codex": time.time() + 0.97 * 7 * 86400})
     original = ar.judge
     ar.judge = lambda spec: judged("implementation")
     try:
-        result = ar.plan([f"guard crossing task {i}" for i in range(10)], CONFIG,
+        result = ar.plan([f"guard crossing task {i}" for i in range(10)], UNRESTRICTED,
                          probes=state)
     finally:
         ar.judge = original
     picks = [t["decision"]["pick"]["provider"] if t["decision"]["pick"] else None
              for t in result["tasks"]]
-    assert picks[0] == "minimax", picks
-    assert "zai_coding_plan" in picks, picks
+    assert picks[:8] == ["opencode"] * 8, picks
+    assert picks[8] == "minimax", picks
 
     # Two concurrent held routes must not both take OpenCode's single slot because locking only the reservation write leaves the capacity check stale.
     ar.save_json(ar.STATE, {})

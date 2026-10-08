@@ -355,14 +355,15 @@ class ModelPolicyTests(unittest.TestCase):
     def test_an_exception_never_lifts_the_review_role(self):
         """The necessity was recorded for the work, not for the opinion on it."""
         c = copy.deepcopy(self.config)
-        c['bands']['3'] = [LUNA, ASTRA, OPUS]
+        flash = "zai_coding_plan:glm-5.3-flash"
+        c['bands']['3'] = [flash, ASTRA]
         granted = r.policy_exception(c, ASTRA, NECESSITY, "karoliang")
         d = r.decide(self.judgment('high_stakes'), c,
-                     self.eligibility({'claude': 90, 'codex': 10}), exception=granted)
-        self.assertEqual(self.picked(d), LUNA)
+                     self.eligibility({'zai_coding_plan': 90, 'codex': 10}), exception=granted)
+        self.assertEqual(self.picked(d), flash)
         self.assertIsNone(self.reviewer(d))
         self.assertEqual(d['policy']['exception']['status'], 'unused')
-        self.assertEqual(d['policy']['review_forbidden'], [OPUS])
+        self.assertEqual(d['policy']['review_forbidden'], [ASTRA])
 
     def test_the_exception_is_kept_in_the_decision_log(self):
         """An excluded model that ran anyway has to be answerable for later."""

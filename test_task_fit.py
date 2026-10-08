@@ -79,7 +79,7 @@ class TaskFitTests(unittest.TestCase):
 
     def test_explicit_unsupported_effort_disqualifies_candidate(self):
         c=copy.deepcopy(self.config)
-        c['bands']['1']=['zai_coding_plan:glm-5-turbo:ultra']
+        c['bands']['1']=['zai_coding_plan:glm-5.3-flash:ultra']
         d=r.decide(self.judgment('mechanical'),c,self.eligibility(),fallback=False)
         self.assertIsNone(d['pick'])
         self.assertTrue(any('unsupported model effort' in n for n in d['notes']))
