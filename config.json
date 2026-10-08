@@ -59,7 +59,7 @@
       "opencode:kimi-k3"
     ]
   },
-  "_comment_bands": "Owner policy 2026-10-08: routine work defaults to MiniMax, then cheap GLM (flash, turbo, 4.7); the GLM highspeed ids are plan-refused and stay off every ladder. Difficult work (design, diagnosis, high stakes) is Codex first in token-saving order luna, terra, then sol for the top profile only; premium GLM (glm-5.3, glm-5.2) is the last resort, off-peak only, priced higher per dispatch. min_task_band in model_profiles keeps the deep-tier models out of routine work even when a routine task escalates bands.",
+  "_comment_bands": "Owner policy 2026-10-08: routine work defaults to MiniMax, then the only permitted GLM model, glm-5.3-flash. The peak-window machinery remains configured for premium GLM accounting, but model_policy makes every other GLM ID unselectable. Difficult work (design, diagnosis, high stakes) is Codex first in token-saving order luna, terra, then sol for the top profile only. min_task_band in model_profiles keeps the deep-tier models out of routine work even when a routine task escalates bands.",
   "review_ladder": [
     "codex:gpt-5.6-luna",
     "opencode:kimi-k2.6",
@@ -238,7 +238,13 @@
       "opencode:kimi-k2.7-code": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
       "opencode:kimi-k3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
       "opencode:minimax-m3": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
-      "opencode:qwen3.8-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded"
+      "opencode:qwen3.8-flash": "owner policy 2026-10-08: routine work runs on the native MiniMax Token Plan or Z.AI GLM Coding Plan via OpenCode, difficult work on Codex or premium GLM; Go-hosted OpenCode models stay excluded",
+      "zai_coding_plan:glm-5.3": "owner 2026-10-08: GLM limited to glm-5.3-flash",
+      "zai_coding_plan:glm-5.2": "owner 2026-10-08: GLM limited to glm-5.3-flash",
+      "zai_coding_plan:glm-5-turbo": "owner 2026-10-08: GLM limited to glm-5.3-flash",
+      "zai_coding_plan:glm-4.7": "owner 2026-10-08: GLM limited to glm-5.3-flash",
+      "zai_coding_plan:glm-5.3-highspeed": "owner 2026-10-08: GLM limited to glm-5.3-flash",
+      "zai_coding_plan:glm-5.2-highspeed": "owner 2026-10-08: GLM limited to glm-5.3-flash"
     }
   },
   "_comment_model_policy": "Owner policy 2026-10-08 over the 2026-09-28 override: Codex gpt-5.6-luna, gpt-5.6-terra and gpt-6-sol are released for difficult work only (their model_profiles carry min_task_band 3 and sol is capped to high_stakes); astra stays forbidden (#32) and Claude stays forbidden in every role. Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",

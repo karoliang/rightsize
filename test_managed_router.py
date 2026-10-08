@@ -31,6 +31,15 @@ class ManagedRouterTests(unittest.TestCase):
         state = patch.object(r, "STATE", self.root / "state.json")
         state.start()
         self.addCleanup(state.stop)
+        # The managed lifecycle tests route an implementation task through the
+        # codex adapter. The shipped owner policy keeps routine work off Codex
+        # (luna carries min_task_band 3), so this harness lifts that one gate
+        # for these adapter tests; the policy itself has its own test files.
+        config, _ = r.load_config()
+        config["model_profiles"].setdefault("codex:gpt-5.6-luna", {})["min_task_band"] = 0
+        self.load = patch.object(r, "load_config", return_value=(config, None))
+        self.load.start()
+        self.addCleanup(self.load.stop)
         self.ledger = Ledger(self.root / "managed.sqlite3")
         self.account = accounts.select("codex").public()
         self.probes = {"codex": {"name": "codex", "status": "ok", "observed_at": r.now(),

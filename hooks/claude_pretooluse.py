@@ -203,6 +203,12 @@ def launch_receipt(command: str, segment: str, event: dict) -> dict | None:
             nested = flag_value(tokens, "--command")
             if nested:
                 inner = shlex.split(nested)
+                # The shipped launcher wraps opencode in `env OPENCODE_CONFIG=...`
+                # (and coordinators may export other assignments), so the binary
+                # is not necessarily the first token of the terminal command.
+                while inner and (inner[0] == "env"
+                                 or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", inner[0])):
+                    inner = inner[1:]
                 if inner and Path(inner[0]).name == "opencode":
                     agent, model = "opencode", flag_value(inner, "--model", "-m")
     if not agent or not model:

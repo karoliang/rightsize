@@ -28,7 +28,20 @@ class ConsumerOutcomes(unittest.TestCase):
         self.elig = {p: dict(eligible=True, blocked=None, usable=80, unknown=False,
                             overrun=False, resets_at=r.now()+3600, bucket='weekly',
                             inflight=0, reserved=0, buckets=[])
-                     for p in ('codex', 'claude', 'opencode')}
+                     for p in ('codex', 'claude', 'opencode', 'minimax', 'zai_coding_plan')}
+        # Premium GLM review depends on the pricing window, so freeze the clock
+        # on a Saturday: deterministic off-peak, no wall-clock flakiness.
+        from datetime import datetime, timezone
+        saturday = datetime(2026, 9, 26, 7, tzinfo=timezone.utc).timestamp()
+        tick = [saturday]
+
+        def frozen():
+            tick[0] += 1
+            return tick[0]
+
+        clock = patch.object(r, 'now', frozen)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def invoke(self, args):
         out, err = io.StringIO(), io.StringIO()

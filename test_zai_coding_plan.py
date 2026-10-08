@@ -158,9 +158,9 @@ class ZaiCodingPlanTests(unittest.TestCase):
         elig = r.eligibility(self.config, {"zai_coding_plan": self.probe()}, record=False)
         tiers = {"mechanical": ("glm-5.3-flash", 1),
                  "implementation": ("glm-5.3-flash", 1),
-                 "design": ("glm-5.3", 3),
-                 "diagnosis": ("glm-5.3", 3),
-                 "high_stakes": ("glm-5.3", 3)}
+                 "design": ("glm-5.3-flash", 3),
+                 "diagnosis": ("glm-5.3-flash", 3),
+                 "high_stakes": ("glm-5.3-flash", 3)}
         for tier, (model, band) in tiers.items():
             judgment = {"tier": tier, "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
@@ -212,7 +212,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
                             record=False)
         pick = r.decide(judgment, self.config, dry)["pick"]
         self.assertEqual((pick["provider"], pick["model"]),
-                         ("zai_coding_plan", "glm-5.3"))  # codex dry: premium GLM, off-peak
+                         ("zai_coding_plan", "glm-5.3-flash"))  # codex dry: only permitted GLM
         stakes = {"tier": "high_stakes", "size": 0.4, "second_opinion": 0.2,
                   "spec_complete": 0.9, "destructive": 0.0}
         healthy = r.eligibility(self.config, {"codex": self.codex_probe()}, record=False)
@@ -244,9 +244,16 @@ class ZaiCodingPlanTests(unittest.TestCase):
         self.assertIn("claude:claude-opus-5", forbidden)
         for model in ("codex:gpt-6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"):
             self.assertNotIn(model, forbidden)
-        for model in ("zai_coding_plan:glm-5.3", "zai_coding_plan:glm-5.3-flash",
-                      "minimax:MiniMax-M3"):
-            self.assertNotIn(model, forbidden)
+        for model in ("zai_coding_plan:glm-5.3", "zai_coding_plan:glm-5.2",
+                      "zai_coding_plan:glm-5-turbo", "zai_coding_plan:glm-4.7",
+                      "zai_coding_plan:glm-5.3-highspeed",
+                      "zai_coding_plan:glm-5.2-highspeed"):
+            self.assertEqual(self.config["model_policy"]["forbidden"][model],
+                             "owner 2026-10-08: GLM limited to glm-5.3-flash")
+            self.assertIn("owner 2026-10-08: GLM limited to glm-5.3-flash",
+                          forbidden[model])
+        self.assertNotIn("zai_coding_plan:glm-5.3-flash", forbidden)
+        self.assertNotIn("minimax:MiniMax-M3", forbidden)
 
     # ------------------------------------------------------- peak pricing
 
@@ -279,8 +286,8 @@ class ZaiCodingPlanTests(unittest.TestCase):
             judgment = {"tier": "design", "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
-            self.assertEqual(decision["pick"]["model"], "glm-5.3")
-            self.assertEqual(decision["pricing_window"], "off-peak")
+            self.assertEqual(decision["pick"]["model"], "glm-5.3-flash")
+            self.assertIsNone(decision["pricing_window"])
             # peak pricing still full price when computed
             with patch.object(r, "now", lambda: self.at(2026, 10, 5, 7)):
                 self.assertEqual(r.dispatch_cost(self.config, "zai_coding_plan", 3,
@@ -296,7 +303,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
             judgment = {"tier": "diagnosis", "size": 0.4, "second_opinion": 0.2,
                         "spec_complete": 0.9, "destructive": 0.0}
             decision = r.decide(judgment, self.config, elig)
-            self.assertEqual(decision["pick"]["model"], "glm-5.3")
+            self.assertEqual(decision["pick"]["model"], "glm-5.3-flash")
 
     def test_premium_models_cost_more_than_cheap_ones(self):
         cheap = r.dispatch_cost(self.config, "zai_coding_plan", 1, "glm-5.3-flash")
@@ -430,8 +437,7 @@ class ZaiCodingPlanTests(unittest.TestCase):
         self.assertEqual(len(picked), 5)
         self.assertEqual({p["provider"] for p in picked}, {"zai_coding_plan"})
         models = {p["model"] for p in picked}
-        self.assertIn("glm-5.3", models)      # diagnosis/design work
-        self.assertIn("glm-5.3-flash", models)  # mechanical work
+        self.assertEqual(models, {"glm-5.3-flash"})
 
     def test_plan_fan_out_spreads_when_minimax_has_headroom(self):
         probes = {"minimax": self.minimax_probe(weekly_remaining=70),

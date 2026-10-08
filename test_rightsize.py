@@ -22,10 +22,21 @@ HOUR = 3600
 ar.STATE = Path(tempfile.mkdtemp(prefix="rightsize-test-")) / "state.json"
 
 
-def probes(opencode=20, codex=20, openrouter=None, claude_percent=None, resets=None):
+def probes(opencode=20, codex=20, openrouter=None, claude_percent=None, resets=None,
+           minimax=20):
     """Build a probe set. Percentages are percent USED."""
     resets = resets or {}
     out = {
+        "minimax": {
+            "name": "minimax",
+            "status": "ok",
+            "buckets": [
+                {"id": "rolling", "percent": minimax, "resets_at": resets.get("minimax", time.time() + 30 * HOUR), "source": "live"},
+                {"id": "weekly", "percent": minimax, "resets_at": resets.get("minimax", time.time() + 90 * HOUR), "source": "live"},
+            ],
+        },
+        "zai_coding_plan": {"name": "zai_coding_plan", "status": "ok",
+                            "buckets": [], "unmetered": True},
         "opencode": {
             "name": "opencode",
             "status": "ok",
@@ -98,10 +109,11 @@ def main():
     assert ar.band_for(judged("diagnosis"), CONFIG)[0] == 3
     assert ar.band_for(judged("high_stakes"), CONFIG)[0] == 3
 
-    # Ordinary coding goes to the cheap OpenCode workhorse.
+    # Ordinary coding goes to the MiniMax subscription first (owner policy
+    # 2026-10-08), and only to the unmetered GLM plan when MiniMax is dry.
     decision = route_with(judged("implementation"), probes())
-    assert decision["pick"]["provider"] == "opencode", decision["pick"]
-    assert decision["pick"]["model"] == "deepseek-v4.1-flash", decision["pick"]
+    assert decision["pick"]["provider"] == "minimax", decision["pick"]
+    assert decision["pick"]["model"] == "MiniMax-M2.7-highspeed", decision["pick"]
     assert decision["band"] == 1
 
     # Design work escalates, and Claude stays available there even with no
@@ -111,17 +123,23 @@ def main():
     assert decision["pick"]["provider"] in ("codex", "claude", "opencode"), decision["pick"]
 
     # Below its reserve, OpenCode drops out and band 1 falls to the next
-    # eligible candidate rather than failing.
-    decision = route_with(judged("implementation"), probes(opencode=90))
+    # eligible candidate rather than failing. The shipped policy keeps
+    # OpenCode-hosted models off the ladder, so the quota arithmetic runs on
+    # the unrestricted config where they are selectable.
+    decision = route_with(judged("implementation"), probes(opencode=90),
+                          config=UNRESTRICTED)
     assert decision["pick"]["provider"] != "opencode", decision["pick"]
     assert any("below reserve" in note for note in decision["notes"]), decision["notes"]
 
     # Spend the bucket that expires first: with both eligible, the provider
     # whose bucket resets sooner is preferred even though it is later in the
-    # configured order.
-    soon = {"codex": time.time() + 2 * HOUR, "opencode": time.time() + 40 * HOUR}
-    decision = route_with(judged("implementation"), probes(codex=5, resets=soon))
-    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    # configured order. Codex is out of routine work under the shipped
+    # profiles, so the comparison runs between OpenCode and MiniMax on the
+    # unrestricted config.
+    soon = {"opencode": time.time() + 2 * HOUR, "minimax": time.time() + 40 * HOUR}
+    decision = route_with(judged("implementation"), probes(resets=soon),
+                          config=UNRESTRICTED)
+    assert decision["pick"]["provider"] == "opencode", decision["pick"]
     assert any("resets in" in note for note in decision["notes"]), decision["notes"]
 
     # An irreversible task is flagged for a human, never silently dispatched.
@@ -140,8 +158,9 @@ def main():
 
     # Everything metered exhausted: still returns an escalation rather than
     # nothing, so a run is never stranded.
-    decision = route_with(judged("implementation"), probes(opencode=99, codex=99))
-    assert decision["pick"] is None or decision["pick"]["provider"] == "claude", decision["pick"]
+    decision = route_with(judged("implementation"), probes(opencode=99, codex=99,
+                                                           minimax=99))
+    assert decision["pick"] and decision["pick"]["provider"] == "zai_coding_plan", decision["pick"]
 
     # The heuristic stand-in labels itself, so a route made without Jev is
     # never mistaken for one made with it.
@@ -170,11 +189,11 @@ def main():
     # The model has to be bound at launch. `--agent opencode` takes no model
     # flag and OPENCODE_MODEL is ignored, so a worker started without this
     # silently runs whatever ~/.config/opencode/opencode.json names.
-    assert "opencode -m opencode-go/deepseek-v4.1-flash" in line, line
+    assert "opencode -m minimax-coding-plan/MiniMax-M2.7-highspeed" in line, line
     assert '--terminal "$HANDLE"' in line, line
     assert "--worktree name:" in line, line
     shell = ar.launch_command(decision, CONFIG, "shell", None)
-    assert shell.startswith("opencode run -m opencode-go/deepseek-v4.1-flash"), shell
+    assert "opencode run -m minimax-coding-plan/MiniMax-M2.7-highspeed" in shell, shell
     inline = ar.launch_command(decision, CONFIG, "orca", None,
                                "add pagination to the invoices list endpoint")
     assert "'add pagination to the invoices list endpoint'" in inline, inline
@@ -186,13 +205,13 @@ def main():
     # and the next route goes elsewhere rather than failing.
     ar.mark_exhausted("opencode", time.time() + 2 * HOUR)
     try:
-        decision = route_with(judged("implementation"), probes())
+        decision = route_with(judged("implementation"), probes(), config=UNRESTRICTED)
         assert decision["pick"]["provider"] != "opencode", decision["pick"]
         assert any("quota error" in note for note in decision["notes"]), decision["notes"]
     finally:
         ar.mark_exhausted("opencode", 0)
     decision = route_with(judged("implementation"), probes())
-    assert decision["pick"]["provider"] == "opencode", decision["pick"]
+    assert decision["pick"]["provider"] == "minimax", decision["pick"]
 
     # No budget means no transcript scan: the answer cannot depend on it.
     scanned = []
@@ -268,8 +287,9 @@ def main():
 
     # A single route still escalates rather than stranding one task, which is
     # the opposite call from the batch and deliberately so.
-    solo = route_with(judged("implementation"), probes(opencode=99, codex=99))
-    assert solo["pick"] is None or solo["band"] == 3, solo
+    solo = route_with(judged("implementation"), probes(opencode=99, codex=99,
+                                                        minimax=99))
+    assert solo["pick"] and solo["pick"]["provider"] == "zai_coding_plan", solo
 
     # Effort is a second dial on the chosen model, for the CLIs that take it.
     decision = route_with(judged("design"), probes(codex=10))
@@ -294,20 +314,21 @@ def main():
     # model that just failed.
     elig = ar.eligibility(CONFIG, probes(), record=False)
     again = ar.decide(judged("implementation"), CONFIG, elig, floor_band=2,
-                      exclude={"opencode:deepseek-v4.1-flash"}, attempt=1)
+                      exclude={"minimax:MiniMax-M2.7-highspeed"}, attempt=1)
     assert again["band"] >= 2, again["band"]
-    assert again["pick"]["model"] != "deepseek-v4.1-flash", again["pick"]
+    assert again["pick"]["model"] != "MiniMax-M2.7-highspeed", again["pick"]
     # And within the band it already failed in, it is passed over by name.
     same_band = ar.decide(judged("implementation"), CONFIG, elig,
-                          exclude={"opencode:deepseek-v4.1-flash"}, attempt=1)
-    assert same_band["pick"]["model"] != "deepseek-v4.1-flash", same_band["pick"]
+                          exclude={"minimax:MiniMax-M2.7-highspeed"}, attempt=1)
+    assert same_band["pick"]["model"] != "MiniMax-M2.7-highspeed", same_band["pick"]
     assert any("already had a go" in note for note in same_band["notes"]), same_band["notes"]
 
     # Doctor catches a ladder entry the provider has retired. This is the
     # failure that is invisible until a worker tries the name: routing will
     # happily pick a model id nobody has confirmed still exists.
     registry = {"fetched_at": "2026-09-20T00:00:00+00:00",
-                "providers": {"opencode": {"models": {"deepseek-v4.1-flash": {}}}}}
+                "providers": {"opencode": {"models": {"deepseek-v4.1-flash": {}}},
+                             "minimax": {"models": {"MiniMax-M3": {}}}}}
     original_registry = ar.REGISTRY
     tmp = ar.STATE.parent / "registry.json"
     tmp.write_text(json.dumps(registry))
@@ -318,7 +339,9 @@ def main():
                               "review_ladder": []})
         errors = [message for level, message in findings if level == "error"]
         assert errors and "a-model-that-was-retired" in errors[0], findings
-        clean = ar.doctor({**CONFIG, "bands": {"1": ["opencode:deepseek-v4.1-flash"]},
+        # The retired-id check is about catalogue membership, so the clean
+        # probe uses a permitted model the shipped policy does not exclude.
+        clean = ar.doctor({**CONFIG, "bands": {"1": ["minimax:MiniMax-M3"]},
                            "review_ladder": []})
         assert not [m for level, m in clean if level == "error"], clean
     finally:
@@ -552,13 +575,14 @@ def main():
     # Cleared first: a snapshot left by an earlier case would now be read as
     # this provider's burn rate, since every bucket is paced against one.
     ar.save_json(ar.STATE, {})
-    cheap = route_with(judged("implementation"), probes(opencode=77, codex=0, resets=thin))
+    cheap = route_with(judged("implementation"), probes(opencode=77, codex=0, resets=thin),
+                       config=UNRESTRICTED)
     assert cheap["pick"]["provider"] == "opencode", cheap["pick"]
 
     # A bucket that cannot cover the dispatch at all is passed over rather than
     # merely ranked low.
-    starved = probes(opencode=84, codex=99, resets=thin)
-    thinned = route_with(judged("implementation"), starved)
+    starved = probes(opencode=84.8, codex=99, resets=thin)
+    thinned = route_with(judged("implementation"), starved, config=UNRESTRICTED)
     assert any("cannot cover" in note or "below reserve" in note for note in thinned["notes"]), \
         thinned["notes"]
 
@@ -584,7 +608,7 @@ def main():
         {"id": "weekly", "percent": 40.0, "resets_at": time.time() + 19 * HOUR, "source": "live"},
         {"id": "monthly", "percent": 38.0, "resets_at": month, "source": "live"},
     ]
-    decision = route_with(judged("implementation"), paced)
+    decision = route_with(judged("implementation"), paced, config=UNRESTRICTED)
     assert decision["pick"]["provider"] != "opencode", decision["pick"]
     assert any("over pace" in note for note in decision["notes"]), decision["notes"]
 
@@ -697,7 +721,7 @@ def adversarial():
         {"id": "monthly", "percent": None, "resets_at": time.time() + 27 * 86400,
          "source": "expired-reading"})
     decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    assert decision["pick"]["provider"] != "opencode", decision["pick"]
 
     # When every metered plan is over pace, cheap work should wait or stay cheap because buying band 3 on those same plans accelerates exhaustion.
     ar.save_json(ar.STATE, {})
@@ -711,9 +735,10 @@ def adversarial():
     # A batch whose only funded provider starts at its in-flight limit should place work in wave 2 because completion returns those slots.
     ar.save_json(ar.STATE, {})
     state = probes(opencode=99, codex=20, claude_percent=99)
-    for _ in range(CONFIG["max_inflight"]["codex"]):
-        ar.reserve("codex", ar.dispatch_cost(CONFIG, "codex", 1), 1,
-                   "already running", 1800)
+    for provider in ("minimax", "zai_coding_plan"):
+        for _ in range(CONFIG["max_inflight"][provider]):
+            ar.reserve(provider, ar.dispatch_cost(CONFIG, provider, 1), 1,
+                       "already running", 1800)
     original = ar.judge
     ar.judge = lambda spec: judged("implementation")
     try:
@@ -722,20 +747,31 @@ def adversarial():
         ar.judge = original
     assert result["tasks"][0]["wave"] == 2, (result["waves"], result["unplaced"])
 
-    # After the first dispatch spends the last on-pace allowance, the second should use Codex because batch commitments count toward pace too.
+    # After the first dispatch spends the last points a plan can cover, the
+    # second moves to the unmetered GLM plan because batch commitments count
+    # toward admission too.
     ar.save_json(ar.STATE, {})
-    state = probes(opencode=49.8, codex=0,
-                   resets={"opencode": time.time() + 84 * HOUR,
-                           "codex": time.time() + 100 * HOUR})
+    state = probes(opencode=99, codex=0)
+    # A rolling bucket with 1.2 usable points: on pace (window nearly over)
+    # but able to cover exactly one band 1 dispatch.
+    state["minimax"]["buckets"] = [
+        {"id": "rolling", "percent": 83.8, "resets_at": time.time() + 0.5 * HOUR,
+         "source": "live"},
+        {"id": "weekly", "percent": 40, "resets_at": time.time() + 84 * HOUR,
+         "source": "live"},
+    ]
     original = ar.judge
     ar.judge = lambda spec: judged("implementation")
     try:
-        result = ar.plan(["last on-pace dispatch", "next dispatch"], CONFIG, probes=state)
+        result = ar.plan(["last affordable dispatch", "next dispatch"], CONFIG, probes=state)
     finally:
         ar.judge = original
-    assert result["tasks"][1]["decision"]["pick"]["provider"] == "codex", result["spread"]
+    assert result["tasks"][0]["decision"]["pick"]["provider"] == "minimax", result["spread"]
+    assert result["tasks"][1]["decision"]["pick"]["provider"] == "zai_coding_plan", result["spread"]
 
-    # The second task should have no review leg because the first review spends Codex's last affordable dispatch and no other review provider qualifies.
+    # Review legs stay independent and honest: with the unmetered plan up,
+    # both reviewed tasks get a reviewer from another provider; with it down,
+    # the review is outstanding rather than weakened.
     ar.save_json(ar.STATE, {})
     state = probes(opencode=20, codex=88.5, claude_percent=99,
                    resets={"opencode": time.time() + 2 * HOUR,
@@ -746,8 +782,18 @@ def adversarial():
         result = ar.plan(["first reviewed task", "second reviewed task"], CONFIG, probes=state)
     finally:
         ar.judge = original
-    assert result["tasks"][1]["decision"]["review"] is None, \
-        (result["tasks"][1]["decision"]["review"], result["quota_after"]["codex"])
+    for task in result["tasks"]:
+        review = task["decision"]["review"]
+        assert review and review["provider"] != task["decision"]["pick"]["provider"], task
+    ar.save_json(ar.STATE, {})
+    dry = json.loads(json.dumps(state))
+    dry["zai_coding_plan"] = {"name": "zai_coding_plan", "status": "no-credential",
+                              "buckets": []}
+    try:
+        result = ar.plan(["first reviewed task", "second reviewed task"], CONFIG, probes=dry)
+    finally:
+        ar.judge = original
+    assert all(task["decision"]["review"] is None for task in result["tasks"]), result
 
 
 def adversarial_two():
@@ -759,33 +805,34 @@ def adversarial_two():
         {"id": "monthly", "percent": None, "resets_at": time.time() + 27 * 86400,
          "source": "unavailable"})
     decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    assert decision["pick"]["provider"] != "opencode", decision["pick"]
 
-    # An accelerating monthly burn should send cheap work to Codex because its 115% projection matters even while the weekly bucket binds and whole-window pace is safe.
+    # An accelerating monthly burn should send cheap work elsewhere because its 115% projection matters even while the weekly bucket binds and whole-window pace is safe.
     ar.save_json(ar.STATE, {"snapshots": {
         "opencode:monthly": {"at": time.time() - 48 * HOUR, "percent": 30},
     }})
-    state = probes(opencode=80, codex=0)
+    state = probes(opencode=80, codex=0, minimax=99)
     state["opencode"]["buckets"].append(
         {"id": "monthly", "percent": 40, "resets_at": time.time() + 15 * 86400,
          "source": "live"})
     decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    assert decision["pick"]["provider"] == "zai_coding_plan", decision["pick"]
 
     # A measured burn overrun should fall back to funded Claude because relaxing average pacing must not erase a 135% recent-burn projection on another plan.
     ar.save_json(ar.STATE, {"snapshots": {
         "opencode:weekly": {"at": time.time() - 9 * HOUR, "percent": 40},
     }})
-    state = probes(opencode=60, codex=99, claude_percent=20,
+    state = probes(opencode=60, codex=99, claude_percent=20, minimax=99,
                    resets={"opencode": time.time() + 33.6 * HOUR})
     decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] == "claude", decision["pick"]
+    assert decision["pick"]["provider"] == "zai_coding_plan", decision["pick"]
 
-    # The ninth batch task should use Codex because eight commitments raise OpenCode from 1.9% to 5.42% spent in a 5.1%-elapsed week, crossing both the guard and its pace allowance.
+    # Batch commitments count toward pace: as a barely-on-pace weekly fills
+    # with commitments, later tasks move to the unmetered plan instead of
+    # buying more of the window that is about to overrun.
     ar.save_json(ar.STATE, {})
-    state = probes(opencode=1.9, codex=0,
-                   resets={"opencode": time.time() + 0.949 * 7 * 86400,
-                           "codex": time.time() + 0.97 * 7 * 86400})
+    state = probes(opencode=99, codex=0, minimax=3.0,
+                   resets={"minimax": time.time() + 0.949 * 7 * 86400})
     original = ar.judge
     ar.judge = lambda spec: judged("implementation")
     try:
@@ -793,14 +840,17 @@ def adversarial_two():
                          probes=state)
     finally:
         ar.judge = original
-    assert result["tasks"][8]["decision"]["pick"]["provider"] == "codex", result["spread"]
+    picks = [t["decision"]["pick"]["provider"] if t["decision"]["pick"] else None
+             for t in result["tasks"]]
+    assert picks[0] == "minimax", picks
+    assert "zai_coding_plan" in picks, picks
 
     # Two concurrent held routes must not both take OpenCode's single slot because locking only the reservation write leaves the capacity check stale.
     ar.save_json(ar.STATE, {})
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
     config = json.loads(json.dumps(CONFIG))
-    config["max_inflight"]["opencode"] = 1
+    config["max_inflight"]["minimax"] = 1
     state = probes()
     barrier = Barrier(2)
     original = ar.judge
@@ -817,14 +867,14 @@ def adversarial_two():
                 ["first concurrent dispatch", "second concurrent dispatch"]))
     finally:
         ar.judge = original
-    assert sum(d["pick"]["provider"] == "opencode" for d in decisions) <= 1, \
+    assert sum(d["pick"]["provider"] == "minimax" for d in decisions) <= 1, \
         [d["pick"] for d in decisions]
 
     # An older settlement on a reused worktree must leave new confirmed holds intact so the next route uses Codex while OpenCode's new worker still owns its room.
     ar.save_json(ar.STATE, {})
     state = probes()
-    for i in range(CONFIG["max_inflight"]["opencode"]):
-        ar.reserve("opencode", ar.dispatch_cost(CONFIG, "opencode", 1), 1,
+    for i in range(CONFIG["max_inflight"]["minimax"]):
+        ar.reserve("minimax", ar.dispatch_cost(CONFIG, "minimax", 1), 1,
                    f"new task {i} still running", 1800,
                    "reused-checkout" if i == 0 else f"active-worker-{i}")
     original_workers, original_tasks = ar.orca_settled, ar.orca_settled_tasks
@@ -837,7 +887,7 @@ def adversarial_two():
     finally:
         ar.orca_settled, ar.orca_settled_tasks = original_workers, original_tasks
     decision = route_with(judged("implementation"), state)
-    assert decision["pick"]["provider"] == "codex", decision["pick"]
+    assert decision["pick"]["provider"] == "zai_coding_plan", decision["pick"]
 
 
 
