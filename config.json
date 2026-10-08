@@ -19,6 +19,7 @@
   },
   "bands": {
     "1": [
+      "minimax:MiniMax-M2.7-highspeed",
       "minimax:MiniMax-M3",
       "opencode:deepseek-v4.1-flash",
       "opencode:qwen3.8-flash",
@@ -33,6 +34,7 @@
       "codex:gpt-5.6-terra"
     ],
     "3": [
+      "minimax:MiniMax-M3",
       "codex:gpt-6-astra",
       "codex:gpt-6-sol",
       "claude:claude-opus-5",
@@ -151,7 +153,21 @@
   },
   "model_policy": {
     "forbidden": {
-      "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role"
+      "codex:gpt-6-astra": "owner policy 2026-09-27 (karoliang/rightsize#32): not for routine coding, building, retries or fallback in any role",
+      "claude:claude-haiku-4-5": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "claude:claude-opus-5": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "codex:gpt-5.6-luna": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "codex:gpt-5.6-terra": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "codex:gpt-6-sol": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:deepseek-v4-pro": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:deepseek-v4.1-flash": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:glm-5.3": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:glm-5.3-flash": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:kimi-k2.6": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:kimi-k2.7-code": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:kimi-k3": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:minimax-m3": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role",
+      "opencode:qwen3.8-flash": "User override 2026-09-28: native MiniMax Token Plan via OpenCode or qualified local/Oracle only until user changes policy; no Codex or Claude workers in any role"
     }
   },
   "_comment_model_policy": "Code-enforced candidate exclusion. A forbidden model is unselectable in every band, every fallback and the review ladder, on route, plan and rerun alike; stating an exclusion in a spec does not enforce it, because the spec is input to the judgment and not to selection. An empty eligible set blocks and reports: no substitution, no band descent, no quality-floor relaxation. A task that genuinely needs a forbidden model uses --require-model with --necessity, which records a task-specific reason and escalates; without --exception-approved-by the decision is blocked, and an exception never covers the review role. Rollback: delete this section, or delete one entry, and the router returns to the prior behaviour with no other change.",
@@ -249,7 +265,7 @@
     },
     "minimax:MiniMax-M3": {
       "family": "minimax-m3",
-      "max_band": 2,
+      "max_band": 3,
       "capabilities": [
         "code",
         "review"
@@ -452,6 +468,17 @@
         "high_stakes": "high"
       },
       "evidence": "provisional: existing review ladder; not comparative task evaluation"
+    },
+    "minimax:MiniMax-M2.7-highspeed": {
+      "family": "minimax-m2.7-highspeed",
+      "max_band": 1,
+      "capabilities": [
+        "code",
+        "review"
+      ],
+      "efforts": [],
+      "effort_by_task": {},
+      "evidence": "provisional: band 1 placement by plan tier, not comparative task evaluation"
     }
   },
   "_comment_profiles": "Task capability assignments preserve the existing ladder as provisional policy, not measured superiority. Codex effort lists reflect the local native catalog on 2026-09-21; Claude uses a conservative configured subset. Empty effort lists mean no exposed runtime knob. Profile every added model; quota never relaxes capabilities or task/retry floors."
