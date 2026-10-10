@@ -98,7 +98,12 @@ class MiniMaxTests(unittest.TestCase):
         elig = r.eligibility(self.config, {'minimax': self.probe()}, record=False)
         choice = r.pick(self.config['bands']['2'], elig, 2)
         self.assertEqual(choice[0]['provider'], 'minimax')
-        self.assertEqual(choice[0]['model'], 'MiniMax-M3')
+        # Owner direction 2026-10-10: the Coding Plan defaults to M2.7; M3 is
+        # the next rung on the same bucket, reached when M2.7 is excluded (rerun).
+        self.assertEqual(choice[0]['model'], 'MiniMax-M2.7')
+        escalated = r.pick(self.config['bands']['2'], elig, 2,
+                           exclude={'minimax:MiniMax-M2.7': 'already attempted'})
+        self.assertEqual(escalated[0]['model'], 'MiniMax-M3')
         denied = self.probe({**self.row, 'current_weekly_remaining_percent': 10})
         elig = r.eligibility(self.config, {'minimax': denied}, record=False)
         self.assertIsNone(r.pick(self.config['bands']['2'], elig, 2)[0])
