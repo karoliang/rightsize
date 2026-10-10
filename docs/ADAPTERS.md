@@ -225,8 +225,10 @@ Then register it in `probe_all`, give it a reserve in `config.reserves`, a CLI
 in `config.agents`, a prefix in `config.model_prefixes` if its models need one,
 and put at least one model on a band ladder.
 
-Z.AI is the exception that reads its live meter from `orca account list --json`.
-Only redacted usage fields are consumed; account keys and tokens are never read.
+`zai_coding_plan` is the exception that reads its primary live meter from
+`orca account list --json`. Only redacted usage fields are consumed; account
+keys and tokens are never read. Its existing API-key path remains an unmetered
+fallback when Orca is unavailable.
 
 Three rules a new probe must respect, because the policy above depends on them:
 

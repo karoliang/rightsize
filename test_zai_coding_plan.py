@@ -45,7 +45,8 @@ class ZaiCodingPlanTests(unittest.TestCase):
                             "end_time": 2000000, "weekly_end_time": 9000000}
 
     def probe(self, key="test-subscription-key"):
-        return r.probe_zai_coding_plan(key=key)
+        with patch.object(r, "probe_zai_coding_plan_orca", return_value=None):
+            return r.probe_zai_coding_plan(key=key)
 
     def minimax_probe(self, weekly_remaining=65):
         data = {"base_resp": {"status_code": 0},
@@ -66,14 +67,16 @@ class ZaiCodingPlanTests(unittest.TestCase):
         self.assertNotIn("test-subscription-key", json.dumps(p))
 
     def test_probe_without_credential_is_blocked(self):
-        with patch.object(r, "secret", return_value=None), patch.object(r, "get") as get:
+        with patch.object(r, "probe_zai_coding_plan_orca", return_value=None), \
+                patch.object(r, "secret", return_value=None), patch.object(r, "get") as get:
             self.assertEqual(r.probe_zai_coding_plan()["status"], "no-credential")
             get.assert_not_called()
 
     def test_probe_rejects_malformed_key(self):
         for key in (None, "", "line\nbreak"):
             with self.subTest(key=key):
-                with patch.object(r, "secret", return_value=None):
+                with patch.object(r, "probe_zai_coding_plan_orca", return_value=None), \
+                        patch.object(r, "secret", return_value=None):
                     self.assertEqual(r.probe_zai_coding_plan()["status"], "no-credential")
 
     # ------------------------------------------------------------ credential

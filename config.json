@@ -7,10 +7,9 @@
     "openrouter": 10,
     "opencode_zen": 0,
     "minimax": 15,
-    "zai": 15,
-    "zai_coding_plan": 0
+    "zai_coding_plan": 15
   },
-  "_comment_reserves": "zai_coding_plan has no reserve because the GLM Coding Plan publishes no quota API: there is no reading to hold a reserve against, and the unmetered flag (not a number) is what policy gates on.",
+  "_comment_reserves": "zai_coding_plan keeps 15 percent reserve because Orca reads its live zcode usage. The owner set up Z.AI in Orca on 2026-10-10.",
   "claude": {
     "weekly_token_budget": 400000000,
     "rolling_token_budget": null,
@@ -26,7 +25,6 @@
       "minimax:MiniMax-M2.5-highspeed",
       "minimax:MiniMax-M3.1-Flash-Preview",
       "minimax:MiniMax-M3",
-      "zai:glm-5.3-flash",
       "zai_coding_plan:glm-5.3-flash",
       "zai_coding_plan:glm-5-turbo",
       "zai_coding_plan:glm-4.7",
@@ -41,7 +39,6 @@
       "minimax:MiniMax-M2.5",
       "minimax:MiniMax-M2.1",
       "minimax:MiniMax-M2",
-      "zai:glm-5.3-flash",
       "zai_coding_plan:glm-5.3-flash",
       "opencode:minimax-m3",
       "opencode:deepseek-v4-pro",
@@ -78,7 +75,6 @@
     "openrouter": "opencode",
     "opencode_zen": "opencode",
     "minimax": "opencode",
-    "zai": "opencode",
     "zai_coding_plan": "opencode"
   },
   "thresholds": {
@@ -100,7 +96,6 @@
     "codex": "",
     "claude": "",
     "minimax": "minimax-coding-plan/",
-    "zai": "zai-coding-plan/",
     "zai_coding_plan": "zai-coding-plan/"
   },
   "launchers": {
@@ -131,7 +126,6 @@
     "openrouter": 0.1,
     "opencode_zen": 0.0,
     "minimax": 1.0,
-    "zai": 1.0,
     "zai_coding_plan": 1.0
   },
   "dispatch_cost_models": {
@@ -150,7 +144,6 @@
     "openrouter": 12,
     "opencode_zen": 8,
     "minimax": 6,
-    "zai": 6,
     "zai_coding_plan": 6
   },
   "_comment_max_inflight": "How many dispatches may be in flight on one provider at once. This is the spread lever for a large fan-out: when a provider is full the next task goes to the next eligible one instead of queueing behind it.",
@@ -209,17 +202,12 @@
     "plan": "Ultra",
     "_note": "Direct global Token Plan, separate from OpenCode Go. Uses MINIMAX_API_KEY or native minimax-coding-plan auth. Dispatch cost is an uncalibrated estimate; live rolling and weekly percentages remain authoritative."
   },
-  "zai": {
-    "plan": "Max",
-    "_note": "Z.AI GLM Coding Plan through Orca zcode usage. Dispatch cost is an uncalibrated estimate; live rolling and weekly percentages remain authoritative."
-  },
   "zai_coding_plan": {
     "plan": "Max",
-    "_note": "Z.AI GLM Coding Plan (Max) through OpenCode's zai-coding-plan auth. The plan meters 5-hour and weekly credits but publishes no quota API (checked 2026-10-08 across docs.z.ai, the OpenAPI spec, models.dev and Z.AI's coding-helper package), so the probe reports unmetered and the plan is offered behind the metered ones. What the plan can serve is recorded by refresh from the plan's own model list; the highspeed ids are refused by this subscription."
+    "_note": "Z.AI GLM Coding Plan (Max) through OpenCode's zai-coding-plan auth. Orca's redacted zcode account status is the primary live source for 5-hour and weekly usage (set up by the owner on 2026-10-10); an API-key-only installation retains the unmetered fallback. What the plan can serve is recorded by refresh from the plan's own model list; the highspeed ids are refused by this subscription."
   },
   "accounts": {
     "minimax": "minimax-local",
-    "zai": "zai-local",
     "zai_coding_plan": "zai-local"
   },
   "account_bindings": {
@@ -290,14 +278,6 @@
     }
   },
   "model_profiles": {
-    "zai:glm-5.3-flash": {
-      "family": "glm-5.3",
-      "max_band": 2,
-      "capabilities": ["code", "review"],
-      "efforts": [],
-      "effort_by_task": {},
-      "evidence": "provisional"
-    },
     "opencode:deepseek-v4.1-flash": {
       "family": "deepseek-v4.1-flash",
       "max_band": 1,
