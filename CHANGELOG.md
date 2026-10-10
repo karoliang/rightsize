@@ -5,6 +5,12 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ## Unreleased
 
+### Added (2026-10-10, Z.AI live usage)
+
+- Added routed provider `zai`, using Orca's redacted Z.AI Coding Plan rolling
+  and weekly usage windows. Only `zai-coding-plan/glm-5.3-flash` is offered in
+  bands 1 and 2, never high-stakes band 3.
+
 ### Added (2026-09-28, forbidden models)
 
 - `model_policy.forbidden` makes a model unselectable in code rather than in

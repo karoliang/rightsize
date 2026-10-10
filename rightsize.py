@@ -66,7 +66,7 @@ STALE_READING = 6 * 3600
 OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
 # Providers whose worker is launched by the opencode CLI, so its sessions land
 # in opencode's own database and can be checked after the fact.
-OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter", "minimax", "zai_coding_plan")
+OPENCODE_LAUNCHED = ("opencode", "opencode_zen", "openrouter", "minimax", "zai_coding_plan", "zai")
 # Windows a bucket id implies, in seconds. Codex spells its own in the id.
 BUCKET_WINDOWS = {"rolling": 5 * 3600, "weekly": 7 * 86400, "monthly": 30 * 86400,
                   "credit": None, "key-credit": None, "account-credit": None,
@@ -484,6 +484,46 @@ def probe_minimax(config=None, key=None) -> dict:
             else "ok", "buckets": buckets}
 
 
+def probe_zai(config=None) -> dict:
+    """Read Z.AI Coding Plan usage from Orca without inspecting credentials."""
+    base = {"name": "zai", "buckets": []}
+    try:
+        result = subprocess.run(["orca", "account", "list", "--json"],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {**base, "status": f"error: Orca quota probe failed ({type(exc).__name__})"}
+    if result.returncode:
+        return {**base, "status": "error: Orca quota probe failed"}
+    try:
+        payload = json.loads(result.stdout)
+        limits = payload["result"]["rateLimits"]
+        zcode = limits["zcode"]
+    except (TypeError, KeyError, json.JSONDecodeError):
+        return {**base, "status": "error: invalid Orca quota response"}
+    if limits.get("zcodePlanApiKeyConfigured") is False:
+        return {**base, "status": "no-credential"}
+    if not isinstance(zcode, dict) or zcode.get("status") in (None, "unavailable", "missing-credentials"):
+        return {**base, "status": "no-credential"}
+    if zcode.get("status") != "ok":
+        return {**base, "status": "error: Z.AI quota unavailable"}
+    metadata = zcode.get("usageMetadata")
+    provenance = metadata.get("authProvenance") if isinstance(metadata, dict) else None
+    base["quota_account_ref"] = accounts.digest("zai-coding-plan:" + json.dumps(provenance, sort_keys=True))
+    buckets = []
+    for bucket_id in ("session", "weekly"):
+        window = zcode.get(bucket_id)
+        if not isinstance(window, dict):
+            return {**base, "status": "error: incomplete Orca quota windows"}
+        percent, reset = window.get("usedPercent"), window.get("resetsAt")
+        if (type(percent) not in (int, float) or not 0 <= percent <= 100
+                or type(reset) not in (int, float) or reset <= 0):
+            return {**base, "status": "error: incomplete Orca quota windows"}
+        buckets.append({"id": "rolling" if bucket_id == "session" else "weekly",
+                        "percent": percent, "resets_at": reset / 1000, "source": "live"})
+    return {**base, "status": "denied" if any(b["percent"] == 100 for b in buckets) else "ok",
+            "buckets": buckets}
+
+
 def probe_zai_coding_plan(config=None, key=None) -> dict:
     """GLM Coding Plan headroom. The plan meters 5-hour and weekly credits but
     publishes no quota API, so this probe reports what is actually known.
@@ -839,6 +879,7 @@ def probe_all(config: dict, count_tokens: bool = False) -> dict:
         "claude": lambda: probe_claude(config, count_tokens),
         "openrouter": lambda: probe_openrouter(config),
         "minimax": lambda: probe_minimax(config),
+        "zai": lambda: probe_zai(config),
         "zai_coding_plan": lambda: probe_zai_coding_plan(config),
     }
     def bound_probe(name, fn):

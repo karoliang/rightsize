@@ -225,6 +225,9 @@ Then register it in `probe_all`, give it a reserve in `config.reserves`, a CLI
 in `config.agents`, a prefix in `config.model_prefixes` if its models need one,
 and put at least one model on a band ladder.
 
+Z.AI is the exception that reads its live meter from `orca account list --json`.
+Only redacted usage fields are consumed; account keys and tokens are never read.
+
 Three rules a new probe must respect, because the policy above depends on them:
 
 1. **`percent` is percent used, and `None` means unknown.** Never return 0 for
