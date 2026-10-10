@@ -7,9 +7,9 @@
     "openrouter": 10,
     "opencode_zen": 0,
     "minimax": 15,
-    "zai_coding_plan": 0
+    "zai_coding_plan": 15
   },
-  "_comment_reserves": "zai_coding_plan has no reserve because the GLM Coding Plan publishes no quota API: there is no reading to hold a reserve against, and the unmetered flag (not a number) is what policy gates on.",
+  "_comment_reserves": "zai_coding_plan keeps 15 percent reserve because Orca reads its live zcode usage. The owner set up Z.AI in Orca on 2026-10-10.",
   "claude": {
     "weekly_token_budget": 400000000,
     "rolling_token_budget": null,
@@ -204,7 +204,7 @@
   },
   "zai_coding_plan": {
     "plan": "Max",
-    "_note": "Z.AI GLM Coding Plan (Max) through OpenCode's zai-coding-plan auth. The plan meters 5-hour and weekly credits but publishes no quota API (checked 2026-10-08 across docs.z.ai, the OpenAPI spec, models.dev and Z.AI's coding-helper package), so the probe reports unmetered and the plan is offered behind the metered ones. What the plan can serve is recorded by refresh from the plan's own model list; the highspeed ids are refused by this subscription."
+    "_note": "Z.AI GLM Coding Plan (Max) through OpenCode's zai-coding-plan auth. Orca's redacted zcode account status is the primary live source for 5-hour and weekly usage (set up by the owner on 2026-10-10); an API-key-only installation retains the unmetered fallback. What the plan can serve is recorded by refresh from the plan's own model list; the highspeed ids are refused by this subscription."
   },
   "accounts": {
     "minimax": "minimax-local",

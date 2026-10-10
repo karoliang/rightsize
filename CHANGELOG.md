@@ -5,6 +5,12 @@ Dates are absolute and ISO. This project is pre-1.0: the JSON output of
 
 ## Unreleased
 
+### Changed (2026-10-10, Z.AI live usage)
+
+- Consolidated Z.AI onto `zai_coding_plan`. Orca's redacted `zcode` rolling and
+  weekly usage is its primary live meter, with the existing API-key-only path
+  retained as an unmetered fallback; the provider now keeps a 15 percent reserve.
+
 ### Added (2026-09-28, forbidden models)
 
 - `model_policy.forbidden` makes a model unselectable in code rather than in

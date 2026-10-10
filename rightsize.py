@@ -484,9 +484,48 @@ def probe_minimax(config=None, key=None) -> dict:
             else "ok", "buckets": buckets}
 
 
+def probe_zai_coding_plan_orca() -> dict | None:
+    """Read redacted Z.AI Coding Plan usage from Orca, if Orca is available."""
+    base = {"name": "zai_coding_plan", "buckets": []}
+    try:
+        result = subprocess.run(["orca", "account", "list", "--json"],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None
+    if result.returncode:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+        limits = payload["result"]["rateLimits"]
+        zcode = limits["zcode"]
+    except (TypeError, KeyError, json.JSONDecodeError):
+        return {**base, "status": "error: invalid Orca quota response"}
+    if limits.get("zcodePlanApiKeyConfigured") is False:
+        return {**base, "status": "no-credential"}
+    if not isinstance(zcode, dict) or zcode.get("status") in (None, "unavailable", "missing-credentials"):
+        return {**base, "status": "no-credential"}
+    if zcode.get("status") != "ok":
+        return {**base, "status": "error: Z.AI quota unavailable"}
+    metadata = zcode.get("usageMetadata")
+    provenance = metadata.get("authProvenance") if isinstance(metadata, dict) else None
+    base["quota_account_ref"] = accounts.digest("zai-coding-plan:" + json.dumps(provenance, sort_keys=True))
+    buckets = []
+    for bucket_id in ("session", "weekly"):
+        window = zcode.get(bucket_id)
+        if not isinstance(window, dict):
+            return {**base, "status": "error: incomplete Orca quota windows"}
+        percent, reset = window.get("usedPercent"), window.get("resetsAt")
+        if (type(percent) not in (int, float) or not 0 <= percent <= 100
+                or type(reset) not in (int, float) or reset <= 0):
+            return {**base, "status": "error: incomplete Orca quota windows"}
+        buckets.append({"id": "rolling" if bucket_id == "session" else "weekly",
+                        "percent": percent, "resets_at": reset / 1000, "source": "live"})
+    return {**base, "status": "denied" if any(b["percent"] == 100 for b in buckets) else "ok",
+            "buckets": buckets}
+
+
 def probe_zai_coding_plan(config=None, key=None) -> dict:
-    """GLM Coding Plan headroom. The plan meters 5-hour and weekly credits but
-    publishes no quota API, so this probe reports what is actually known.
+    """GLM Coding Plan headroom, preferring Orca's live redacted usage data.
 
     Checked 2026-10-08 and none of them expose one: docs.z.ai (overview,
     quick-start, FAQ point at the web console only), docs.z.ai/openapi.json
@@ -497,6 +536,11 @@ def probe_zai_coding_plan(config=None, key=None) -> dict:
     `unmetered`, which the policy offers in every band behind the metered
     plans rather than as a fabricated percentage.
     """
+    live = probe_zai_coding_plan_orca()
+    if live is not None:
+        return live
+    # Orca is not installed or cannot answer. Preserve the old API-key path so
+    # OpenCode-only installations remain routable, but do not invent a meter.
     key = secret("ZAI_CODING_PLAN_API_KEY", config) if key is None else key
     base = {"name": "zai_coding_plan", "buckets": []}
     if not isinstance(key, str) or not key or any(c in key for c in "\r\n\x00"):
